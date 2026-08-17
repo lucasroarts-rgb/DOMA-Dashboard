@@ -112,19 +112,29 @@ def fetch_top_pages(client, property_id: str) -> list[tuple[str, str, int, int]]
     request = RunReportRequest(
         property=f"properties/{property_id}",
         dimensions=[Dimension(name="pagePath"), Dimension(name="pageTitle")],
-        metrics=[Metric(name="sessions"), Metric(name="activeUsers")],
+        metrics=[
+            Metric(name="sessions"),
+            Metric(name="activeUsers"),
+            Metric(name="screenPageViews"),
+            Metric(name="userEngagementDuration"),
+            Metric(name="bounceRate"),
+        ],
         date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
         order_bys=[OrderBy(metric=OrderBy.MetricOrderBy(metric_name="sessions"), desc=True)],
         limit=TOP_PAGE_LIMIT,
     )
     response = client.run_report(request)
-    rows: list[tuple[str, str, int, int]] = []
+    rows: list[tuple[str, str, int, int, int, float, float]] = []
     for row in response.rows:
         page_path = row.dimension_values[0].value
         page_title = row.dimension_values[1].value
         sessions = int(row.metric_values[0].value or 0)
         active_users = int(row.metric_values[1].value or 0)
-        rows.append((page_path, page_title, sessions, active_users))
+        page_views = int(row.metric_values[2].value or 0)
+        engagement_duration = float(row.metric_values[3].value or 0)
+        bounce_rate = round(float(row.metric_values[4].value or 0) * 100, 1)
+        avg_engagement_seconds = round(engagement_duration / page_views, 1) if page_views else 0.0
+        rows.append((page_path, page_title, sessions, active_users, page_views, avg_engagement_seconds, bounce_rate))
     return rows
 
 
@@ -159,17 +169,21 @@ def store_daily_channel(rows: list[tuple[str, str, int]]) -> None:
         )
 
 
-def store_top_pages(rows: list[tuple[str, str, int, int]]) -> None:
+def store_top_pages(rows: list[tuple[str, str, int, int, int, float, float]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM ga4_top_pages")
         con.executemany(
             """
-            INSERT INTO ga4_top_pages (page_path, page_title, sessions, active_users, synced_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO ga4_top_pages
+                (page_path, page_title, sessions, active_users, page_views, avg_engagement_seconds, bounce_rate, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(page_path) DO UPDATE SET
                 page_title = excluded.page_title,
                 sessions = excluded.sessions,
                 active_users = excluded.active_users,
+                page_views = excluded.page_views,
+                avg_engagement_seconds = excluded.avg_engagement_seconds,
+                bounce_rate = excluded.bounce_rate,
                 synced_at = CURRENT_TIMESTAMP
             """,
             rows,

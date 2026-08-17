@@ -34,13 +34,23 @@ def clean_json(value: Any) -> Any:
     return value
 
 
+RANGE_OPTIONS = [30, 90, 180]
+
+
 def main() -> int:
     dashboard_app.init_db()
-    start_date, end_date = dashboard_app.default_date_range()
+    dashboards = {}
+    for days in RANGE_OPTIONS:
+        start_date, end_date = dashboard_app.default_date_range(days)
+        dashboards[str(days)] = dashboard_app.full_dashboard(start_date, end_date)
+
+    default_days = 90
     payload = clean_json(
         {
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "dashboard": dashboard_app.full_dashboard(start_date, end_date),
+            "default_range": default_days,
+            "dashboards": dashboards,
+            "dashboard": dashboards[str(default_days)],
         }
     )
 
@@ -79,7 +89,7 @@ def main() -> int:
     print("")
     print("Public site generated successfully.")
     print(f"Folder: {DOCS_DIR}")
-    print(f"Range: {start_date} to {end_date}")
+    print(f"Ranges exported: {RANGE_OPTIONS} days")
     print("Only aggregated counts were exported; the SQLite database stays local.")
     return 0
 

@@ -13,6 +13,14 @@ function percent(value) {
   return `${Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
 }
 
+function duration(seconds) {
+  if (!seconds) return "—";
+  const s = Math.round(Number(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
+}
+
 function shortDate(isoDate) {
   if (!isoDate) return "—";
   const d = new Date(isoDate + "T00:00:00");
@@ -20,9 +28,16 @@ function shortDate(isoDate) {
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short" });
 }
 
+function fullDate(isoDate) {
+  if (!isoDate) return "—";
+  const d = new Date(isoDate + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 async function loadDashboard(days) {
   if (IS_STATIC) {
-    dashboard = STATIC_DATA.dashboard;
+    dashboard = (STATIC_DATA.dashboards && STATIC_DATA.dashboards[String(days)]) || STATIC_DATA.dashboard;
     return;
   }
   const end = new Date();
@@ -93,11 +108,29 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     })
     .join("");
 
-  const legend = validSeries
-    .map((s, i) => `<span><i class="${i === 0 ? "a" : "b"}"></i>${s.label}</span>`)
+  // Dots on every point with a native tooltip, so the exact number is always
+  // one hover/tap away instead of only readable off the grid lines.
+  const dotEvery = pointCount > 60 ? Math.ceil(pointCount / 60) : 1;
+  const dots = validSeries
+    .map((s, seriesIndex) => {
+      const cls = seriesIndex === 0 ? "a" : "b";
+      return s.points
+        .map((p, i) => {
+          if (i % dotEvery !== 0 && i !== pointCount - 1) return "";
+          return `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" class="chart-dot ${cls}"><title>${s.label} — ${fullDate(p.date)}: ${formatter(p.value)}</title></circle>`;
+        })
+        .join("");
+    })
     .join("");
 
-  el.innerHTML = `<div class="chart-legend">${legend}</div><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img">${grid}${lines}${labels}</svg>`;
+  const legend = validSeries
+    .map((s, i) => {
+      const last = s.points[s.points.length - 1];
+      return `<span><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${formatter(last.value)}</strong> <span class="legend-date">(${fullDate(last.date)})</span></span>`;
+    })
+    .join("");
+
+  el.innerHTML = `<div class="chart-legend">${legend}</div><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img">${grid}${lines}${dots}${labels}</svg>`;
 }
 
 /* ---------- cards ---------- */
@@ -129,6 +162,80 @@ function renderTable(tableId, rows, renderRow, emptyMessage = "No data for this 
   tbody.innerHTML = rows.map(renderRow).join("");
 }
 
+/* ---------- issues / data health panel ---------- */
+
+function computeIssues() {
+  const issues = [];
+  const gsc = dashboard.search_console;
+  const ga4 = dashboard.ga4;
+  const ghl = dashboard.ghl;
+
+  if (!gsc.available) {
+    issues.push({
+      severity: "info",
+      text: "Search Console has no data for this period yet. New/re-verified properties can take Google 1-2 days to backfill - re-run scripts/sync_gsc.py after that.",
+    });
+  }
+  if (!ga4.available) {
+    issues.push({ severity: "warn", text: "No GA4 traffic data synced yet. Run scripts/sync_ga4.py." });
+  }
+  if (!ghl.available) {
+    issues.push({ severity: "warn", text: "No GoHighLevel lead data synced yet. Run scripts/sync_ghl.py." });
+  }
+  if (ghl.available && !ghl.email_available) {
+    issues.push({
+      severity: "info",
+      text: "Email campaign stats aren't available from GoHighLevel for this sub-account (the /marketing/campaigns endpoint isn't enabled) - lead counts are unaffected.",
+    });
+  }
+  if (gsc.available && gsc.ctr < 2) {
+    issues.push({
+      severity: "warn",
+      text: `Organic CTR is low (${percent(gsc.ctr)}) for ${number(gsc.impressions)} impressions - titles/meta descriptions may need work on the top pages below.`,
+    });
+  }
+  if (gsc.available && gsc.position > 20) {
+    issues.push({
+      severity: "warn",
+      text: `Average search position is ${gsc.position} - most clicks come from positions 1-10, so ranking is likely capping organic traffic.`,
+    });
+  }
+  if (ga4.available && ga4.sessions > 0) {
+    const engagedRate = ga4.engaged_sessions / ga4.sessions;
+    if (engagedRate < 0.4) {
+      issues.push({
+        severity: "warn",
+        text: `Only ${percent(engagedRate * 100)} of sessions are "engaged" (GA4 default: 10s+ or 2+ pageviews) - most visitors are bouncing quickly.`,
+      });
+    }
+  }
+  const highBounce = (ga4.top_pages || []).filter((p) => p.bounce_rate >= 70 && p.sessions >= 5);
+  if (highBounce.length) {
+    issues.push({
+      severity: "warn",
+      text: `${highBounce.length} page(s) with 70%+ bounce rate and meaningful traffic: ${highBounce.slice(0, 3).map((p) => p.page_title || p.page_path).join(", ")}.`,
+    });
+  }
+  (dashboard.sync_status || [])
+    .filter((s) => s.status !== "ok")
+    .forEach((s) => issues.push({ severity: "error", text: `${s.source}: ${s.status}${s.detail ? " — " + s.detail : ""}` }));
+
+  return issues;
+}
+
+function renderIssues() {
+  const el = document.getElementById("issuesList");
+  if (!el) return;
+  const issues = computeIssues();
+  if (!issues.length) {
+    el.innerHTML = `<div class="empty">No issues detected for this period.</div>`;
+    return;
+  }
+  el.innerHTML = issues
+    .map((issue) => `<div class="issue issue-${issue.severity}"><span class="issue-dot"></span>${issue.text}</div>`)
+    .join("");
+}
+
 /* ---------- view renderers ---------- */
 
 function renderOverview() {
@@ -151,6 +258,8 @@ function renderOverview() {
     { label: "Organic clicks", points: dates.map((d) => ({ date: d, value: gscByDate.get(d) || 0 })) },
     { label: "Sessions (GA4)", points: dates.map((d) => ({ date: d, value: ga4ByDate.get(d) || 0 })) },
   ]);
+
+  renderIssues();
 }
 
 function renderSeo() {
@@ -163,7 +272,7 @@ function renderSeo() {
   ]);
 
   if (!gsc.available) {
-    chartEmpty("seoChart", "No Search Console data yet. Run scripts/sync_gsc.py.");
+    chartEmpty("seoChart", "No Search Console data yet - either scripts/sync_gsc.py hasn't run, or the property is still processing (new/re-verified properties take Google 1-2 days).");
   } else {
     svgLineChart("seoChart", [
       { label: "Clicks", points: gsc.daily.map((d) => ({ date: d.report_date, value: d.clicks })) },
@@ -198,7 +307,7 @@ function renderBlog() {
   renderTable(
     "blogPagesTable",
     ga4.top_pages,
-    (p) => `<tr><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td></tr>`
+    (p) => `<tr><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td><td>${duration(p.avg_engagement_seconds)}</td><td>${percent(p.bounce_rate)}</td></tr>`
   );
 }
 
@@ -266,11 +375,6 @@ function initTabs() {
 function initRangeSelect() {
   const select = document.getElementById("rangeSelect");
   if (!select) return;
-  if (IS_STATIC) {
-    select.disabled = true;
-    select.title = "On the published site the range is fixed (set by the last sync).";
-    return;
-  }
   select.addEventListener("change", async () => {
     await loadDashboard(select.value);
     renderAll();
@@ -280,6 +384,9 @@ function initRangeSelect() {
 (async function init() {
   initTabs();
   initRangeSelect();
-  await loadDashboard(document.getElementById("rangeSelect")?.value || 90);
+  const initialDays = IS_STATIC ? String(STATIC_DATA.default_range || 90) : (document.getElementById("rangeSelect")?.value || 90);
+  const select = document.getElementById("rangeSelect");
+  if (select) select.value = initialDays;
+  await loadDashboard(initialDays);
   renderAll();
 })();

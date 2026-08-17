@@ -160,6 +160,9 @@ def init_db() -> None:
         page_title TEXT,
         sessions INTEGER NOT NULL DEFAULT 0,
         active_users INTEGER NOT NULL DEFAULT 0,
+        page_views INTEGER NOT NULL DEFAULT 0,
+        avg_engagement_seconds REAL NOT NULL DEFAULT 0,
+        bounce_rate REAL NOT NULL DEFAULT 0,
         synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(page_path)
     );
@@ -195,11 +198,18 @@ def init_db() -> None:
     """
     with db() as con:
         con.executescript(schema)
+        page_columns = {row["name"] for row in con.execute("PRAGMA table_info(ga4_top_pages)").fetchall()}
+        if "page_views" not in page_columns:
+            con.execute("ALTER TABLE ga4_top_pages ADD COLUMN page_views INTEGER NOT NULL DEFAULT 0")
+        if "avg_engagement_seconds" not in page_columns:
+            con.execute("ALTER TABLE ga4_top_pages ADD COLUMN avg_engagement_seconds REAL NOT NULL DEFAULT 0")
+        if "bounce_rate" not in page_columns:
+            con.execute("ALTER TABLE ga4_top_pages ADD COLUMN bounce_rate REAL NOT NULL DEFAULT 0")
 
 
-def default_date_range() -> tuple[str, str]:
+def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
     end = date.today()
-    start = end - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    start = end - timedelta(days=days)
     return start.isoformat(), end.isoformat()
 
 
@@ -295,8 +305,8 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
     channels = [{"channel_group": row[0], "sessions": int(row[1] or 0)} for row in channel_rows]
 
     page_rows = con.execute(
-        "SELECT page_path, page_title, sessions, active_users FROM ga4_top_pages "
-        "ORDER BY sessions DESC LIMIT 15"
+        "SELECT page_path, page_title, sessions, active_users, page_views, avg_engagement_seconds, bounce_rate "
+        "FROM ga4_top_pages ORDER BY sessions DESC LIMIT 15"
     ).fetchall()
     top_pages = [
         {
@@ -304,6 +314,9 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
             "page_title": row[1],
             "sessions": int(row[2] or 0),
             "active_users": int(row[3] or 0),
+            "page_views": int(row[4] or 0),
+            "avg_engagement_seconds": float(row[5] or 0),
+            "bounce_rate": float(row[6] or 0),
         }
         for row in page_rows
     ]

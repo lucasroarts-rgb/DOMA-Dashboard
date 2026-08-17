@@ -46,6 +46,10 @@
         <h2>Organic clicks (Search Console) vs sessions (GA4)</h2>
         <div id="overviewChart" class="chart-box"></div>
       </div>
+      <div class="panel">
+        <h2>Things to look at</h2>
+        <div id="issuesList"></div>
+      </div>
     </section>
 
     <section class="view" id="view-seo">
@@ -55,7 +59,7 @@
         <div id="seoChart" class="chart-box"></div>
       </div>
       <div class="panel">
-        <h2>Top search queries</h2>
+        <h2>Top search queries <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
         <div class="table-wrap">
           <table id="seoQueriesTable">
             <thead><tr><th>Query</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
@@ -82,10 +86,10 @@
           </div>
         </div>
         <div class="panel">
-          <h2>Top pages</h2>
+          <h2>Top pages <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
           <div class="table-wrap">
             <table id="blogPagesTable">
-              <thead><tr><th>Page</th><th>Sessions</th></tr></thead>
+              <thead><tr><th>Page</th><th>Sessions</th><th>Views</th><th>Avg. time on page</th><th>Bounce rate</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
