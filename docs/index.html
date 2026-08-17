@@ -1,29 +1,30 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="icon" href="assets/doma-logo.webp">
+<link rel="stylesheet" href="styles.css?v=2">
 </head>
 <body>
 <div class="shell">
 
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark">D</div>
+      <img class="brand-mark" src="assets/doma-logo.webp" alt="DOMA">
       <div>
         <div class="brand-title">DOMA Dashboard</div>
-        <div class="brand-sub">Aquisição orgânica &middot; SEO &amp; Blog</div>
+        <div class="brand-sub">Organic acquisition &middot; SEO &amp; Blog</div>
       </div>
     </div>
     <div class="top-actions">
       <label class="range-picker">
-        Período
+        Range
         <select id="rangeSelect">
-          <option value="30">Últimos 30 dias</option>
-          <option value="90" selected>Últimos 90 dias</option>
-          <option value="180">Últimos 180 dias</option>
+          <option value="30">Last 30 days</option>
+          <option value="90" selected>Last 90 days</option>
+          <option value="180">Last 180 days</option>
         </select>
       </label>
       <span id="lastSynced" class="pill info">—</span>
@@ -31,7 +32,7 @@
   </header>
 
   <nav class="tabs" id="tabs">
-    <button class="tab active" data-view="overview">Visão geral</button>
+    <button class="tab active" data-view="overview">Overview</button>
     <button class="tab" data-view="seo">SEO &middot; Search Console</button>
     <button class="tab" data-view="blog">Blog &middot; GA4</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
@@ -42,7 +43,7 @@
     <section class="view active" id="view-overview">
       <div class="cards" id="overviewCards"></div>
       <div class="panel">
-        <h2>Cliques orgânicos (Search Console) x Sessões (GA4)</h2>
+        <h2>Organic clicks (Search Console) vs sessions (GA4)</h2>
         <div id="overviewChart" class="chart-box"></div>
       </div>
     </section>
@@ -50,14 +51,14 @@
     <section class="view" id="view-seo">
       <div class="cards" id="seoCards"></div>
       <div class="panel">
-        <h2>Posição média e cliques por dia</h2>
+        <h2>Average position and clicks per day</h2>
         <div id="seoChart" class="chart-box"></div>
       </div>
       <div class="panel">
-        <h2>Top buscas (queries)</h2>
+        <h2>Top search queries</h2>
         <div class="table-wrap">
           <table id="seoQueriesTable">
-            <thead><tr><th>Query</th><th>Cliques</th><th>Impressões</th><th>CTR</th><th>Posição</th></tr></thead>
+            <thead><tr><th>Query</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -67,24 +68,24 @@
     <section class="view" id="view-blog">
       <div class="cards" id="blogCards"></div>
       <div class="panel">
-        <h2>Sessões por dia</h2>
+        <h2>Sessions per day</h2>
         <div id="blogChart" class="chart-box"></div>
       </div>
       <div class="grid-2">
         <div class="panel">
-          <h2>Origem do tráfego</h2>
+          <h2>Traffic source</h2>
           <div class="table-wrap">
             <table id="blogChannelsTable">
-              <thead><tr><th>Canal</th><th>Sessões</th></tr></thead>
+              <thead><tr><th>Channel</th><th>Sessions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
         <div class="panel">
-          <h2>Páginas mais visitadas</h2>
+          <h2>Top pages</h2>
           <div class="table-wrap">
             <table id="blogPagesTable">
-              <thead><tr><th>Página</th><th>Sessões</th></tr></thead>
+              <thead><tr><th>Page</th><th>Sessions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -95,27 +96,27 @@
     <section class="view" id="view-leads">
       <div class="cards" id="leadsCards"></div>
       <div class="panel">
-        <h2>Novos leads por dia</h2>
+        <h2>New leads per day</h2>
         <div id="leadsChart" class="chart-box"></div>
       </div>
       <div class="grid-2">
         <div class="panel">
-          <h2>Leads por fonte</h2>
+          <h2>Leads by source</h2>
           <div class="table-wrap">
             <table id="leadsSourceTable">
-              <thead><tr><th>Fonte</th><th>Leads</th></tr></thead>
+              <thead><tr><th>Source</th><th>Leads</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
         <div class="panel">
-          <h2>Campanhas de email</h2>
+          <h2>Email campaigns</h2>
           <div id="emailUnavailable" class="empty" style="display:none">
-            Dados de campanhas de email ainda não disponíveis - ver README.md (endpoint do GoHighLevel precisa ser confirmado).
+            Email campaign data not available yet - see README.md (GoHighLevel endpoint still needs to be confirmed).
           </div>
           <div class="table-wrap">
             <table id="leadsEmailTable">
-              <thead><tr><th>Campanha</th><th>Enviados</th><th>Abertura</th><th>Clique</th></tr></thead>
+              <thead><tr><th>Campaign</th><th>Recipients</th><th>Open rate</th><th>Click rate</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
@@ -126,11 +127,11 @@
   </main>
 
   <footer class="footer">
-    <span id="footerNote">Fontes: Google Search Console, Google Analytics (GA4), GoHighLevel.</span>
+    <span id="footerNote">Sources: Google Search Console, Google Analytics (GA4), GoHighLevel.</span>
   </footer>
 
 </div>
 <script src="data.js?v=1" onerror="void 0"></script>
-<script src="dashboard.js?v=1"></script>
+<script src="dashboard.js?v=2"></script>
 </body>
 </html>

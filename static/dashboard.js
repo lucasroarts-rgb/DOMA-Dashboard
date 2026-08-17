@@ -5,19 +5,19 @@ let dashboard = null;
 
 function number(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
-  return Number(value).toLocaleString("pt-BR");
+  return Number(value).toLocaleString("en-US");
 }
 
 function percent(value) {
   if (value === null || value === undefined) return "—";
-  return `${Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
+  return `${Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
 }
 
 function shortDate(isoDate) {
   if (!isoDate) return "—";
   const d = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(d.getTime())) return isoDate;
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return d.toLocaleDateString("en-US", { day: "2-digit", month: "short" });
 }
 
 async function loadDashboard(days) {
@@ -42,7 +42,7 @@ async function loadDashboard(days) {
 
 /* ---------- SVG line chart (hand-rolled, no external library) ---------- */
 
-function chartEmpty(containerId, message = "Sem dados neste período.") {
+function chartEmpty(containerId, message = "No data for this period.") {
   const el = document.getElementById(containerId);
   if (el) el.innerHTML = `<div class="chart-empty">${message}</div>`;
 }
@@ -117,7 +117,7 @@ function renderCards(containerId, items) {
     .join("");
 }
 
-function renderTable(tableId, rows, renderRow, emptyMessage = "Sem dados neste período.") {
+function renderTable(tableId, rows, renderRow, emptyMessage = "No data for this period.") {
   const table = document.getElementById(tableId);
   if (!table) return;
   const tbody = table.querySelector("tbody");
@@ -137,10 +137,10 @@ function renderOverview() {
   const ghl = dashboard.ghl;
 
   renderCards("overviewCards", [
-    { label: "Cliques orgânicos (GSC)", value: number(gsc.clicks), hint: `${number(gsc.impressions)} impressões` },
-    { label: "Posição média", value: gsc.position || "—", hint: "quanto menor, melhor" },
-    { label: "Sessões (GA4)", value: number(ga4.sessions), hint: `${number(ga4.active_users)} usuários ativos` },
-    { label: "Novos leads (GoHighLevel)", value: number(ghl.total_leads), hint: `${dashboard.start_date} a ${dashboard.end_date}` },
+    { label: "Organic clicks (GSC)", value: number(gsc.clicks), hint: `${number(gsc.impressions)} impressions` },
+    { label: "Average position", value: gsc.position || "—", hint: "lower is better" },
+    { label: "Sessions (GA4)", value: number(ga4.sessions), hint: `${number(ga4.active_users)} active users` },
+    { label: "New leads (GoHighLevel)", value: number(ghl.total_leads), hint: `${dashboard.start_date} to ${dashboard.end_date}` },
   ]);
 
   const gscByDate = new Map(gsc.daily.map((d) => [d.report_date, d.clicks]));
@@ -148,25 +148,25 @@ function renderOverview() {
   const dates = [...new Set([...gscByDate.keys(), ...ga4ByDate.keys()])].sort();
 
   svgLineChart("overviewChart", [
-    { label: "Cliques orgânicos", points: dates.map((d) => ({ date: d, value: gscByDate.get(d) || 0 })) },
-    { label: "Sessões (GA4)", points: dates.map((d) => ({ date: d, value: ga4ByDate.get(d) || 0 })) },
+    { label: "Organic clicks", points: dates.map((d) => ({ date: d, value: gscByDate.get(d) || 0 })) },
+    { label: "Sessions (GA4)", points: dates.map((d) => ({ date: d, value: ga4ByDate.get(d) || 0 })) },
   ]);
 }
 
 function renderSeo() {
   const gsc = dashboard.search_console;
   renderCards("seoCards", [
-    { label: "Cliques", value: number(gsc.clicks) },
-    { label: "Impressões", value: number(gsc.impressions) },
-    { label: "CTR médio", value: percent(gsc.ctr) },
-    { label: "Posição média", value: gsc.position || "—" },
+    { label: "Clicks", value: number(gsc.clicks) },
+    { label: "Impressions", value: number(gsc.impressions) },
+    { label: "Average CTR", value: percent(gsc.ctr) },
+    { label: "Average position", value: gsc.position || "—" },
   ]);
 
   if (!gsc.available) {
-    chartEmpty("seoChart", "Nenhum dado do Search Console ainda. Rode scripts/sync_gsc.py.");
+    chartEmpty("seoChart", "No Search Console data yet. Run scripts/sync_gsc.py.");
   } else {
     svgLineChart("seoChart", [
-      { label: "Cliques", points: gsc.daily.map((d) => ({ date: d.report_date, value: d.clicks })) },
+      { label: "Clicks", points: gsc.daily.map((d) => ({ date: d.report_date, value: d.clicks })) },
     ]);
   }
 
@@ -180,17 +180,17 @@ function renderSeo() {
 function renderBlog() {
   const ga4 = dashboard.ga4;
   renderCards("blogCards", [
-    { label: "Sessões", value: number(ga4.sessions) },
-    { label: "Usuários ativos", value: number(ga4.active_users) },
-    { label: "Novos usuários", value: number(ga4.new_users) },
-    { label: "Sessões engajadas", value: number(ga4.engaged_sessions) },
+    { label: "Sessions", value: number(ga4.sessions) },
+    { label: "Active users", value: number(ga4.active_users) },
+    { label: "New users", value: number(ga4.new_users) },
+    { label: "Engaged sessions", value: number(ga4.engaged_sessions) },
   ]);
 
   if (!ga4.available) {
-    chartEmpty("blogChart", "Nenhum dado do GA4 ainda. Rode scripts/sync_ga4.py.");
+    chartEmpty("blogChart", "No GA4 data yet. Run scripts/sync_ga4.py.");
   } else {
     svgLineChart("blogChart", [
-      { label: "Sessões", points: ga4.daily.map((d) => ({ date: d.report_date, value: d.sessions })) },
+      { label: "Sessions", points: ga4.daily.map((d) => ({ date: d.report_date, value: d.sessions })) },
     ]);
   }
 
@@ -205,16 +205,16 @@ function renderBlog() {
 function renderLeads() {
   const ghl = dashboard.ghl;
   renderCards("leadsCards", [
-    { label: "Novos leads", value: number(ghl.total_leads) },
-    { label: "Fontes ativas", value: number(ghl.by_source.length) },
-    { label: "Campanhas de email", value: ghl.email_available ? number(ghl.email_campaigns.length) : "—" },
+    { label: "New leads", value: number(ghl.total_leads) },
+    { label: "Active sources", value: number(ghl.by_source.length) },
+    { label: "Email campaigns", value: ghl.email_available ? number(ghl.email_campaigns.length) : "—" },
   ]);
 
   if (!ghl.available) {
-    chartEmpty("leadsChart", "Nenhum dado do GoHighLevel ainda. Rode scripts/sync_ghl.py.");
+    chartEmpty("leadsChart", "No GoHighLevel data yet. Run scripts/sync_ghl.py.");
   } else {
     svgLineChart("leadsChart", [
-      { label: "Novos leads", points: ghl.daily.map((d) => ({ date: d.report_date, value: d.lead_count })) },
+      { label: "New leads", points: ghl.daily.map((d) => ({ date: d.report_date, value: d.lead_count })) },
     ]);
   }
 
@@ -230,7 +230,7 @@ function renderLeads() {
 
 function renderAll() {
   if (!dashboard) {
-    document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Não foi possível carregar o dashboard. Confirme que o servidor local está rodando (RUN_DASHBOARD.bat) e que os dados foram sincronizados.</div></div>`;
+    document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Could not load the dashboard. Make sure the local server is running (RUN_DASHBOARD.bat) and data has been synced.</div></div>`;
     return;
   }
   renderOverview();
@@ -245,7 +245,7 @@ function renderAll() {
   ].filter(Boolean).sort().at(-1);
   const lastSyncedEl = document.getElementById("lastSynced");
   if (lastSyncedEl) {
-    lastSyncedEl.textContent = synced ? `Sincronizado ${new Date(synced).toLocaleString("pt-BR")}` : "Ainda não sincronizado";
+    lastSyncedEl.textContent = synced ? `Synced ${new Date(synced).toLocaleString("en-US")}` : "Not synced yet";
   }
 }
 
@@ -268,7 +268,7 @@ function initRangeSelect() {
   if (!select) return;
   if (IS_STATIC) {
     select.disabled = true;
-    select.title = "No site publicado, o período é fixo (definido na última sincronização).";
+    select.title = "On the published site the range is fixed (set by the last sync).";
     return;
   }
   select.addEventListener("change", async () => {

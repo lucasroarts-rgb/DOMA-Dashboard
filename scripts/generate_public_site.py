@@ -51,6 +51,7 @@ def main() -> int:
     index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     index_html = index_html.replace("/static/styles.css", "styles.css")
     index_html = index_html.replace("/static/dashboard.js", "dashboard.js")
+    index_html = index_html.replace("/static/assets/", "assets/")
     (DOCS_DIR / "index.html").write_text(index_html, encoding="utf-8")
     (DOCS_DIR / "styles.css").write_text(
         (STATIC_DIR / "styles.css").read_text(encoding="utf-8"), encoding="utf-8"
