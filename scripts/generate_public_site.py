@@ -34,7 +34,7 @@ def clean_json(value: Any) -> Any:
     return value
 
 
-RANGE_OPTIONS = [30, 90, 180]
+RANGE_OPTIONS = [7, 15, 30, 90, 180]
 
 
 def main() -> int:
@@ -42,7 +42,7 @@ def main() -> int:
     dashboards = {}
     for days in RANGE_OPTIONS:
         start_date, end_date = dashboard_app.default_date_range(days)
-        dashboards[str(days)] = dashboard_app.full_dashboard(start_date, end_date)
+        dashboards[str(days)] = dashboard_app.dashboard_with_comparison(start_date, end_date)
 
     default_days = 90
     payload = clean_json(

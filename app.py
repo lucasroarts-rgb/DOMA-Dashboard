@@ -188,6 +188,18 @@ def init_db() -> None:
         UNIQUE(campaign_id)
     );
 
+    CREATE TABLE IF NOT EXISTS gsc_url_inspections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        verdict TEXT NOT NULL DEFAULT '',
+        coverage_state TEXT NOT NULL DEFAULT '',
+        indexing_state TEXT NOT NULL DEFAULT '',
+        robots_txt_state TEXT NOT NULL DEFAULT '',
+        page_fetch_state TEXT NOT NULL DEFAULT '',
+        last_crawl_time TEXT,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS social_followers_daily (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         report_date TEXT NOT NULL,
@@ -303,6 +315,50 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         "daily": daily,
         "top_queries": top_queries,
         "last_synced_at": last_synced_at,
+        "index_coverage": index_coverage_summary(con),
+    }
+
+
+# Coverage states from the URL Inspection API that mean the page is fine
+# (indexed, or Google's paginated duplicate-handling for near-identical URLs
+# it doesn't need every variant of) - anything else is worth a human look.
+HEALTHY_COVERAGE_STATES = {
+    "Submitted and indexed",
+    "Indexed, not submitted in sitemap",
+    "Duplicate, Google chose different canonical",
+}
+
+
+def index_coverage_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    rows = con.execute(
+        "SELECT url, verdict, coverage_state, indexing_state, robots_txt_state, page_fetch_state, last_crawl_time "
+        "FROM gsc_url_inspections ORDER BY coverage_state, url"
+    ).fetchall()
+    total = len(rows)
+    issues = [
+        {
+            "url": row[0],
+            "verdict": row[1],
+            "coverage_state": row[2],
+            "indexing_state": row[3],
+            "robots_txt_state": row[4],
+            "page_fetch_state": row[5],
+            "last_crawl_time": row[6],
+        }
+        for row in rows
+        if row[2] not in HEALTHY_COVERAGE_STATES
+    ]
+    by_state: dict[str, int] = {}
+    for row in rows:
+        by_state[row[2]] = by_state.get(row[2], 0) + 1
+    checked_at_row = con.execute("SELECT MAX(checked_at) FROM gsc_url_inspections").fetchone()
+    return {
+        "available": total > 0,
+        "total_checked": total,
+        "healthy_count": total - len(issues),
+        "issues": issues,
+        "by_state": [{"state": state, "count": count} for state, count in sorted(by_state.items(), key=lambda kv: -kv[1])],
+        "checked_at": checked_at_row[0] if checked_at_row else None,
     }
 
 
@@ -508,6 +564,29 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
         }
 
 
+def previous_period_range(start_date: str, end_date: str) -> tuple[str, str]:
+    """Immediately preceding period of the same length, for period-over-period
+    comparison - e.g. "last 7 days" compares against the 7 days before that."""
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    span = (end - start).days + 1
+    previous_end = start - timedelta(days=1)
+    previous_start = previous_end - timedelta(days=span - 1)
+    return previous_start.isoformat(), previous_end.isoformat()
+
+
+def dashboard_with_comparison(start_date: str, end_date: str) -> dict[str, Any]:
+    previous_start, previous_end = previous_period_range(start_date, end_date)
+    current = full_dashboard(start_date, end_date)
+    previous = full_dashboard(previous_start, previous_end)
+    return {
+        **current,
+        "previous_start_date": previous_start,
+        "previous_end_date": previous_end,
+        "previous": previous,
+    }
+
+
 @app.on_event("startup")
 def startup() -> None:
     init_db()
@@ -524,13 +603,16 @@ def index():
 
 
 @app.get("/api/dashboard")
-def dashboard(start: str | None = None, end: str | None = None):
-    default_start, default_end = default_date_range()
-    start_date = start or default_start
-    end_date = end or default_end
+def dashboard(start: str | None = None, end: str | None = None, days: int | None = None):
+    if days:
+        start_date, end_date = default_date_range(days)
+    else:
+        default_start, default_end = default_date_range()
+        start_date = start or default_start
+        end_date = end or default_end
     if start_date > end_date:
         raise HTTPException(400, "start must be before end")
-    return full_dashboard(start_date, end_date)
+    return dashboard_with_comparison(start_date, end_date)
 
 
 if __name__ == "__main__":

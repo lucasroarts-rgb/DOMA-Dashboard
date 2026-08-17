@@ -22,11 +22,14 @@
       <label class="range-picker">
         Range
         <select id="rangeSelect">
+          <option value="7">Last 7 days</option>
+          <option value="15">Last 15 days</option>
           <option value="30">Last 30 days</option>
           <option value="90" selected>Last 90 days</option>
           <option value="180">Last 180 days</option>
         </select>
       </label>
+      <span id="comparisonNote" class="pill muted"></span>
       <span id="lastSynced" class="pill info">—</span>
     </div>
   </header>
@@ -64,6 +67,17 @@
         <div class="table-wrap">
           <table id="seoQueriesTable">
             <thead><tr><th>Query</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Index coverage <span class="h2-note">(pages + recent posts, checked via Search Console URL Inspection)</span></h2>
+        <div class="cards" id="indexCoverageCards"></div>
+        <div id="indexCoverageEmpty" class="empty" style="display:none">No index coverage check yet. Run scripts/sync_gsc.py.</div>
+        <div class="table-wrap">
+          <table id="indexCoverageTable">
+            <thead><tr><th>URL</th><th>Status</th><th>Indexing</th><th>Last crawled</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -153,6 +167,7 @@
   </footer>
 
 </div>
+<div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script src="dashboard.js?v=2"></script>
 </body>

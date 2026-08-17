@@ -44,6 +44,7 @@ a{color:inherit}
 .range-picker select{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:#fff;color:var(--ink)}
 .pill{padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700}
 .pill.info{background:var(--teal-soft);color:var(--teal)}
+.pill.muted{background:transparent;color:var(--muted);font-weight:650}
 
 .tabs{
   position:sticky;top:10px;z-index:10;
@@ -63,8 +64,12 @@ a{color:inherit}
   padding:16px 18px;box-shadow:var(--shadow);
 }
 .card .card-label{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.card .card-value{font-size:28px;font-weight:800;margin-top:6px;letter-spacing:-.02em}
+.card .card-value{font-size:28px;font-weight:800;margin-top:6px;letter-spacing:-.02em;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .card .card-hint{font-size:12px;color:var(--muted);margin-top:4px}
+.delta{font-size:12.5px;font-weight:800;padding:2px 7px;border-radius:999px;letter-spacing:0}
+.delta-good{background:#e8f7f1;color:var(--green)}
+.delta-bad{background:#ffeded;color:var(--red)}
+.delta-flat{background:#f1f2f7;color:var(--muted)}
 
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);margin-bottom:16px}
 .panel h2{font-size:15px;margin:0 0 14px;font-weight:800}
@@ -86,9 +91,23 @@ a{color:inherit}
 .chart-legend i.b{background:#8a6df2}
 .chart-legend strong{color:var(--ink);font-weight:800}
 .chart-legend .legend-date{color:var(--muted);font-size:11.5px}
-.chart-dot{cursor:default}
+.chart-dot{cursor:default;pointer-events:none}
 .chart-dot.a{fill:var(--teal);stroke:#fff;stroke-width:1}
 .chart-dot.b{fill:#8a6df2;stroke:#fff;stroke-width:1}
+.chart-overlay{cursor:crosshair}
+.chart-crosshair{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3;pointer-events:none}
+.chart-scroll{overflow-x:auto}
+
+.chart-tooltip{
+  display:none;position:fixed;z-index:100;pointer-events:none;
+  background:var(--navy);color:#fff;padding:9px 12px;border-radius:10px;
+  font-size:12.5px;box-shadow:0 10px 28px rgba(13,27,46,.32);max-width:240px;
+}
+.chart-tooltip-date{font-weight:800;margin-bottom:5px;font-size:11.5px;color:#cfd3e6}
+.chart-tooltip-row{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chart-tooltip-row i{display:inline-block;width:8px;height:8px;border-radius:2px;flex:0 0 auto}
+.chart-tooltip-row i.a{background:var(--teal)}
+.chart-tooltip-row i.b{background:#8a6df2}
 
 .table-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13.5px}

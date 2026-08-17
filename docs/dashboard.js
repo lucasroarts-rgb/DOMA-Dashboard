@@ -35,20 +35,41 @@ function fullDate(isoDate) {
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function daysBetween(isoA, isoB) {
+  const a = new Date(isoA);
+  const b = new Date(isoB);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+/* ---------- period-over-period comparison ---------- */
+
+function computeDeltaPct(curr, prev) {
+  if (prev === null || prev === undefined || prev === 0) return null;
+  if (curr === null || curr === undefined) return null;
+  const pct = ((curr - prev) / Math.abs(prev)) * 100;
+  return Number.isFinite(pct) ? pct : null;
+}
+
+function deltaBadge(curr, prev, { lowerIsBetter = false } = {}) {
+  const pct = computeDeltaPct(curr, prev);
+  if (pct === null) return "";
+  const rounded = Math.round(pct * 10) / 10;
+  if (rounded === 0) return `<span class="delta delta-flat">±0%</span>`;
+  const isUp = rounded > 0;
+  const good = lowerIsBetter ? !isUp : isUp;
+  const arrow = isUp ? "▲" : "▼";
+  const cls = good ? "delta-good" : "delta-bad";
+  return `<span class="delta ${cls}">${arrow} ${Math.abs(rounded)}%</span>`;
+}
+
 async function loadDashboard(days) {
   if (IS_STATIC) {
     dashboard = (STATIC_DATA.dashboards && STATIC_DATA.dashboards[String(days)]) || STATIC_DATA.dashboard;
     return;
   }
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - Number(days || 90));
-  const params = new URLSearchParams({
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  });
   try {
-    dashboard = await fetch(`/api/dashboard?${params}`).then((r) => r.json());
+    dashboard = await fetch(`/api/dashboard?days=${Number(days || 90)}`).then((r) => r.json());
   } catch (error) {
     console.error("Failed to load dashboard:", error);
     dashboard = null;
@@ -108,17 +129,12 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     })
     .join("");
 
-  // Dots on every point with a native tooltip, so the exact number is always
-  // one hover/tap away instead of only readable off the grid lines.
   const dotEvery = pointCount > 60 ? Math.ceil(pointCount / 60) : 1;
   const dots = validSeries
     .map((s, seriesIndex) => {
       const cls = seriesIndex === 0 ? "a" : "b";
       return s.points
-        .map((p, i) => {
-          if (i % dotEvery !== 0 && i !== pointCount - 1) return "";
-          return `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="3" class="chart-dot ${cls}"><title>${s.label} — ${fullDate(p.date)}: ${formatter(p.value)}</title></circle>`;
-        })
+        .map((p, i) => (i % dotEvery === 0 || i === pointCount - 1 ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.6" class="chart-dot ${cls}"/>` : ""))
         .join("");
     })
     .join("");
@@ -130,7 +146,62 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     })
     .join("");
 
-  el.innerHTML = `<div class="chart-legend">${legend}</div><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img">${grid}${lines}${dots}${labels}</svg>`;
+  el.innerHTML = `<div class="chart-legend">${legend}</div><div class="chart-scroll"><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img">${grid}${lines}${dots}<line class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${top + plotH}" style="display:none"/>${labels}<rect class="chart-overlay" x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="transparent"/></svg></div>`;
+
+  // Custom hover tooltip: find the nearest point by mouse x-position and show
+  // every series' exact value for that date, instead of relying on the tiny
+  // native SVG <title> tooltip which is easy to miss.
+  const svg = el.querySelector(".chart-svg");
+  const overlay = el.querySelector(".chart-overlay");
+  const crosshair = el.querySelector(".chart-crosshair");
+  const tooltip = document.getElementById("chartTooltip");
+
+  function pointerToChartX(clientX) {
+    const rect = svg.getBoundingClientRect();
+    const svgX = ((clientX - rect.left) / rect.width) * width;
+    return svgX;
+  }
+
+  function showAt(clientX, clientY) {
+    const svgX = pointerToChartX(clientX);
+    const ratio = pointCount <= 1 ? 0 : (svgX - left) / plotW;
+    const index = Math.max(0, Math.min(pointCount - 1, Math.round(ratio * (pointCount - 1))));
+    const xPos = x(index);
+
+    crosshair.setAttribute("x1", xPos);
+    crosshair.setAttribute("x2", xPos);
+    crosshair.style.display = "block";
+
+    const rows = validSeries
+      .map((s, i) => {
+        const point = s.points[index];
+        if (!point) return "";
+        return `<div class="chart-tooltip-row"><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${formatter(point.value)}</strong></div>`;
+      })
+      .join("");
+    const dateLabel = fullDate(validSeries[0].points[index]?.date);
+    tooltip.innerHTML = `<div class="chart-tooltip-date">${dateLabel}</div>${rows}`;
+    tooltip.style.display = "block";
+    tooltip.style.left = `${clientX + 14}px`;
+    tooltip.style.top = `${clientY + 14}px`;
+  }
+
+  function hide() {
+    crosshair.style.display = "none";
+    tooltip.style.display = "none";
+  }
+
+  overlay.addEventListener("mousemove", (e) => showAt(e.clientX, e.clientY));
+  overlay.addEventListener("mouseleave", hide);
+  overlay.addEventListener(
+    "touchmove",
+    (e) => {
+      const touch = e.touches[0];
+      if (touch) showAt(touch.clientX, touch.clientY);
+    },
+    { passive: true }
+  );
+  overlay.addEventListener("touchend", hide);
 }
 
 /* ---------- cards ---------- */
@@ -143,7 +214,7 @@ function renderCards(containerId, items) {
       (item) => `
       <div class="card">
         <div class="card-label">${item.label}</div>
-        <div class="card-value">${item.value}</div>
+        <div class="card-value">${item.value} ${item.delta || ""}</div>
         ${item.hint ? `<div class="card-hint">${item.hint}</div>` : ""}
       </div>`
     )
@@ -169,6 +240,8 @@ function computeIssues() {
   const gsc = dashboard.search_console;
   const ga4 = dashboard.ga4;
   const ghl = dashboard.ghl;
+  const social = dashboard.social;
+  const prev = dashboard.previous;
 
   if (!gsc.available) {
     issues.push({
@@ -182,14 +255,8 @@ function computeIssues() {
   if (!ghl.available) {
     issues.push({ severity: "warn", text: "No GoHighLevel lead data synced yet. Run scripts/sync_ghl.py." });
   }
-  if (!dashboard.social.available) {
+  if (!social.available) {
     issues.push({ severity: "warn", text: "No Facebook/Instagram data synced yet. Run scripts/sync_meta_organic.py." });
-  }
-  if (ghl.available && !ghl.email_available) {
-    issues.push({
-      severity: "info",
-      text: "Email campaign stats aren't available from GoHighLevel for this sub-account (the /marketing/campaigns endpoint isn't enabled) - lead counts are unaffected.",
-    });
   }
   if (gsc.available && gsc.ctr < 2) {
     issues.push({
@@ -219,9 +286,77 @@ function computeIssues() {
       text: `${highBounce.length} page(s) with 70%+ bounce rate and meaningful traffic: ${highBounce.slice(0, 3).map((p) => p.page_title || p.page_path).join(", ")}.`,
     });
   }
+
+  // Lead source concentration risk - if one channel drives most leads, losing
+  // it (algorithm change, form breaking, etc) becomes a single point of failure.
+  if (ghl.available && ghl.total_leads >= 10 && ghl.by_source.length) {
+    const top = ghl.by_source[0];
+    const share = top.lead_count / ghl.total_leads;
+    if (share >= 0.6) {
+      issues.push({
+        severity: "warn",
+        text: `${percent(share * 100)} of leads come from a single source ("${top.source}") - that's a concentration risk if it slows down.`,
+      });
+    }
+  }
+
+  // Posting cadence - stale social presence is easy to miss without a metric for it.
+  if (social.available && social.posts.length) {
+    const latestPost = social.posts.reduce((latest, p) => (!latest || (p.published_at || "") > (latest.published_at || "") ? p : latest), null);
+    if (latestPost?.published_at) {
+      const gap = daysBetween(latestPost.published_at, new Date().toISOString());
+      if (gap !== null && gap >= 7) {
+        issues.push({
+          severity: "warn",
+          text: `No new Facebook/Instagram post in ${gap} days (last one: ${fullDate(latestPost.published_at.slice(0, 10))}).`,
+        });
+      }
+    }
+  }
+
+  // Period-over-period trend degradation - only meaningful once there's a
+  // real previous period to compare against.
+  if (prev) {
+    const trendChecks = [
+      { curr: gsc.available ? gsc.clicks : null, prevVal: prev.search_console.available ? prev.search_console.clicks : null, label: "Organic clicks (GSC)" },
+      { curr: ga4.available ? ga4.sessions : null, prevVal: prev.ga4.available ? prev.ga4.sessions : null, label: "Sessions (GA4)" },
+      { curr: ghl.available ? ghl.total_leads : null, prevVal: prev.ghl.available ? prev.ghl.total_leads : null, label: "New leads (GoHighLevel)" },
+    ];
+    trendChecks.forEach(({ curr, prevVal, label }) => {
+      const pct = computeDeltaPct(curr, prevVal);
+      if (pct !== null && pct <= -25 && prevVal >= 5) {
+        issues.push({
+          severity: "warn",
+          text: `${label} dropped ${Math.abs(Math.round(pct))}% vs the previous period (${number(prevVal)} → ${number(curr)}).`,
+        });
+      }
+    });
+  }
+
+  // ghl_email is a known, expected gap (GoHighLevel doesn't expose this
+  // endpoint for this sub-account) - not worth repeating as a warning every
+  // time the dashboard loads.
   (dashboard.sync_status || [])
-    .filter((s) => s.status !== "ok")
+    .filter((s) => s.status !== "ok" && s.source !== "ghl_email")
     .forEach((s) => issues.push({ severity: "error", text: `${s.source}: ${s.status}${s.detail ? " — " + s.detail : ""}` }));
+
+  // Index coverage - redirects, noindex, "crawled but not indexed" etc are
+  // exactly the kind of thing easy to miss without checking Search Console by hand.
+  const coverage = gsc.index_coverage;
+  if (coverage?.available && coverage.issues.length) {
+    const grouped = {};
+    coverage.issues.forEach((i) => {
+      grouped[i.coverage_state] = (grouped[i.coverage_state] || 0) + 1;
+    });
+    const summary = Object.entries(grouped)
+      .sort((a, b) => b[1] - a[1])
+      .map(([state, count]) => `${count} ${state}`)
+      .join(", ");
+    issues.push({
+      severity: "warn",
+      text: `${coverage.issues.length} of ${coverage.total_checked} checked URLs need attention in Search Console: ${summary}. See SEO > Index coverage.`,
+    });
+  }
 
   return issues;
 }
@@ -245,12 +380,28 @@ function renderOverview() {
   const gsc = dashboard.search_console;
   const ga4 = dashboard.ga4;
   const ghl = dashboard.ghl;
+  const prev = dashboard.previous;
 
   renderCards("overviewCards", [
-    { label: "Organic clicks (GSC)", value: number(gsc.clicks), hint: `${number(gsc.impressions)} impressions` },
-    { label: "Average position", value: gsc.position || "—", hint: "lower is better" },
-    { label: "Sessions (GA4)", value: number(ga4.sessions), hint: `${number(ga4.active_users)} active users` },
-    { label: "New leads (GoHighLevel)", value: number(ghl.total_leads), hint: `${dashboard.start_date} to ${dashboard.end_date}` },
+    {
+      label: "Organic clicks (GSC)",
+      value: number(gsc.clicks),
+      hint: `${number(gsc.impressions)} impressions`,
+      delta: prev ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
+    },
+    { label: "Average position", value: gsc.position || "—", hint: "lower is better", delta: prev ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
+    {
+      label: "Sessions (GA4)",
+      value: number(ga4.sessions),
+      hint: `${number(ga4.active_users)} active users`,
+      delta: prev ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
+    },
+    {
+      label: "New leads (GoHighLevel)",
+      value: number(ghl.total_leads),
+      hint: `${dashboard.start_date} to ${dashboard.end_date}`,
+      delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "",
+    },
   ]);
 
   const gscByDate = new Map(gsc.daily.map((d) => [d.report_date, d.clicks]));
@@ -267,11 +418,12 @@ function renderOverview() {
 
 function renderSeo() {
   const gsc = dashboard.search_console;
+  const prev = dashboard.previous;
   renderCards("seoCards", [
-    { label: "Clicks", value: number(gsc.clicks) },
-    { label: "Impressions", value: number(gsc.impressions) },
-    { label: "Average CTR", value: percent(gsc.ctr) },
-    { label: "Average position", value: gsc.position || "—" },
+    { label: "Clicks", value: number(gsc.clicks), delta: prev ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
+    { label: "Impressions", value: number(gsc.impressions), delta: prev ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
+    { label: "Average CTR", value: percent(gsc.ctr), delta: prev ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
+    { label: "Average position", value: gsc.position || "—", delta: prev ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
   ]);
 
   if (!gsc.available) {
@@ -287,15 +439,36 @@ function renderSeo() {
     gsc.top_queries,
     (q) => `<tr><td>${q.query}</td><td>${number(q.clicks)}</td><td>${number(q.impressions)}</td><td>${percent(q.ctr)}</td><td>${q.position}</td></tr>`
   );
+
+  const coverage = gsc.index_coverage;
+  document.getElementById("indexCoverageEmpty").style.display = coverage.available ? "none" : "block";
+  if (coverage.available) {
+    renderCards("indexCoverageCards", [
+      { label: "URLs checked", value: number(coverage.total_checked) },
+      { label: "Healthy", value: number(coverage.healthy_count) },
+      { label: "Need attention", value: number(coverage.issues.length) },
+    ]);
+  } else {
+    document.getElementById("indexCoverageCards").innerHTML = "";
+  }
+  const humanizeIndexingState = (state) =>
+    !state || state === "INDEXING_STATE_UNSPECIFIED" ? "—" : state.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+  renderTable(
+    "indexCoverageTable",
+    coverage.issues || [],
+    (i) => `<tr><td><a href="${i.url}" target="_blank" rel="noopener">${i.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${i.coverage_state}</td><td>${humanizeIndexingState(i.indexing_state)}</td><td>${i.last_crawl_time ? fullDate(i.last_crawl_time.slice(0, 10)) : "—"}</td></tr>`,
+    "Every checked URL is indexed cleanly - nothing needs attention."
+  );
 }
 
 function renderBlog() {
   const ga4 = dashboard.ga4;
+  const prev = dashboard.previous;
   renderCards("blogCards", [
-    { label: "Sessions", value: number(ga4.sessions) },
-    { label: "Active users", value: number(ga4.active_users) },
-    { label: "New users", value: number(ga4.new_users) },
-    { label: "Engaged sessions", value: number(ga4.engaged_sessions) },
+    { label: "Sessions", value: number(ga4.sessions), delta: prev ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "" },
+    { label: "Active users", value: number(ga4.active_users), delta: prev ? deltaBadge(ga4.active_users, prev.ga4.active_users) : "" },
+    { label: "New users", value: number(ga4.new_users), delta: prev ? deltaBadge(ga4.new_users, prev.ga4.new_users) : "" },
+    { label: "Engaged sessions", value: number(ga4.engaged_sessions), delta: prev ? deltaBadge(ga4.engaged_sessions, prev.ga4.engaged_sessions) : "" },
   ]);
 
   if (!ga4.available) {
@@ -316,10 +489,16 @@ function renderBlog() {
 
 function renderLeads() {
   const ghl = dashboard.ghl;
+  const prev = dashboard.previous;
   renderCards("leadsCards", [
-    { label: "New leads", value: number(ghl.total_leads) },
+    { label: "New leads", value: number(ghl.total_leads), delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "" },
     { label: "Active sources", value: number(ghl.by_source.length) },
     { label: "Email campaigns", value: ghl.email_available ? number(ghl.email_campaigns.length) : "—" },
+    {
+      label: "Top source share",
+      value: ghl.by_source.length ? percent((ghl.by_source[0].lead_count / ghl.total_leads) * 100) : "—",
+      hint: ghl.by_source.length ? ghl.by_source[0].source : "",
+    },
   ]);
 
   if (!ghl.available) {
@@ -330,7 +509,11 @@ function renderLeads() {
     ]);
   }
 
-  renderTable("leadsSourceTable", ghl.by_source, (s) => `<tr><td>${s.source}</td><td>${number(s.lead_count)}</td></tr>`);
+  renderTable(
+    "leadsSourceTable",
+    ghl.by_source,
+    (s) => `<tr><td>${s.source}</td><td>${number(s.lead_count)}</td><td>${percent((s.lead_count / ghl.total_leads) * 100)}</td></tr>`
+  );
 
   document.getElementById("emailUnavailable").style.display = ghl.email_available ? "none" : "block";
   renderTable(
@@ -342,14 +525,27 @@ function renderLeads() {
 
 function renderSocial() {
   const social = dashboard.social;
+  const prev = dashboard.previous;
+  const totalEngagement = social.posts.reduce((sum, p) => sum + p.engagement_total, 0);
+  const totalFollowers = (social.followers.facebook || 0) + (social.followers.instagram || 0);
+  const engagementRate = totalFollowers ? (totalEngagement / totalFollowers) * 100 : null;
+
   renderCards("socialCards", [
-    { label: "Facebook followers", value: number(social.followers.facebook) },
-    { label: "Instagram followers", value: number(social.followers.instagram) },
+    {
+      label: "Facebook followers",
+      value: number(social.followers.facebook),
+      delta: prev ? deltaBadge(social.followers.facebook, prev.social.followers.facebook) : "",
+    },
+    {
+      label: "Instagram followers",
+      value: number(social.followers.instagram),
+      delta: prev ? deltaBadge(social.followers.instagram, prev.social.followers.instagram) : "",
+    },
     { label: "Posts tracked", value: number(social.posts.length), hint: "last 20 per platform" },
     {
       label: "Total engagement",
-      value: number(social.posts.reduce((sum, p) => sum + p.engagement_total, 0)),
-      hint: "likes + comments + shares",
+      value: number(totalEngagement),
+      hint: engagementRate !== null ? `${percent(engagementRate)} of combined followers` : "likes + comments + shares",
     },
   ]);
 
@@ -396,6 +592,13 @@ function renderAll() {
   const lastSyncedEl = document.getElementById("lastSynced");
   if (lastSyncedEl) {
     lastSyncedEl.textContent = synced ? `Synced ${new Date(synced).toLocaleString("en-US")}` : "Not synced yet";
+  }
+
+  const comparisonEl = document.getElementById("comparisonNote");
+  if (comparisonEl) {
+    comparisonEl.textContent = dashboard.previous_start_date
+      ? `vs ${fullDate(dashboard.previous_start_date)} – ${fullDate(dashboard.previous_end_date)}`
+      : "";
   }
 }
 

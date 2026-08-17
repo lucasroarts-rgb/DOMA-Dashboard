@@ -82,6 +82,16 @@ Agendado no Windows via Task Scheduler (`DOMA_Dashboard_Daily_Sync`, todo dia
      tiver Google Analytics ou Tag Manager instalado, te tornando Owner.
 4. `GA4_PROPERTY_ID` fica em GA4 > Admin > Property Settings.
 
+`sync_gsc.py` também roda uma checagem de **cobertura de indexação**
+(redirects, páginas não indexadas, etc) via URL Inspection API - lê o
+sitemap XML do WordPress/Yoast (`/sitemap_index.xml`), inspeciona todas as
+páginas estáticas + os posts mais recentes (limite de ~85 URLs por sync,
+pra não estourar cota nem deixar o sync lento), e mostra o resultado na aba
+SEO > "Index coverage". Estados considerados saudáveis: "Submitted and
+indexed", "Indexed, not submitted in sitemap", "Duplicate, Google chose
+different canonical" - qualquer outro (redirect, not indexed, unknown to
+Google, noindex) aparece como pendência.
+
 ## GoHighLevel setup
 
 Settings > Private Integrations > Create new integration, escopo mínimo
