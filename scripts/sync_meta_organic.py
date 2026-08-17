@@ -142,6 +142,32 @@ def fetch_instagram_daily_metrics(ig_id: str, token: str) -> list[tuple[str, str
     return rows
 
 
+def fetch_instagram_demographics(ig_id: str, token: str) -> list[tuple[str, str, int]]:
+    """Follower gender + country breakdown - Instagram still exposes this
+    (via follower_demographics), unlike Facebook Page fan demographics which
+    Meta deprecated along with the rest of the Page impressions metrics."""
+    rows: list[tuple[str, str, int]] = []
+    for dimension in ("gender", "country"):
+        try:
+            payload = _get(
+                f"{ig_id}/insights",
+                token,
+                metric="follower_demographics",
+                period="lifetime",
+                metric_type="total_value",
+                breakdown=dimension,
+            )
+        except MetaOrganicSyncError:
+            continue
+        for series in payload.get("data", []):
+            breakdowns = series.get("total_value", {}).get("breakdowns", [])
+            for breakdown in breakdowns:
+                for result in breakdown.get("results", []):
+                    value_key = (result.get("dimension_values") or ["(not set)"])[0]
+                    rows.append((dimension, value_key, int(result.get("value") or 0)))
+    return rows
+
+
 def fetch_instagram_posts(ig_id: str, token: str) -> list[dict[str, Any]]:
     payload = _get(
         f"{ig_id}/media",
@@ -209,6 +235,16 @@ def store_daily_metrics(rows: list[tuple[str, str, float]], *, platform: str) ->
         )
 
 
+def store_demographics(rows: list[tuple[str, str, int]], *, platform: str) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM social_audience WHERE platform = ?", (platform,))
+        con.executemany(
+            "INSERT INTO social_audience (platform, dimension_type, dimension_value, follower_count, synced_at) "
+            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            [(platform, dim, value, count) for dim, value, count in rows],
+        )
+
+
 def store_posts(posts: list[dict[str, Any]]) -> None:
     with dashboard_app.db() as con:
         con.executemany(
@@ -251,11 +287,13 @@ def main() -> int:
     ig_followers = int(ig_snapshot.get("followers_count") or 0)
     ig_daily = fetch_instagram_daily_metrics(ig_id, page_token)
     ig_posts = fetch_instagram_posts(ig_id, page_token)
+    ig_demographics = fetch_instagram_demographics(ig_id, page_token)
 
     store_followers([(today, "facebook", fb_followers), (today, "instagram", ig_followers)])
     store_daily_metrics(fb_daily, platform="facebook")
     store_daily_metrics(ig_daily, platform="instagram")
     store_posts(fb_posts + ig_posts)
+    store_demographics(ig_demographics, platform="instagram")
 
     print(
         f"Meta organic sync complete: Facebook {fb_followers} followers "

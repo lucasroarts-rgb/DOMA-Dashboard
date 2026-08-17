@@ -152,6 +152,40 @@ seguidores (Facebook e Instagram) é construído com snapshot diário próprio
 — não existe mais endpoint de histórico de seguidores na API, então o
 gráfico começa vazio e cresce a cada sync diário.
 
+## Audiência: país, gênero
+
+- **GA4 (Blog)** e **Search Console (SEO)**: país já vem de graça na mesma
+  API, sem configuração extra.
+- **GA4 gênero/idade**: só existe se **Google Signals** estiver habilitado
+  na propriedade (Admin > Data Settings > Data Collection). Sem isso, a
+  dimensão volta vazia (não é erro).
+- **Instagram**: gênero e país dos seguidores funcionam via
+  `follower_demographics` na Graph API, sem configuração extra.
+- **Facebook**: a Meta descontinuou a demografia de Página
+  (`page_fans_gender_age`) junto com o resto das métricas de
+  alcance/impressão - não existe mais forma de trazer isso via API.
+
+## Email do GoHighLevel: limitação confirmada
+
+`GET /emails/campaigns` e `GET /emails/schedule/{id}/stats` retornam
+**401 "token not authorized for this scope"** mesmo com **todos os 159
+escopos** marcados na Private Integration e um token novo gerado
+(2026-08-17). Esse é o formato de erro de guarda de autenticação, não de
+rota inexistente (`/emails/stats` sem ID, por comparação, dá 404 de rota
+não encontrada) - ou seja, o endpoint existe mas é reservado pra apps de
+Marketplace revisados pela GoHighLevel, não pra Private Integration Token.
+Virar um app de Marketplace é desproporcional pra um dashboard interno.
+
+Alternativa adotada: `scripts/import_email_stats.py` importa um CSV manual
+(campanha, data, destinatários, aberturas, cliques) pra dentro da mesma
+tabela que o dashboard já lê. Copia os números da tela de
+Reporting/Marketing > Emails do GoHighLevel de vez em quando e roda:
+
+```
+python scripts/import_email_stats.py caminho\para\email_stats.csv
+python scripts/generate_public_site.py
+```
+
 ## Publicar no GitHub Pages
 
 1. Crie um repositório vazio no GitHub (pode ser via GitHub Desktop:

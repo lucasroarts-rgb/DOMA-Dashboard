@@ -119,6 +119,36 @@ def fetch_top_queries(service, site_url: str) -> list[tuple[str, int, int, float
     return rows
 
 
+def fetch_top_countries(service, site_url: str) -> list[tuple[str, int, int, float, float]]:
+    start_date, end_date = _date_range()
+    body = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "dimensions": ["country"],
+        "rowLimit": 25,
+    }
+    response = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+    rows: list[tuple[str, int, int, float, float]] = []
+    for row in response.get("rows", []):
+        country = row["keys"][0]
+        clicks = int(row.get("clicks", 0))
+        impressions = int(row.get("impressions", 0))
+        ctr = round(float(row.get("ctr", 0.0)) * 100, 2)
+        position = round(float(row.get("position", 0.0)), 1)
+        rows.append((country, clicks, impressions, ctr, position))
+    return rows
+
+
+def store_top_countries(rows: list[tuple[str, int, int, float, float]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM gsc_countries")
+        con.executemany(
+            "INSERT INTO gsc_countries (country, clicks, impressions, ctr, position, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
 def _fetch_xml(url: str) -> ElementTree.Element | None:
     try:
         import requests
@@ -266,14 +296,16 @@ def main() -> int:
         service, site_url = _client(env)
         daily = fetch_daily(service, site_url)
         top_queries = fetch_top_queries(service, site_url)
+        countries = fetch_top_countries(service, site_url)
     except GscSyncError as error:
         log_sync(dashboard_app, "gsc", "error", str(error))
         raise
 
     store_daily(daily)
     store_top_queries(top_queries)
-    log_sync(dashboard_app, "gsc", "ok", f"{len(daily)} daily rows, {len(top_queries)} top queries")
-    print(f"Search Console sync complete: {len(daily)} daily rows, {len(top_queries)} top queries.")
+    store_top_countries(countries)
+    log_sync(dashboard_app, "gsc", "ok", f"{len(daily)} daily rows, {len(top_queries)} top queries, {len(countries)} countries")
+    print(f"Search Console sync complete: {len(daily)} daily rows, {len(top_queries)} top queries, {len(countries)} countries.")
 
     try:
         urls = fetch_urls_to_inspect(site_url)

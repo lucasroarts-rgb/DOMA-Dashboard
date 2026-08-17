@@ -72,6 +72,15 @@
         </div>
       </div>
       <div class="panel">
+        <h2>Clicks by country <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
+        <div class="table-wrap">
+          <table id="seoCountriesTable">
+            <thead><tr><th>Country</th><th>Clicks</th><th>Impressions</th><th>CTR</th><th>Position</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
         <h2>Index coverage <span class="h2-note">(pages + recent posts, checked via Search Console URL Inspection)</span></h2>
         <div class="cards" id="indexCoverageCards"></div>
         <div id="indexCoverageEmpty" class="empty" style="display:none">No index coverage check yet. Run scripts/sync_gsc.py.</div>
@@ -110,6 +119,15 @@
           </div>
         </div>
       </div>
+      <div class="panel">
+        <h2>Visitors by country <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
+        <div class="table-wrap">
+          <table id="blogCountriesTable">
+            <thead><tr><th>Country</th><th>Active users</th><th>Sessions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <section class="view" id="view-leads">
@@ -131,7 +149,7 @@
         <div class="panel">
           <h2>Email campaigns</h2>
           <div id="emailUnavailable" class="empty" style="display:none">
-            Email campaign data not available yet - see README.md (GoHighLevel endpoint still needs to be confirmed).
+            GoHighLevel doesn't expose email campaign stats to this integration (confirmed platform limitation). Import numbers manually: scripts/import_email_stats.py.
           </div>
           <div class="table-wrap">
             <table id="leadsEmailTable">
@@ -156,6 +174,27 @@
             <thead><tr><th>Platform</th><th>Post</th><th>Published</th><th>Reach</th><th>Likes</th><th>Comments</th><th>Shares</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h2>Instagram audience &middot; gender</h2>
+          <div id="socialGenderEmpty" class="empty" style="display:none">No demographics synced yet.</div>
+          <div class="table-wrap">
+            <table id="socialGenderTable">
+              <thead><tr><th>Gender</th><th>Followers</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Instagram audience &middot; top countries</h2>
+          <div class="table-wrap">
+            <table id="socialCountryTable">
+              <thead><tr><th>Country</th><th>Followers</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>

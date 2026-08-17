@@ -135,6 +135,36 @@ def init_db() -> None:
         UNIQUE(query)
     );
 
+    CREATE TABLE IF NOT EXISTS gsc_countries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        country TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        ctr REAL NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(country)
+    );
+
+    CREATE TABLE IF NOT EXISTS ga4_countries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        country TEXT NOT NULL,
+        active_users INTEGER NOT NULL DEFAULT 0,
+        sessions INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(country)
+    );
+
+    CREATE TABLE IF NOT EXISTS social_audience (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL,
+        dimension_type TEXT NOT NULL,
+        dimension_value TEXT NOT NULL,
+        follower_count INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(platform, dimension_type, dimension_value)
+    );
+
     CREATE TABLE IF NOT EXISTS ga4_traffic_daily (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         report_date TEXT NOT NULL,
@@ -316,6 +346,12 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         "top_queries": top_queries,
         "last_synced_at": last_synced_at,
         "index_coverage": index_coverage_summary(con),
+        "countries": [
+            {"country": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
+            for row in con.execute(
+                "SELECT country, clicks, impressions, ctr, position FROM gsc_countries ORDER BY clicks DESC LIMIT 15"
+            ).fetchall()
+        ],
     }
 
 
@@ -411,6 +447,13 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         for row in page_rows
     ]
 
+    countries = [
+        {"country": row[0], "active_users": int(row[1] or 0), "sessions": int(row[2] or 0)}
+        for row in con.execute(
+            "SELECT country, active_users, sessions FROM ga4_countries ORDER BY active_users DESC LIMIT 15"
+        ).fetchall()
+    ]
+
     return {
         "available": sessions > 0,
         "active_users": active_users,
@@ -420,6 +463,7 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         "daily": daily,
         "channels": channels,
         "top_pages": top_pages,
+        "countries": countries,
         "last_synced_at": last_synced_at,
     }
 
@@ -526,6 +570,15 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
         for row in posts_rows
     ]
 
+    audience_rows = con.execute(
+        "SELECT platform, dimension_type, dimension_value, follower_count FROM social_audience ORDER BY follower_count DESC"
+    ).fetchall()
+    audience: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for platform, dimension_type, dimension_value, follower_count in audience_rows:
+        audience.setdefault(platform, {}).setdefault(dimension_type, []).append(
+            {"value": dimension_value, "follower_count": int(follower_count or 0)}
+        )
+
     last_synced_row = con.execute(
         "SELECT MAX(synced_at) FROM social_followers_daily"
     ).fetchone()
@@ -536,6 +589,7 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
         "followers_daily": followers_daily,
         "metrics_daily": metrics_daily,
         "posts": posts,
+        "audience": audience,
         "last_synced_at": last_synced_row[0] if last_synced_row else None,
     }
 

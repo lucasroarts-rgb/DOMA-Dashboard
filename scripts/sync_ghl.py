@@ -128,9 +128,16 @@ def fetch_contacts_created_since(env: dict[str, str], since: date) -> list[dict[
 
 
 def fetch_email_campaigns(env: dict[str, str], since: date) -> list[dict[str, Any]]:
-    """Best-effort: not all GHL sub-accounts expose a campaign-stats endpoint
-    to Private Integrations. Returns an empty list (not an error) if the
-    endpoint is unavailable, so lead sync isn't blocked by it."""
+    """Confirmed unavailable to Private Integration tokens (2026-08-17):
+    /emails/campaigns and /emails/schedule/{id}/stats both return 401 "token
+    not authorized for this scope" even with every scope selected on the
+    Private Integration (including emails/campaigns.readonly and
+    emails/stats.readonly) and a freshly regenerated token. That 401 shape
+    (auth-guard rejection, not a 404) plus it surviving a full-scope retry
+    strongly suggests these are gated to reviewed Marketplace OAuth apps,
+    not exposed to location-level Private Integrations at all - not a
+    config mistake on this project's side. Returns an empty list (not an
+    error) so lead sync isn't blocked by it."""
     try:
         import requests
     except ImportError as error:
@@ -139,7 +146,7 @@ def fetch_email_campaigns(env: dict[str, str], since: date) -> list[dict[str, An
     location_id = env.get("GHL_LOCATION_ID")
     headers = _headers(env)
     response = requests.get(
-        f"{API_BASE}/marketing/campaigns",
+        f"{API_BASE}/emails/campaigns",
         headers=headers,
         params={"locationId": location_id, "limit": 50},
         timeout=30,
@@ -147,9 +154,8 @@ def fetch_email_campaigns(env: dict[str, str], since: date) -> list[dict[str, An
     if response.status_code != 200:
         raise GhlSyncError(
             f"Email campaign stats unavailable ({response.status_code}). "
-            "This endpoint may need a different scope or isn't enabled for this sub-account - "
-            "confirm with GoHighLevel support which report to use, then adjust "
-            "scripts/sync_ghl.py:fetch_email_campaigns."
+            "Confirmed as a Private Integration limitation, not a scope/config issue - "
+            "see the docstring on this function before re-investigating."
         )
 
     payload = response.json()

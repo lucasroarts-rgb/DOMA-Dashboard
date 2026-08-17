@@ -454,6 +454,12 @@ function renderSeo() {
   const humanizeIndexingState = (state) =>
     !state || state === "INDEXING_STATE_UNSPECIFIED" ? "—" : state.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
   renderTable(
+    "seoCountriesTable",
+    gsc.countries,
+    (c) => `<tr><td>${(c.country || "").toUpperCase()}</td><td>${number(c.clicks)}</td><td>${number(c.impressions)}</td><td>${percent(c.ctr)}</td><td>${c.position}</td></tr>`
+  );
+
+  renderTable(
     "indexCoverageTable",
     coverage.issues || [],
     (i) => `<tr><td><a href="${i.url}" target="_blank" rel="noopener">${i.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${i.coverage_state}</td><td>${humanizeIndexingState(i.indexing_state)}</td><td>${i.last_crawl_time ? fullDate(i.last_crawl_time.slice(0, 10)) : "—"}</td></tr>`,
@@ -484,6 +490,11 @@ function renderBlog() {
     "blogPagesTable",
     ga4.top_pages,
     (p) => `<tr><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td><td>${duration(p.avg_engagement_seconds)}</td><td>${percent(p.bounce_rate)}</td></tr>`
+  );
+  renderTable(
+    "blogCountriesTable",
+    ga4.countries,
+    (c) => `<tr><td>${c.country}</td><td>${number(c.active_users)}</td><td>${number(c.sessions)}</td></tr>`
   );
 }
 
@@ -569,6 +580,24 @@ function renderSocial() {
     "socialPostsTable",
     social.posts,
     (p) => `<tr><td>${p.platform === "facebook" ? "Facebook" : "Instagram"}</td><td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">${(p.caption || "(no caption)").slice(0, 60)}</a>` : (p.caption || "(no caption)").slice(0, 60)}</td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${p.reach ? number(p.reach) : "—"}</td><td>${number(p.likes)}</td><td>${number(p.comments)}</td><td>${number(p.shares)}</td></tr>`
+  );
+
+  const GENDER_LABELS = { F: "Female", M: "Male", U: "Not specified" };
+  const igGender = social.audience?.instagram?.gender || [];
+  const igCountry = social.audience?.instagram?.country || [];
+  const genderTotal = igGender.reduce((sum, g) => sum + g.follower_count, 0);
+  const countryTotal = igCountry.reduce((sum, c) => sum + c.follower_count, 0);
+
+  document.getElementById("socialGenderEmpty").style.display = igGender.length ? "none" : "block";
+  renderTable(
+    "socialGenderTable",
+    igGender,
+    (g) => `<tr><td>${GENDER_LABELS[g.value] || g.value}</td><td>${number(g.follower_count)}</td><td>${genderTotal ? percent((g.follower_count / genderTotal) * 100) : "—"}</td></tr>`
+  );
+  renderTable(
+    "socialCountryTable",
+    igCountry.slice(0, 15),
+    (c) => `<tr><td>${c.value}</td><td>${number(c.follower_count)}</td><td>${countryTotal ? percent((c.follower_count / countryTotal) * 100) : "—"}</td></tr>`
   );
 }
 
