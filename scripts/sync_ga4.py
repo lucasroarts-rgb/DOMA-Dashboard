@@ -159,6 +159,28 @@ def fetch_top_countries(client, property_id: str) -> list[tuple[str, int, int]]:
     return rows
 
 
+def fetch_demographics(client, property_id: str) -> list[tuple[str, str, int]]:
+    """Gender + age bracket - only populated once Google Signals is enabled
+    on the property (Admin > Data Collection); until then GA4 correctly
+    returns zero rows rather than erroring, which is not a bug here."""
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    rows: list[tuple[str, str, int]] = []
+    for dimension_name, label in (("userGender", "gender"), ("userAgeBracket", "age")):
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name=dimension_name)],
+            metrics=[Metric(name="activeUsers")],
+            date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+        )
+        response = client.run_report(request)
+        for row in response.rows:
+            value = row.dimension_values[0].value or "(not set)"
+            active_users = int(row.metric_values[0].value or 0)
+            rows.append((label, value, active_users))
+    return rows
+
+
 def store_daily_traffic(rows: list[tuple[str, int, int, int, int]]) -> None:
     with dashboard_app.db() as con:
         con.executemany(
@@ -220,6 +242,16 @@ def store_top_countries(rows: list[tuple[str, int, int]]) -> None:
         )
 
 
+def store_demographics(rows: list[tuple[str, str, int]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM ga4_demographics")
+        con.executemany(
+            "INSERT INTO ga4_demographics (dimension_type, dimension_value, active_users, synced_at) "
+            "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
 def main() -> int:
     env = load_env_file()
     dashboard_app.init_db()
@@ -230,6 +262,7 @@ def main() -> int:
         channels = fetch_daily_channel(client, property_id)
         top_pages = fetch_top_pages(client, property_id)
         countries = fetch_top_countries(client, property_id)
+        demographics = fetch_demographics(client, property_id)
     except Ga4SyncError as error:
         log_sync(dashboard_app, "ga4", "error", str(error))
         raise
@@ -238,16 +271,18 @@ def main() -> int:
     store_daily_channel(channels)
     store_top_pages(top_pages)
     store_top_countries(countries)
+    store_demographics(demographics)
     log_sync(
         dashboard_app,
         "ga4",
         "ok",
-        f"{len(traffic)} traffic-days, {len(channels)} channel-day rows, {len(top_pages)} top pages, {len(countries)} countries",
+        f"{len(traffic)} traffic-days, {len(channels)} channel-day rows, {len(top_pages)} top pages, "
+        f"{len(countries)} countries, {len(demographics)} demographic rows",
     )
 
     print(
         f"GA4 sync complete: {len(traffic)} traffic-days, {len(channels)} channel-day rows, "
-        f"{len(top_pages)} top pages, {len(countries)} countries."
+        f"{len(top_pages)} top pages, {len(countries)} countries, {len(demographics)} demographic rows."
     )
     return 0
 

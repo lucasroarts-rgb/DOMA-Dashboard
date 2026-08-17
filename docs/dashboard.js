@@ -496,6 +496,21 @@ function renderBlog() {
     ga4.countries,
     (c) => `<tr><td>${c.country}</td><td>${number(c.active_users)}</td><td>${number(c.sessions)}</td></tr>`
   );
+
+  const GA_GENDER_LABELS = { female: "Female", male: "Male" };
+  document.getElementById("blogDemographicsEmpty").style.display = ga4.demographics_available ? "none" : "block";
+  const genderTotal = (ga4.demographics?.gender || []).reduce((sum, g) => sum + g.active_users, 0);
+  const ageTotal = (ga4.demographics?.age || []).reduce((sum, a) => sum + a.active_users, 0);
+  renderTable(
+    "blogGenderTable",
+    ga4.demographics?.gender || [],
+    (g) => `<tr><td>${GA_GENDER_LABELS[g.value] || g.value}</td><td>${number(g.active_users)}</td><td>${genderTotal ? percent((g.active_users / genderTotal) * 100) : "—"}</td></tr>`
+  );
+  renderTable(
+    "blogAgeTable",
+    ga4.demographics?.age || [],
+    (a) => `<tr><td>${a.value}</td><td>${number(a.active_users)}</td><td>${ageTotal ? percent((a.active_users / ageTotal) * 100) : "—"}</td></tr>`
+  );
 }
 
 function renderLeads() {

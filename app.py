@@ -155,6 +155,15 @@ def init_db() -> None:
         UNIQUE(country)
     );
 
+    CREATE TABLE IF NOT EXISTS ga4_demographics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        dimension_type TEXT NOT NULL,
+        dimension_value TEXT NOT NULL,
+        active_users INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(dimension_type, dimension_value)
+    );
+
     CREATE TABLE IF NOT EXISTS social_audience (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         platform TEXT NOT NULL,
@@ -454,6 +463,13 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         ).fetchall()
     ]
 
+    demographics: dict[str, list[dict[str, Any]]] = {"gender": [], "age": []}
+    for dimension_type, dimension_value, users in con.execute(
+        "SELECT dimension_type, dimension_value, active_users FROM ga4_demographics ORDER BY active_users DESC"
+    ).fetchall():
+        if dimension_type in demographics:
+            demographics[dimension_type].append({"value": dimension_value, "active_users": int(users or 0)})
+
     return {
         "available": sessions > 0,
         "active_users": active_users,
@@ -464,6 +480,8 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         "channels": channels,
         "top_pages": top_pages,
         "countries": countries,
+        "demographics": demographics,
+        "demographics_available": bool(demographics["gender"] or demographics["age"]),
         "last_synced_at": last_synced_at,
     }
 
