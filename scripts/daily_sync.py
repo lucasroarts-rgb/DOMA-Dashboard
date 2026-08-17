@@ -25,6 +25,7 @@ from scripts.generate_public_site import main as generate_public_site  # noqa: E
 from scripts.sync_ga4 import main as sync_ga4  # noqa: E402
 from scripts.sync_ghl import main as sync_ghl  # noqa: E402
 from scripts.sync_gsc import main as sync_gsc  # noqa: E402
+from scripts.sync_meta_organic import main as sync_meta_organic  # noqa: E402
 
 LOGS_DIR = ROOT / "logs"
 
@@ -107,6 +108,7 @@ def main() -> int:
         "gsc": run_source("Google Search Console", sync_gsc),
         "ga4": run_source("Google Analytics (GA4)", sync_ga4),
         "ghl": run_source("GoHighLevel", sync_ghl),
+        "meta_organic": run_source("Facebook/Instagram (organic)", sync_meta_organic),
     }
 
     print("Generating the static site...")

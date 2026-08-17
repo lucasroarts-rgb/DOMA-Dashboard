@@ -182,6 +182,9 @@ function computeIssues() {
   if (!ghl.available) {
     issues.push({ severity: "warn", text: "No GoHighLevel lead data synced yet. Run scripts/sync_ghl.py." });
   }
+  if (!dashboard.social.available) {
+    issues.push({ severity: "warn", text: "No Facebook/Instagram data synced yet. Run scripts/sync_meta_organic.py." });
+  }
   if (ghl.available && !ghl.email_available) {
     issues.push({
       severity: "info",
@@ -337,6 +340,42 @@ function renderLeads() {
   );
 }
 
+function renderSocial() {
+  const social = dashboard.social;
+  renderCards("socialCards", [
+    { label: "Facebook followers", value: number(social.followers.facebook) },
+    { label: "Instagram followers", value: number(social.followers.instagram) },
+    { label: "Posts tracked", value: number(social.posts.length), hint: "last 20 per platform" },
+    {
+      label: "Total engagement",
+      value: number(social.posts.reduce((sum, p) => sum + p.engagement_total, 0)),
+      hint: "likes + comments + shares",
+    },
+  ]);
+
+  if (!social.available) {
+    chartEmpty("socialFollowersChart", "No Facebook/Instagram data yet. Run scripts/sync_meta_organic.py.");
+  } else {
+    const fbByDate = new Map(social.followers_daily.filter((d) => d.platform === "facebook").map((d) => [d.report_date, d.follower_count]));
+    const igByDate = new Map(social.followers_daily.filter((d) => d.platform === "instagram").map((d) => [d.report_date, d.follower_count]));
+    const dates = [...new Set([...fbByDate.keys(), ...igByDate.keys()])].sort();
+    if (dates.length < 2) {
+      chartEmpty("socialFollowersChart", "Follower history builds up day by day - check back after a few daily syncs.");
+    } else {
+      svgLineChart("socialFollowersChart", [
+        { label: "Facebook", points: dates.map((d) => ({ date: d, value: fbByDate.get(d) ?? null })).filter((p) => p.value !== null) },
+        { label: "Instagram", points: dates.map((d) => ({ date: d, value: igByDate.get(d) ?? null })).filter((p) => p.value !== null) },
+      ]);
+    }
+  }
+
+  renderTable(
+    "socialPostsTable",
+    social.posts,
+    (p) => `<tr><td>${p.platform === "facebook" ? "Facebook" : "Instagram"}</td><td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">${(p.caption || "(no caption)").slice(0, 60)}</a>` : (p.caption || "(no caption)").slice(0, 60)}</td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${p.reach ? number(p.reach) : "—"}</td><td>${number(p.likes)}</td><td>${number(p.comments)}</td><td>${number(p.shares)}</td></tr>`
+  );
+}
+
 function renderAll() {
   if (!dashboard) {
     document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Could not load the dashboard. Make sure the local server is running (RUN_DASHBOARD.bat) and data has been synced.</div></div>`;
@@ -346,11 +385,13 @@ function renderAll() {
   renderSeo();
   renderBlog();
   renderLeads();
+  renderSocial();
 
   const synced = [
     dashboard.search_console.last_synced_at,
     dashboard.ga4.last_synced_at,
     dashboard.ghl.last_synced_at,
+    dashboard.social.last_synced_at,
   ].filter(Boolean).sort().at(-1);
   const lastSyncedEl = document.getElementById("lastSynced");
   if (lastSyncedEl) {

@@ -1,10 +1,13 @@
 # DOMA Dashboard
 
 Dashboard local de marketing orgânico para a DOMA (dentalofficemanagers.com).
-Sem tráfego pago: foco em SEO (Google Search Console), blog/site (GA4) e leads
-(GoHighLevel). Segue o mesmo padrão arquitetural do projeto irmão (PreSubs):
-app FastAPI + SQLite local, scripts de sync isolados por fonte, automação
-diária que publica um site estático no GitHub Pages.
+Sem tráfego pago: foco em SEO (Google Search Console), blog/site (GA4), leads
+(GoHighLevel) e redes sociais orgânicas (Facebook + Instagram). Segue o mesmo
+padrão arquitetural do projeto irmão (PreSubs): app FastAPI + SQLite local,
+scripts de sync isolados por fonte, automação diária que publica um site
+estático no GitHub Pages.
+
+Site publicado: https://lucasroarts-rgb.github.io/DOMA-Dashboard/
 
 ## Estrutura
 
@@ -15,8 +18,9 @@ scripts/
   sync_gsc.py                Google Search Console -> search_console_daily / _queries
   sync_ga4.py                GA4 -> ga4_traffic_daily / _channel_daily / _top_pages
   sync_ghl.py                GoHighLevel -> ghl_leads_daily / ghl_email_campaigns
+  sync_meta_organic.py       Facebook Page + Instagram Business -> social_followers_daily / _metrics_daily / _posts
   generate_public_site.py    gera docs/ (site estático) a partir das mesmas funções do app.py
-  daily_sync.py              orquestra os 3 syncs + gera site + publica no git
+  daily_sync.py              orquestra os 4 syncs + gera site + publica no git
 static/                     HTML/CSS/JS do dashboard (sem framework pesado)
 docs/                       saída estática publicada no GitHub Pages (gerada, não editar à mão)
 data/                       doma.db (SQLite), git-ignorado
@@ -26,7 +30,7 @@ data/                       doma.db (SQLite), git-ignorado
 
 1. `python -m venv .venv` e ative o ambiente.
 2. `pip install -r requirements.txt`
-3. `copy .env.example .env` e preencha (ver "Pendências" abaixo).
+3. `copy .env.example .env` e preencha (ver seções abaixo).
 4. Coloque o JSON da service account do Google Cloud na raiz do projeto
    (nome padrão: `google_service_account.json` — git-ignorado).
 5. `python app.py` (ou `RUN_DASHBOARD.bat`) sobe o dashboard local em
@@ -38,30 +42,119 @@ data/                       doma.db (SQLite), git-ignorado
 python scripts/sync_gsc.py
 python scripts/sync_ga4.py
 python scripts/sync_ghl.py
+python scripts/sync_meta_organic.py
 ```
 
 Cada script é isolado: se uma fonte falhar (credencial errada, API fora do
 ar), as outras continuam funcionando. Falhas ficam registradas na tabela
-`sync_log` e aparecem no dashboard.
+`sync_log` e aparecem no dashboard, aba "Overview" > "Things to look at".
 
 ## Automação diária
 
-`python scripts/daily_sync.py` roda os 3 syncs, gera o site estático em
-`docs/` e faz commit + push automático (se `AUTO_PUBLISH=true` no `.env` e
-o repositório já estiver conectado a um remoto no GitHub).
+`python scripts/daily_sync.py` roda os 4 syncs, gera o site estático em
+`docs/` (com os períodos de 30/90/180 dias já pré-calculados, pro seletor de
+período funcionar mesmo no site publicado sem back-end) e faz commit + push
+automático (se `AUTO_PUBLISH=true` no `.env` e o repositório já estiver
+conectado a um remoto no GitHub).
 
-Para agendar no Windows (roda todo dia às 06:00): `AGENDAR_AUTOMACAO_DIARIA.bat`.
+Agendado no Windows via Task Scheduler (`DOMA_Dashboard_Daily_Sync`, todo dia
+06:00). Pra recriar: `AGENDAR_AUTOMACAO_DIARIA.bat`. Pra remover:
+`REMOVER_AUTOMACAO_DIARIA.bat`.
+
+## GA4 + Search Console setup (Google Cloud)
+
+1. Google Cloud Console → novo projeto → habilitar **Google Analytics Data
+   API** e **Search Console API**.
+   - Se a conta Google for de uma organização/Workspace com a política
+     `iam.managed.disableServiceAccountKeyCreation` ativa, criação de chave
+     de service account é bloqueada — use uma conta **Gmail pessoal** (sem
+     organização) pra esse projeto. Não precisa ser a mesma conta que
+     administra o GA4/site.
+2. IAM & Admin > Service Accounts → criar → gerar chave **JSON** → salvar
+   como `google_service_account.json` na raiz do projeto.
+3. Adicionar o email da service account como **Viewer** no GA4 (Admin >
+   Property Access Management) e como usuário **Restricted** no Search
+   Console (Settings > Users and permissions).
+   - Se a conta que administra o Search Console não for **Owner
+     verificado** da propriedade (só "usuária"), ela não consegue adicionar
+     ninguém — nesse caso, adicionar a propriedade de novo (Add property >
+     URL prefix) com o mesmo domínio verifica automaticamente se o site já
+     tiver Google Analytics ou Tag Manager instalado, te tornando Owner.
+4. `GA4_PROPERTY_ID` fica em GA4 > Admin > Property Settings.
+
+## GoHighLevel setup
+
+Settings > Private Integrations > Create new integration, escopo mínimo
+**View Contacts**, na sub-conta certa da DOMA. `GHL_LOCATION_ID` aparece na
+URL da sub-conta ou em Settings > Business Profile.
+
+**Campanhas de email** (`scripts/sync_ghl.py:fetch_email_campaigns`) chama
+`GET /marketing/campaigns`, que **não está disponível** para esta sub-conta
+(confirmado - 404). O sync de leads não é afetado; a aba "Leads" mostra
+"dados de email indisponíveis" em vez de zero. Precisaria de um endpoint
+diferente do GoHighLevel pra resolver, ainda não identificado.
+
+## Meta organic setup (Facebook Page + Instagram)
+
+Sem API de anúncios, sem gasto pago — só Page Insights e Instagram Insights
+orgânicos. Passo a passo (via Graph API Explorer, mais rápido que revisão
+completa de app):
+
+1. `developers.facebook.com/apps` → Create App → tipo **Business** → nome
+   `doma-dashboard`. Na tela de "Casos de uso", marcar **só** "Gerenciar
+   tudo na sua Página" (o resto exige verificação de empresa e trava o
+   processo à toa).
+2. `developers.facebook.com/tools/explorer` → seleciona o app → **User or
+   Page** → **Obter token de acesso da Página** (não o fluxo de "User
+   Token" comum — para Páginas dentro de um Business Portfolio, só esse
+   fluxo mostra a tela de seleção de Página corretamente).
+3. Marca as permissões: `pages_show_list`, `pages_read_engagement`,
+   `read_insights`, `instagram_basic`, `instagram_manage_insights`.
+   - Se a Página pertence a um Business Portfolio, o app também precisa
+     estar conectado a ela lá: `business.facebook.com/settings` > Contas >
+     Apps > adicionar o app (pelo ID) > Conectar ativos > marcar a Página +
+     conta Instagram.
+4. Com o token gerado, pegar `META_PAGE_ID` e `META_IG_ACCOUNT_ID` via
+   `debug_token` (`granular_scopes[].target_ids`) ou direto:
+   `GET /{page-id}?fields=access_token,instagram_business_account`.
+5. O token da Página gerado assim é **de curta duração** (poucas horas).
+   Trocar por um de longa duração (não expira, na prática):
+   ```
+   GET https://graph.facebook.com/v21.0/oauth/access_token
+     ?grant_type=fb_exchange_token
+     &client_id={APP_ID}
+     &client_secret={APP_SECRET}
+     &fb_exchange_token={USER_TOKEN_CURTO}
+   ```
+   Isso estende o **User Token** pra ~60 dias. Com esse User Token
+   estendido, buscar de novo `GET /{page-id}?fields=access_token` — o Page
+   Token resultante não expira (`expires_at: 0`), mesmo o User Token
+   original expirando em 60 dias.
+6. `META_PAGE_ACCESS_TOKEN` = esse Page Token de longa duração.
+
+**Limitação da API (não é bug deste projeto)**: a Meta descontinuou quase
+todas as métricas de alcance/impressão em nível de Página do Facebook
+(`page_impressions*`, `page_fan_adds*` etc não existem mais). Só sobrou
+`page_post_engagements` e `page_views_total` no nível de Página, e
+curtidas/comentários/compartilhamentos por post. O Instagram continua com
+alcance (`reach`) completo, tanto por conta quanto por post. Crescimento de
+seguidores (Facebook e Instagram) é construído com snapshot diário próprio
+— não existe mais endpoint de histórico de seguidores na API, então o
+gráfico começa vazio e cresce a cada sync diário.
 
 ## Publicar no GitHub Pages
 
-1. Crie um repositório vazio no GitHub.
-2. `git init` (se ainda não for um repo), `git remote add origin <url>`.
-3. Rode `python scripts/daily_sync.py` uma vez (ou `git add docs && git commit && git push` manual).
-4. No GitHub: Settings > Pages > Source = branch principal, pasta `/docs`.
+1. Crie um repositório vazio no GitHub (pode ser via GitHub Desktop:
+   File > Add local repository > Publish repository).
+2. Settings > Pages > Source = **Deploy from a branch**, branch **main**,
+   pasta **/docs**.
+3. Se o repositório pertencer a uma organização/Workspace com política
+   bloqueando `gh` CLI de outra conta, publicar/ativar Pages precisa ser
+   feito manualmente pelo dono do repositório no navegador.
 
 O `docs/data.js` só contém contagens agregadas (cliques, sessões, leads por
-dia/fonte) — nunca email, telefone ou nome de lead individual. Ver
-"Privacidade" abaixo.
+dia/fonte, seguidores/engajamento social) — nunca email, telefone ou nome de
+lead individual. Ver "Privacidade" abaixo.
 
 ## Privacidade
 
@@ -69,37 +162,19 @@ dia/fonte) — nunca email, telefone ou nome de lead individual. Ver
   só contagens agregadas por dia/fonte (`ghl_leads_daily`).
 - O sync do GoHighLevel (`sync_ghl.py`) descarta o payload do contato logo
   após contar; só `dateAdded` e `source` são usados, nunca persistidos.
+- Posts de Facebook/Instagram são conteúdo público da própria DOMA (não são
+  dados pessoais de lead) — legendas, curtidas, comentários e alcance por
+  post são armazenados normalmente.
 - Nenhum framework de terceiros roda no navegador — os gráficos são SVG
   gerados à mão em `static/dashboard.js`.
 
-## Pendências antes de rodar em produção
-
-Estas são as informações que faltam preencher no `.env` / confirmar:
-
-1. **`GA4_PROPERTY_ID`** — Admin > Property details, no GA4 do site da DOMA.
-2. **`GA4_SERVICE_ACCOUNT_FILE`** — criar uma service account no Google
-   Cloud, baixar o JSON, adicionar como Viewer no GA4 (Admin > Property
-   Access Management) e como usuário Restricted no Search Console
-   (Settings > Users and permissions). A mesma conta serve para as duas
-   integrações.
-3. **`GHL_API_KEY`** — Settings > Private Integrations > Create new
-   integration, escopo mínimo "View Contacts", na sub-conta certa da DOMA.
-4. **`GHL_LOCATION_ID`** — ID da sub-conta/location da DOMA no GoHighLevel.
-5. **Campanhas de email (GoHighLevel)** — `scripts/sync_ghl.py:fetch_email_campaigns`
-   chama `GET /marketing/campaigns`, que **não é um endpoint confirmado**
-   para todas as sub-contas de GoHighLevel via Private Integration. Se
-   falhar, o sync de leads continua funcionando normalmente e a aba
-   "Leads" mostra "dados de email indisponíveis" em vez de zero. Precisa
-   validar com o GoHighLevel (ou com a documentação da conta) qual
-   endpoint/escopo expõe taxa de abertura/clique de campanha antes de
-   confiar nesse número.
-6. **GitHub remoto** — repositório ainda não conectado; `daily_sync.py`
-   avisa e não publica até que exista `git remote origin`.
-
 ## O que não foi construído (de propósito)
 
-Sem integração de Meta Ads ou Google Ads, sem aba de campanhas/ad
-sets/ads, sem CAC baseado em spend — a DOMA não roda tráfego pago hoje.
-Se isso mudar no futuro, adicionar como uma integração isolada nova
-(`sync_meta.py` / `sync_google_ads.py`, uma tabela nova, uma função de
-resumo nova, uma aba nova), sem misturar com o código orgânico existente.
+Sem Meta Ads, sem Google Ads, sem API de anúncios de forma alguma — nenhum
+gasto pago é medido neste dashboard. O que existe de Facebook/Instagram
+(`sync_meta_organic.py`) é só Page/Instagram Insights **orgânicos**: posts,
+seguidores, engajamento — nenhum dado de campanha, ad set, ad ou CAC/CPL
+baseado em spend. Se tráfego pago entrar no futuro, adicionar como
+integração isolada nova (`sync_meta_ads.py` / `sync_google_ads.py`, tabela
+nova, função de resumo nova, aba nova), sem misturar com o código orgânico
+existente.

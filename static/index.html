@@ -36,6 +36,7 @@
     <button class="tab" data-view="seo">SEO &middot; Search Console</button>
     <button class="tab" data-view="blog">Blog &middot; GA4</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
+    <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
   </nav>
 
   <main id="app">
@@ -124,6 +125,23 @@
               <tbody></tbody>
             </table>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-social">
+      <div class="cards" id="socialCards"></div>
+      <div class="panel">
+        <h2>Followers over time</h2>
+        <div id="socialFollowersChart" class="chart-box"></div>
+      </div>
+      <div class="panel">
+        <h2>Top posts <span class="h2-note">(last 20 per platform, independent of the range above)</span></h2>
+        <div class="table-wrap">
+          <table id="socialPostsTable">
+            <thead><tr><th>Platform</th><th>Post</th><th>Published</th><th>Reach</th><th>Likes</th><th>Comments</th><th>Shares</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
       </div>
     </section>

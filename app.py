@@ -188,6 +188,40 @@ def init_db() -> None:
         UNIQUE(campaign_id)
     );
 
+    CREATE TABLE IF NOT EXISTS social_followers_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_date TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        follower_count INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(report_date, platform)
+    );
+
+    CREATE TABLE IF NOT EXISTS social_metrics_daily (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        report_date TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        metric TEXT NOT NULL,
+        value REAL NOT NULL DEFAULT 0,
+        UNIQUE(report_date, platform, metric)
+    );
+
+    CREATE TABLE IF NOT EXISTS social_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        platform TEXT NOT NULL,
+        post_id TEXT NOT NULL,
+        caption TEXT,
+        published_at TEXT,
+        permalink TEXT,
+        likes INTEGER NOT NULL DEFAULT 0,
+        comments INTEGER NOT NULL DEFAULT 0,
+        shares INTEGER NOT NULL DEFAULT 0,
+        reach INTEGER NOT NULL DEFAULT 0,
+        engagement_total INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(platform, post_id)
+    );
+
     CREATE TABLE IF NOT EXISTS sync_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source TEXT NOT NULL,
@@ -386,6 +420,70 @@ def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
     }
 
 
+def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
+    followers: dict[str, Any] = {}
+    for platform in ("facebook", "instagram"):
+        row = con.execute(
+            "SELECT follower_count, synced_at FROM social_followers_daily "
+            "WHERE platform = ? ORDER BY report_date DESC LIMIT 1",
+            (platform,),
+        ).fetchone()
+        followers[platform] = int(row[0]) if row else 0
+
+    followers_daily_rows = con.execute(
+        "SELECT report_date, platform, follower_count FROM social_followers_daily "
+        "WHERE report_date BETWEEN ? AND ? ORDER BY report_date",
+        (start_date, end_date),
+    ).fetchall()
+    followers_daily = [
+        {"report_date": row[0], "platform": row[1], "follower_count": int(row[2] or 0)}
+        for row in followers_daily_rows
+    ]
+
+    metrics_rows = con.execute(
+        "SELECT report_date, platform, metric, value FROM social_metrics_daily "
+        "WHERE report_date BETWEEN ? AND ? ORDER BY report_date",
+        (start_date, end_date),
+    ).fetchall()
+    metrics_daily = [
+        {"report_date": row[0], "platform": row[1], "metric": row[2], "value": float(row[3] or 0)}
+        for row in metrics_rows
+    ]
+
+    posts_rows = con.execute(
+        "SELECT platform, post_id, caption, published_at, permalink, likes, comments, shares, reach, engagement_total "
+        "FROM social_posts ORDER BY published_at DESC LIMIT 40"
+    ).fetchall()
+    posts = [
+        {
+            "platform": row[0],
+            "post_id": row[1],
+            "caption": row[2],
+            "published_at": row[3],
+            "permalink": row[4],
+            "likes": int(row[5] or 0),
+            "comments": int(row[6] or 0),
+            "shares": int(row[7] or 0),
+            "reach": int(row[8] or 0),
+            "engagement_total": int(row[9] or 0),
+        }
+        for row in posts_rows
+    ]
+
+    last_synced_row = con.execute(
+        "SELECT MAX(synced_at) FROM social_followers_daily"
+    ).fetchone()
+
+    return {
+        "available": bool(posts) or followers["facebook"] > 0 or followers["instagram"] > 0,
+        "followers": followers,
+        "followers_daily": followers_daily,
+        "metrics_daily": metrics_daily,
+        "posts": posts,
+        "last_synced_at": last_synced_row[0] if last_synced_row else None,
+    }
+
+
 def sync_status(con: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = con.execute(
         "SELECT source, status, detail, ran_at FROM sync_log "
@@ -405,6 +503,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "search_console": search_console_summary(con, start_date, end_date),
             "ga4": ga4_summary(con, start_date, end_date),
             "ghl": ghl_summary(con, start_date, end_date),
+            "social": social_summary(con, start_date, end_date),
             "sync_status": sync_status(con),
         }
 
