@@ -74,7 +74,7 @@ def fetch_contacts_created_since(env: dict[str, str], since: date) -> list[dict[
     since_dt = datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc)
 
     kept: list[dict[str, Any]] = []
-    start_after: str | None = None
+    start_after: int | None = None
     start_after_id: str | None = None
 
     for _ in range(MAX_PAGES):
@@ -116,7 +116,12 @@ def fetch_contacts_created_since(env: dict[str, str], since: date) -> list[dict[
             break
 
         last = contacts[-1]
-        start_after = str(last.get("dateAdded"))
+        last_added_raw = str(last.get("dateAdded"))
+        try:
+            last_added_at = datetime.fromisoformat(last_added_raw.replace("Z", "+00:00"))
+        except ValueError:
+            break
+        start_after = int(last_added_at.timestamp() * 1000)
         start_after_id = str(last.get("id"))
 
     return kept
