@@ -159,6 +159,25 @@ def fetch_top_countries(client, property_id: str) -> list[tuple[str, int, int]]:
     return rows
 
 
+def fetch_device_breakdown(client, property_id: str) -> list[tuple[str, int, int]]:
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[Dimension(name="deviceCategory")],
+        metrics=[Metric(name="activeUsers"), Metric(name="sessions")],
+        date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+    )
+    response = client.run_report(request)
+    rows: list[tuple[str, int, int]] = []
+    for row in response.rows:
+        device = row.dimension_values[0].value or "(not set)"
+        active_users = int(row.metric_values[0].value or 0)
+        sessions = int(row.metric_values[1].value or 0)
+        rows.append((device, active_users, sessions))
+    return rows
+
+
 def fetch_demographics(client, property_id: str) -> list[tuple[str, str, int]]:
     """Gender + age bracket - only populated once Google Signals is enabled
     on the property (Admin > Data Collection); until then GA4 correctly
@@ -242,6 +261,15 @@ def store_top_countries(rows: list[tuple[str, int, int]]) -> None:
         )
 
 
+def store_devices(rows: list[tuple[str, int, int]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM ga4_devices")
+        con.executemany(
+            "INSERT INTO ga4_devices (device_category, active_users, sessions, synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
 def store_demographics(rows: list[tuple[str, str, int]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM ga4_demographics")
@@ -263,6 +291,7 @@ def main() -> int:
         top_pages = fetch_top_pages(client, property_id)
         countries = fetch_top_countries(client, property_id)
         demographics = fetch_demographics(client, property_id)
+        devices = fetch_device_breakdown(client, property_id)
     except Ga4SyncError as error:
         log_sync(dashboard_app, "ga4", "error", str(error))
         raise
@@ -272,6 +301,7 @@ def main() -> int:
     store_top_pages(top_pages)
     store_top_countries(countries)
     store_demographics(demographics)
+    store_devices(devices)
     log_sync(
         dashboard_app,
         "ga4",

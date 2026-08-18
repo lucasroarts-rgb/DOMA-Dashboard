@@ -182,8 +182,12 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     const dateLabel = fullDate(validSeries[0].points[index]?.date);
     tooltip.innerHTML = `<div class="chart-tooltip-date">${dateLabel}</div>${rows}`;
     tooltip.style.display = "block";
-    tooltip.style.left = `${clientX + 14}px`;
-    tooltip.style.top = `${clientY + 14}px`;
+    const tw = tooltip.offsetWidth;
+    const th = tooltip.offsetHeight;
+    const left = Math.min(clientX + 14, window.innerWidth - tw - 10);
+    const top = Math.min(clientY + 14, window.innerHeight - th - 10);
+    tooltip.style.left = `${Math.max(10, left)}px`;
+    tooltip.style.top = `${Math.max(10, top)}px`;
   }
 
   function hide() {
@@ -459,6 +463,13 @@ function renderSeo() {
     (c) => `<tr><td>${(c.country || "").toUpperCase()}</td><td>${number(c.clicks)}</td><td>${number(c.impressions)}</td><td>${percent(c.ctr)}</td><td>${c.position}</td></tr>`
   );
 
+  const DEVICE_LABELS = { DESKTOP: "Desktop", MOBILE: "Mobile", TABLET: "Tablet" };
+  renderTable(
+    "seoDeviceTable",
+    gsc.devices,
+    (d) => `<tr><td>${DEVICE_LABELS[d.device] || d.device}</td><td>${number(d.clicks)}</td><td>${number(d.impressions)}</td><td>${percent(d.ctr)}</td><td>${d.position}</td></tr>`
+  );
+
   renderTable(
     "indexCoverageTable",
     coverage.issues || [],
@@ -495,6 +506,14 @@ function renderBlog() {
     "blogCountriesTable",
     ga4.countries,
     (c) => `<tr><td>${c.country}</td><td>${number(c.active_users)}</td><td>${number(c.sessions)}</td></tr>`
+  );
+
+  const deviceTotal = (ga4.devices || []).reduce((sum, d) => sum + d.sessions, 0);
+  const DEVICE_LABELS_GA = { desktop: "Desktop", mobile: "Mobile", tablet: "Tablet" };
+  renderTable(
+    "blogDeviceTable",
+    ga4.devices,
+    (d) => `<tr><td>${DEVICE_LABELS_GA[d.device] || d.device}</td><td>${number(d.active_users)}</td><td>${number(d.sessions)}</td><td>${deviceTotal ? percent((d.sessions / deviceTotal) * 100) : "—"}</td></tr>`
   );
 
   const GA_GENDER_LABELS = { female: "Female", male: "Male" };

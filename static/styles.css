@@ -39,10 +39,10 @@ a{color:inherit}
 }
 .brand-title{font-weight:800;letter-spacing:-.01em;font-size:17px}
 .brand-sub{color:var(--muted);font-size:13px}
-.top-actions{display:flex;align-items:center;gap:12px}
-.range-picker{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-weight:650}
+.top-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.range-picker{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-weight:650;white-space:nowrap}
 .range-picker select{border:1px solid var(--line);border-radius:10px;padding:7px 10px;background:#fff;color:var(--ink)}
-.pill{padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700}
+.pill{padding:6px 11px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
 .pill.info{background:var(--teal-soft);color:var(--teal)}
 .pill.muted{background:transparent;color:var(--muted);font-weight:650}
 
@@ -123,3 +123,22 @@ tr:last-child td{border-bottom:0}
 .issue-info .issue-dot{background:var(--teal)}
 
 .footer{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
+
+@media (max-width:640px){
+  .shell{padding:14px}
+  .topbar{gap:10px}
+  .brand-title{font-size:15px}
+  .brand-sub{font-size:12px}
+  .brand-mark{width:36px;height:36px}
+  .top-actions{width:100%;gap:8px}
+  .range-picker{width:100%;justify-content:space-between}
+  .tabs{top:6px;padding:5px;gap:4px}
+  .tab{padding:8px 11px;font-size:13px}
+  .cards{gap:10px}
+  .card{padding:13px 14px}
+  .card .card-value{font-size:22px}
+  .panel{padding:15px}
+  .chart-tooltip{max-width:min(220px, calc(100vw - 32px));font-size:12px}
+  table{font-size:12.5px}
+  th,td{padding:8px}
+}
