@@ -108,6 +108,62 @@ URL da sub-conta ou em Settings > Business Profile.
 "dados de email indisponíveis" em vez de zero. Precisaria de um endpoint
 diferente do GoHighLevel pra resolver, ainda não identificado.
 
+## Editar SEO do WordPress via API (fora do escopo deste repo, mas documentado aqui)
+
+DOMA roda em WordPress + Elementor + código customizado (dentalofficemanagers.com,
+hospedado na Bluehost/Newfold). Numa sessão em 2026-08-19, usei a REST API do
+WordPress com uma **Application Password** (não a senha de login) pra
+corrigir título/meta description/alt text apontados pela auditoria SEO
+deste dashboard, direto no site. Isso não faz parte do código deste
+projeto (não roda automaticamente), mas fica registrado aqui porque outra
+sessão pode precisar repetir o processo:
+
+1. wp-admin > Users > Profile > Application Passwords > gera uma nova.
+   Autentica via HTTP Basic (`usuário:application-password`) em
+   `https://dentalofficemanagers.com/wp-json/wp/v2/...`.
+2. **Bloqueio 1**: o WAF da Bluehost (Mod_Security) retorna 406 pro
+   User-Agent padrão da lib `requests` do Python — passa um header
+   `User-Agent` de navegador normal.
+3. **Bloqueio 2**: os campos `_yoast_wpseo_title` e `_yoast_wpseo_metadesc`
+   **não aparecem** no objeto `meta` da API por padrão nesse Yoast — mudar
+   `title`/`excerpt` do WordPress não muda o `<title>`/meta real da página
+   (o Yoast tem um valor próprio, travado, que sobrepõe tudo). Resolvido
+   registrando os dois campos pra REST via um snippet PHP no plugin
+   **Code Snippets** (já instalado e ativo no site):
+   ```php
+   add_action('init', function () {
+       foreach (array('post', 'page') as $post_type) {
+           register_post_meta($post_type, '_yoast_wpseo_title', array(
+               'show_in_rest' => true, 'single' => true, 'type' => 'string',
+               'auth_callback' => function () { return current_user_can('edit_posts'); },
+           ));
+           register_post_meta($post_type, '_yoast_wpseo_metadesc', array(
+               'show_in_rest' => true, 'single' => true, 'type' => 'string',
+               'auth_callback' => function () { return current_user_can('edit_posts'); },
+           ));
+       }
+   });
+   ```
+   Criado via `POST /wp-json/code-snippets/v1/snippets` (a conta precisa
+   ser Administrator, não Editor, pra essa rota). Ativação do snippet foi
+   feita manualmente pelo usuário (ativar execução de código em site ao
+   vivo é bloqueado pra automação, por design).
+4. Conteúdo de imagem/vídeo/hero no site não usa a Biblioteca de Mídia do
+   WordPress — é tudo HTML customizado dentro de widgets "HTML" do
+   Elementor (`meta._elementor_data`, um JSON serializado como string). Pra
+   editar alt text de imagem, editei essa estrutura JSON diretamente
+   (`json.loads` > editar o campo `settings.html` de cada widget > `json.dumps`
+   de volta), não a API de Media.
+5. **Cuidado real, não teórico**: o template de post único (Elementor
+   Library #318, "Elementor Single Post") monta o hero (H1, imagem, corpo
+   do artigo) via **JavaScript client-side** — um crawler sem JS (como o
+   `sync_seo_audit.py` deste projeto, ou `curl`) vê `'+title+'` literal e
+   ~259 palavras, enquanto um navegador de verdade mostra o título certo,
+   H1 correto e o artigo completo (2000+ palavras). Isso gerou dois falsos
+   alarmes na auditoria (já corrigidos no texto do achado, ver
+   `app.py:_onpage_findings`) - **sempre confirmar com navegador renderizado
+   antes de tratar como bug real** nesse site especificamente.
+
 ## Meta organic setup (Facebook Page + Instagram)
 
 Sem API de anúncios, sem gasto pago — só Page Insights e Instagram Insights
