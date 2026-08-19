@@ -163,6 +163,24 @@ sessão pode precisar repetir o processo:
    alarmes na auditoria (já corrigidos no texto do achado, ver
    `app.py:_onpage_findings`) - **sempre confirmar com navegador renderizado
    antes de tratar como bug real** nesse site especificamente.
+6. **Plugin Redirection (regras de redirect)**: achado real em 2026-08-19 —
+   38 posts publicados de verdade estavam sendo redirecionados pro `/blog/`
+   genérico por uma regra antiga de limpeza da migração Wix que nunca foi
+   removida quando o post foi republicado com o mesmo slug (>2000 acessos
+   reais desviados no total). Rotas úteis da API do plugin (descobertas via
+   `GET /wp-json/` — não documentado em lugar óbvio):
+   - `GET /redirection/v1/redirect?per_page=200` lista as regras (200 é o
+     máximo da própria API, pagina além disso)
+   - `POST /redirection/v1/bulk/redirect/disable` com corpo
+     `{"items": [id1, id2, ...]}` — **essa é a que realmente funciona** pra
+     ativar/desativar em massa. `POST .../redirect/{id}/disable` dá 404
+     (rota não existe), e `POST .../redirect/{id}` com o objeto completo e
+     `"enabled": false` retorna 200 mas **ignora silenciosamente** o campo
+   - Reimportação de CSV (Tools > Import) **não respeita a coluna
+     `status`** mesmo ela existindo no CSV exportado — atualiza
+     url/target/code/hits/title casando pela URL de origem (confirmado:
+     "127 updated, 0 created"), mas descarta o estado ativo/desativado.
+     Não confiar em CSV pra mudar status — usar o endpoint bulk acima.
 
 ## Meta organic setup (Facebook Page + Instagram)
 
