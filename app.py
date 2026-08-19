@@ -228,6 +228,25 @@ def init_db() -> None:
         checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS pagespeed_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        strategy TEXT NOT NULL DEFAULT 'mobile',
+        performance_score INTEGER,
+        accessibility_score INTEGER,
+        best_practices_score INTEGER,
+        seo_score INTEGER,
+        lcp_ms REAL,
+        cls REAL,
+        tbt_ms REAL,
+        fcp_ms REAL,
+        speed_index_ms REAL,
+        console_errors TEXT,
+        top_opportunities TEXT,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(url, strategy)
+    );
+
     CREATE TABLE IF NOT EXISTS ga4_demographics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dimension_type TEXT NOT NULL,
@@ -430,6 +449,7 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         "index_coverage": index_coverage_summary(con),
         "content_gaps": content_gap_summary(con),
         "onpage_audit": seo_onpage_summary(con),
+        "pagespeed": pagespeed_summary(con),
         "countries": [
             {"country": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
             for row in con.execute(
@@ -578,6 +598,42 @@ def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "healthy_count": len(pages) - len(pages_with_issues),
         "pages": pages_with_issues,
         "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
+def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    import json
+
+    rows = con.execute(
+        "SELECT url, performance_score, accessibility_score, best_practices_score, seo_score, "
+        "lcp_ms, cls, tbt_ms, fcp_ms, speed_index_ms, console_errors, top_opportunities, checked_at "
+        "FROM pagespeed_audit WHERE strategy = 'mobile' ORDER BY performance_score ASC"
+    ).fetchall()
+    pages = []
+    for row in rows:
+        pages.append(
+            {
+                "url": row[0],
+                "performance_score": row[1],
+                "accessibility_score": row[2],
+                "best_practices_score": row[3],
+                "seo_score": row[4],
+                "lcp_ms": row[5],
+                "cls": row[6],
+                "tbt_ms": row[7],
+                "fcp_ms": row[8],
+                "speed_index_ms": row[9],
+                "console_errors": json.loads(row[10]) if row[10] else [],
+                "top_opportunities": json.loads(row[11]) if row[11] else [],
+                "checked_at": row[12],
+            }
+        )
+    avg_performance = round(sum(p["performance_score"] for p in pages) / len(pages)) if pages else None
+    return {
+        "available": bool(pages),
+        "pages": pages,
+        "avg_performance_score": avg_performance,
+        "checked_at": pages[0]["checked_at"] if pages else None,
     }
 
 

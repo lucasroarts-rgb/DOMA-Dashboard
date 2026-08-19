@@ -429,6 +429,24 @@ function computeIssues() {
     });
   }
 
+  const pagespeed = gsc.pagespeed;
+  if (pagespeed?.available) {
+    const slow = pagespeed.pages.filter((p) => p.performance_score !== null && p.performance_score < 50);
+    if (slow.length) {
+      issues.push({
+        severity: "warn",
+        text: `${slow.length} page(s) score below 50 on mobile performance (Google PageSpeed) - worst: ${slow[0].url.replace(/^https?:\/\/[^/]+/, "") || "/"} (${slow[0].performance_score}). See SEO > Page speed.`,
+      });
+    }
+    const consoleErrorPages = pagespeed.pages.filter((p) => p.console_errors?.length);
+    if (consoleErrorPages.length) {
+      issues.push({
+        severity: "info",
+        text: `${consoleErrorPages.length} page(s) throw real browser console errors during load (Lighthouse). See SEO > Page speed.`,
+      });
+    }
+  }
+
   return issues;
 }
 
@@ -561,6 +579,23 @@ function renderSeo() {
     onpage.pages || [],
     (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${p.findings.join("; ")}</td></tr>`,
     "Every checked page passes the on-page basics."
+  );
+
+  const pagespeed = gsc.pagespeed;
+  document.getElementById("pagespeedEmpty").style.display = pagespeed?.available ? "none" : "block";
+  if (pagespeed?.available) {
+    renderCards("pagespeedCards", [
+      { label: "Avg. performance (mobile)", value: pagespeed.avg_performance_score },
+      { label: "Pages checked", value: number(pagespeed.pages.length) },
+    ]);
+  } else {
+    document.getElementById("pagespeedCards").innerHTML = "";
+  }
+  const scoreClass = (s) => (s == null ? "" : s >= 90 ? "delta-good" : s >= 50 ? "delta-flat" : "delta-bad");
+  renderTable(
+    "pagespeedTable",
+    pagespeed?.pages || [],
+    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td><td><span class="delta ${scoreClass(p.performance_score)}">${p.performance_score ?? "—"}</span></td><td>${p.lcp_ms ? (p.lcp_ms / 1000).toFixed(1) + "s" : "—"}</td><td>${p.cls != null ? p.cls.toFixed(3) : "—"}</td><td>${p.accessibility_score ?? "—"}</td><td>${p.top_opportunities?.[0] ? `${p.top_opportunities[0].title} (${Math.round(p.top_opportunities[0].savings_ms)}ms)` : "—"}</td></tr>`
   );
 
   renderTable(

@@ -47,6 +47,7 @@ python scripts/sync_ga4.py
 python scripts/sync_ghl.py
 python scripts/sync_meta_organic.py
 python scripts/sync_seo_audit.py
+python scripts/sync_pagespeed.py
 ```
 
 Cada script é isolado: se uma fonte falhar (credencial errada, API fora do
@@ -55,7 +56,7 @@ ar), as outras continuam funcionando. Falhas ficam registradas na tabela
 
 ## Automação diária
 
-`python scripts/daily_sync.py` roda os 4 syncs, gera o site estático em
+`python scripts/daily_sync.py` roda os 6 syncs, gera o site estático em
 `docs/` (com os períodos de 30/90/180 dias já pré-calculados, pro seletor de
 período funcionar mesmo no site publicado sem back-end) e faz commit + push
 automático (se `AUTO_PUBLISH=true` no `.env` e o repositório já estiver
@@ -287,6 +288,20 @@ python scripts/generate_public_site.py
 - **Recent posts** (aba Blog): junta os posts mais recentes (do sitemap) com
   sessão/views do GA4 e cliques/impressões do Search Console - sem precisar
   que o post já seja um dos top-30/top-50 em algum outro lugar.
+- **Page speed (mobile)** (`sync_pagespeed.py`): roda o Google PageSpeed
+  Insights (Lighthouse) na homepage + nas páginas de maior tráfego (top 7 do
+  GA4, `ga4_top_pages`), sempre estratégia mobile - é o critério mais duro e
+  o que o Google usa pra mobile-first indexing. Guarda performance,
+  acessibilidade, best practices, SEO score, LCP, CLS, TBT, FCP, speed index,
+  erros de console reais (via browser headless do Lighthouse, então pega
+  problemas que o `sync_seo_audit.py` não pega por não executar JS) e as
+  principais oportunidades de otimização por página. Requer
+  `PAGESPEED_API_KEY` no `.env` - o limite público sem chave é compartilhado
+  globalmente e pode zerar no dia; crie uma API key no mesmo projeto Google
+  Cloud do GA4/GSC (ativar "PageSpeed Insights API" > Credentials > Create
+  Credentials > API key, sem OAuth/service-account). Se uma página falhar
+  (timeout, erro do próprio Lighthouse), o script pula ela e segue com as
+  demais - não derruba o sync inteiro.
 
 ## Proteção do site publicado
 
