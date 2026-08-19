@@ -175,6 +175,59 @@ def init_db() -> None:
         UNIQUE(device)
     );
 
+    CREATE TABLE IF NOT EXISTS gsc_content_gaps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        query TEXT NOT NULL,
+        page TEXT NOT NULL,
+        position REAL NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS content_posts_gsc (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        published_at TEXT,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        ctr REAL NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(url)
+    );
+
+    CREATE TABLE IF NOT EXISTS content_posts_ga4 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        published_at TEXT,
+        sessions INTEGER NOT NULL DEFAULT 0,
+        page_views INTEGER NOT NULL DEFAULT 0,
+        active_users INTEGER NOT NULL DEFAULT 0,
+        avg_engagement_seconds REAL NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(url)
+    );
+
+    CREATE TABLE IF NOT EXISTS seo_onpage_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        http_status INTEGER NOT NULL DEFAULT 0,
+        fetch_error TEXT,
+        title TEXT,
+        title_length INTEGER NOT NULL DEFAULT 0,
+        meta_description TEXT,
+        meta_length INTEGER NOT NULL DEFAULT 0,
+        h1_count INTEGER NOT NULL DEFAULT 0,
+        images_total INTEGER NOT NULL DEFAULT 0,
+        images_missing_alt INTEGER NOT NULL DEFAULT 0,
+        word_count INTEGER NOT NULL DEFAULT 0,
+        has_canonical INTEGER NOT NULL DEFAULT 0,
+        canonical_url TEXT,
+        has_schema INTEGER NOT NULL DEFAULT 0,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS ga4_demographics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dimension_type TEXT NOT NULL,
@@ -375,6 +428,8 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         "top_queries": top_queries,
         "last_synced_at": last_synced_at,
         "index_coverage": index_coverage_summary(con),
+        "content_gaps": content_gap_summary(con),
+        "onpage_audit": seo_onpage_summary(con),
         "countries": [
             {"country": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
             for row in con.execute(
@@ -431,6 +486,133 @@ def index_coverage_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "by_state": [{"state": state, "count": count} for state, count in sorted(by_state.items(), key=lambda kv: -kv[1])],
         "checked_at": checked_at_row[0] if checked_at_row else None,
     }
+
+
+def content_gap_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Queries with real impressions where DOMA's best-ranking page still
+    isn't in the top 15 - content opportunities, see sync_gsc.py:fetch_content_gaps
+    for the exact thresholds."""
+    rows = con.execute(
+        "SELECT query, page, position, impressions, clicks FROM gsc_content_gaps "
+        "ORDER BY impressions DESC LIMIT 30"
+    ).fetchall()
+    gaps = [
+        {"query": row[0], "page": row[1], "position": float(row[2] or 0), "impressions": int(row[3] or 0), "clicks": int(row[4] or 0)}
+        for row in rows
+    ]
+    checked_at_row = con.execute("SELECT MAX(synced_at) FROM gsc_content_gaps").fetchone()
+    return {"available": bool(gaps), "gaps": gaps, "checked_at": checked_at_row[0] if checked_at_row else None}
+
+
+# Findings a human should look at - anything short of "healthy" on any of
+# these axes. Thresholds are deliberately loose (few false positives) since
+# this feeds a "things to fix" list, not a pass/fail score.
+def _onpage_findings(row: dict[str, Any]) -> list[str]:
+    findings = []
+    if row["fetch_error"] or (row["http_status"] and row["http_status"] != 200):
+        findings.append(f"Page did not load cleanly (HTTP {row['http_status'] or 'error'})")
+        return findings  # other checks are meaningless if the page didn't load
+    if not row["title"]:
+        findings.append("Missing <title> tag")
+    elif row["title_length"] < 30 or row["title_length"] > 60:
+        findings.append(f"Title length {row['title_length']} chars (ideal ~30-60)")
+    if not row["meta_description"]:
+        findings.append("Missing meta description")
+    elif row["meta_length"] < 70 or row["meta_length"] > 160:
+        findings.append(f"Meta description length {row['meta_length']} chars (ideal ~70-160)")
+    if row["h1_count"] == 0:
+        findings.append("No H1 heading")
+    elif row["h1_count"] > 1:
+        findings.append(f"{row['h1_count']} H1 headings (should be exactly 1)")
+    if row["images_missing_alt"] > 0:
+        findings.append(f"{row['images_missing_alt']} of {row['images_total']} images missing alt text")
+    if row["word_count"] < 300:
+        findings.append(f"Thin content: {row['word_count']} words")
+    if not row["has_canonical"]:
+        findings.append("Missing canonical tag")
+    if not row["has_schema"]:
+        findings.append("No structured data (JSON-LD) found")
+    return findings
+
+
+def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    rows = con.execute(
+        "SELECT url, http_status, fetch_error, title, title_length, meta_description, meta_length, "
+        "h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url, has_schema "
+        "FROM seo_onpage_audit ORDER BY url"
+    ).fetchall()
+    pages = []
+    for row in rows:
+        page = {
+            "url": row[0],
+            "http_status": int(row[1] or 0),
+            "fetch_error": row[2],
+            "title": row[3],
+            "title_length": int(row[4] or 0),
+            "meta_description": row[5],
+            "meta_length": int(row[6] or 0),
+            "h1_count": int(row[7] or 0),
+            "images_total": int(row[8] or 0),
+            "images_missing_alt": int(row[9] or 0),
+            "word_count": int(row[10] or 0),
+            "has_canonical": bool(row[11]),
+            "canonical_url": row[12],
+            "has_schema": bool(row[13]),
+        }
+        page["findings"] = _onpage_findings(page)
+        pages.append(page)
+
+    pages_with_issues = [p for p in pages if p["findings"]]
+    checked_at_row = con.execute("SELECT MAX(checked_at) FROM seo_onpage_audit").fetchone()
+    return {
+        "available": bool(pages),
+        "total_checked": len(pages),
+        "healthy_count": len(pages) - len(pages_with_issues),
+        "pages": pages_with_issues,
+        "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
+def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Latest blog posts (from the sitemap) joined with their GA4 + Search
+    Console performance - answers "how is the post I published last week
+    actually doing" without needing it to already be a top-30/top-50 entry
+    elsewhere."""
+    ga4_rows = {
+        row[0]: {"sessions": int(row[2] or 0), "page_views": int(row[3] or 0), "active_users": int(row[4] or 0), "avg_engagement_seconds": float(row[5] or 0)}
+        for row in con.execute(
+            "SELECT url, published_at, sessions, page_views, active_users, avg_engagement_seconds FROM content_posts_ga4"
+        ).fetchall()
+    }
+    gsc_rows = {
+        row[0]: {"clicks": int(row[2] or 0), "impressions": int(row[3] or 0), "ctr": float(row[4] or 0), "position": float(row[5] or 0)}
+        for row in con.execute(
+            "SELECT url, published_at, clicks, impressions, ctr, position FROM content_posts_gsc"
+        ).fetchall()
+    }
+    published_dates = {
+        row[0]: row[1]
+        for row in con.execute("SELECT url, published_at FROM content_posts_gsc UNION SELECT url, published_at FROM content_posts_ga4").fetchall()
+    }
+
+    posts = []
+    for url, published_at in published_dates.items():
+        ga4 = ga4_rows.get(url, {})
+        gsc = gsc_rows.get(url, {})
+        posts.append(
+            {
+                "url": url,
+                "published_at": published_at,
+                "sessions": ga4.get("sessions", 0),
+                "page_views": ga4.get("page_views", 0),
+                "avg_engagement_seconds": ga4.get("avg_engagement_seconds", 0),
+                "clicks": gsc.get("clicks", 0),
+                "impressions": gsc.get("impressions", 0),
+                "position": gsc.get("position", 0),
+            }
+        )
+    posts.sort(key=lambda p: p["published_at"] or "", reverse=True)
+    return {"available": bool(posts), "posts": posts}
 
 
 def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
@@ -664,6 +846,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "ga4": ga4_summary(con, start_date, end_date),
             "ghl": ghl_summary(con, start_date, end_date),
             "social": social_summary(con, start_date, end_date),
+            "content": recent_posts_summary(con),
             "sync_status": sync_status(con),
         }
 

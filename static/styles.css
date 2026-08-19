@@ -124,6 +124,23 @@ tr:last-child td{border-bottom:0}
 
 .footer{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
 
+.password-gate{
+  position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 30% 20%, rgba(212,175,55,.14), transparent 30rem), var(--navy);
+  padding:20px;
+}
+.password-gate-box{
+  background:var(--panel);border-radius:20px;padding:32px 28px;max-width:340px;width:100%;
+  text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.35);
+}
+.password-gate-logo{width:64px;height:64px;border-radius:50%;object-fit:cover;margin-bottom:14px;box-shadow:0 8px 20px rgba(13,27,46,.24)}
+.password-gate-box h1{font-size:19px;margin:0 0 6px;font-weight:800}
+.password-gate-box p{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+.password-gate-box form{display:flex;flex-direction:column;gap:10px}
+.password-gate-box input{border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:14px;text-align:center}
+.password-gate-box button{border:0;background:var(--navy);color:#fff;border-radius:10px;padding:11px;font-weight:750;font-size:14px}
+.password-gate-error{color:var(--red);font-size:12.5px;margin-top:12px;font-weight:650}
+
 @media (max-width:640px){
   .shell{padding:14px}
   .topbar{gap:10px}

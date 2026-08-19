@@ -21,14 +21,13 @@ from __future__ import annotations
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from urllib.parse import urljoin
-from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import app as dashboard_app  # noqa: E402
 from scripts.env_utils import load_env_file, log_sync  # noqa: E402
+from scripts import sitemap_utils  # noqa: E402
 
 LOOKBACK_DAYS = 180
 TOP_QUERY_LIMIT = 50
@@ -38,10 +37,11 @@ TOP_QUERY_LIMIT = 50
 # page on the site, this checks the site's static pages (all of them, there
 # are few) plus the most recently published posts, sourced from the Yoast
 # SEO XML sitemap (WordPress).
-SITEMAP_INDEX_PATH = "/sitemap_index.xml"
 MAX_PAGES_TO_INSPECT = 60
 MAX_POSTS_TO_INSPECT = 25
-SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+MAX_RECENT_POSTS = 15
+CONTENT_GAP_MIN_IMPRESSIONS = 15
+CONTENT_GAP_MIN_POSITION = 15
 
 
 class GscSyncError(RuntimeError):
@@ -174,53 +174,13 @@ def store_top_countries(rows: list[tuple[str, int, int, float, float]]) -> None:
         )
 
 
-def _fetch_xml(url: str) -> ElementTree.Element | None:
-    try:
-        import requests
-    except ImportError as error:
-        raise GscSyncError("requests is not installed. Run: pip install -r requirements.txt") from error
-
-    response = requests.get(url, timeout=20, headers={"User-Agent": "doma-dashboard-sync"})
-    if response.status_code != 200:
-        return None
-    try:
-        return ElementTree.fromstring(response.content)
-    except ElementTree.ParseError:
-        return None
-
-
 def fetch_urls_to_inspect(site_url: str) -> list[str]:
     """Discover URLs from the WordPress/Yoast XML sitemap: every static page,
     plus the most recently published posts (most likely to have fresh
     indexing problems - a brand-new post not indexed yet, a redirect from a
     slug change, etc)."""
-    index_root = _fetch_xml(urljoin(site_url, SITEMAP_INDEX_PATH))
-    if index_root is None:
-        return []
-
-    sub_sitemaps = [node.text for node in index_root.findall(".//sm:sitemap/sm:loc", SITEMAP_NS) if node.text]
-
-    def urls_from_sitemap(sitemap_url: str) -> list[tuple[str, str]]:
-        root = _fetch_xml(sitemap_url)
-        if root is None:
-            return []
-        entries = []
-        for url_node in root.findall(".//sm:url", SITEMAP_NS):
-            loc = url_node.find("sm:loc", SITEMAP_NS)
-            lastmod = url_node.find("sm:lastmod", SITEMAP_NS)
-            if loc is not None and loc.text:
-                entries.append((loc.text, lastmod.text if lastmod is not None else ""))
-        return entries
-
-    urls: list[str] = []
-    for sitemap_url in sub_sitemaps:
-        if "page-sitemap" in sitemap_url:
-            pages = urls_from_sitemap(sitemap_url)
-            urls.extend(loc for loc, _ in pages[:MAX_PAGES_TO_INSPECT])
-        elif "post-sitemap" in sitemap_url:
-            posts = urls_from_sitemap(sitemap_url)
-            posts.sort(key=lambda entry: entry[1], reverse=True)
-            urls.extend(loc for loc, _ in posts[:MAX_POSTS_TO_INSPECT])
+    urls = list(sitemap_utils.fetch_pages(site_url, limit=MAX_PAGES_TO_INSPECT))
+    urls += [loc for loc, _ in sitemap_utils.fetch_recent_posts(site_url, limit=MAX_POSTS_TO_INSPECT)]
 
     seen = set()
     deduped = []
@@ -229,6 +189,67 @@ def fetch_urls_to_inspect(site_url: str) -> list[str]:
             seen.add(url)
             deduped.append(url)
     return deduped
+
+
+def fetch_content_gaps(service, site_url: str) -> list[tuple[str, str, float, int, int]]:
+    """Queries that get real search impressions but where DOMA's best-ranking
+    page still sits outside the top 15 - i.e. Google knows the site is
+    somewhat relevant but isn't confident enough to rank it well. That gap
+    is a content opportunity: either the topic has no dedicated page, or the
+    existing page doesn't target the query clearly enough."""
+    start_date, end_date = _date_range()
+    body = {
+        "startDate": start_date,
+        "endDate": end_date,
+        "dimensions": ["query", "page"],
+        "rowLimit": 1000,
+    }
+    response = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+
+    best_by_query: dict[str, tuple[str, float, int, int]] = {}
+    for row in response.get("rows", []):
+        query, page = row["keys"]
+        position = float(row.get("position", 0.0))
+        impressions = int(row.get("impressions", 0))
+        clicks = int(row.get("clicks", 0))
+        existing = best_by_query.get(query)
+        if existing is None or position < existing[1]:
+            best_by_query[query] = (page, position, impressions, clicks)
+        else:
+            best_by_query[query] = (existing[0], existing[1], existing[2] + impressions, existing[3] + clicks)
+
+    gaps = [
+        (query, page, round(position, 1), impressions, clicks)
+        for query, (page, position, impressions, clicks) in best_by_query.items()
+        if position > CONTENT_GAP_MIN_POSITION and impressions >= CONTENT_GAP_MIN_IMPRESSIONS
+    ]
+    gaps.sort(key=lambda row: row[3], reverse=True)
+    return gaps[:30]
+
+
+def fetch_recent_post_performance(service, site_url: str) -> list[tuple[str, str, int, int, float, float]]:
+    """Search performance for the most recently published posts specifically
+    (not just whatever happens to be in the global top-clicks list) - a
+    3-week-old post can have real impressions/clicks that never show up in
+    fetch_top_queries because it's not a top-50 query yet."""
+    recent_posts = sitemap_utils.fetch_recent_posts(site_url, limit=MAX_RECENT_POSTS)
+    if not recent_posts:
+        return []
+
+    start_date, end_date = _date_range()
+    body = {"startDate": start_date, "endDate": end_date, "dimensions": ["page"], "rowLimit": 5000}
+    response = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+    by_page = {row["keys"][0]: row for row in response.get("rows", [])}
+
+    rows: list[tuple[str, str, int, int, float, float]] = []
+    for url, lastmod in recent_posts:
+        match = by_page.get(url)
+        clicks = int(match.get("clicks", 0)) if match else 0
+        impressions = int(match.get("impressions", 0)) if match else 0
+        ctr = round(float(match.get("ctr", 0.0)) * 100, 2) if match else 0.0
+        position = round(float(match.get("position", 0.0)), 1) if match else 0.0
+        rows.append((url, lastmod, clicks, impressions, ctr, position))
+    return rows
 
 
 def fetch_url_inspections(service, site_url: str, urls: list[str]) -> list[dict[str, str]]:
@@ -297,6 +318,26 @@ def store_top_queries(rows: list[tuple[str, int, int, float, float]]) -> None:
         )
 
 
+def store_content_gaps(rows: list[tuple[str, str, float, int, int]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM gsc_content_gaps")
+        con.executemany(
+            "INSERT INTO gsc_content_gaps (query, page, position, impressions, clicks, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
+def store_recent_post_performance(rows: list[tuple[str, str, int, int, float, float]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM content_posts_gsc")
+        con.executemany(
+            "INSERT INTO content_posts_gsc (url, published_at, clicks, impressions, ctr, position, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
 def store_url_inspections(rows: list[dict[str, str]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM gsc_url_inspections")
@@ -343,6 +384,24 @@ def main() -> int:
     except Exception as error:  # noqa: BLE001 - indexing check is best-effort, must not break the core GSC sync
         log_sync(dashboard_app, "gsc_indexing", "skipped", str(error))
         print(f"WARNING: index coverage check skipped ({error})", file=sys.stderr)
+
+    try:
+        gaps = fetch_content_gaps(service, site_url)
+        store_content_gaps(gaps)
+        log_sync(dashboard_app, "gsc_content_gaps", "ok", f"{len(gaps)} gaps found")
+        print(f"Content gap analysis complete: {len(gaps)} opportunities found.")
+    except Exception as error:  # noqa: BLE001 - best-effort, must not break the core GSC sync
+        log_sync(dashboard_app, "gsc_content_gaps", "skipped", str(error))
+        print(f"WARNING: content gap analysis skipped ({error})", file=sys.stderr)
+
+    try:
+        recent_posts = fetch_recent_post_performance(service, site_url)
+        store_recent_post_performance(recent_posts)
+        log_sync(dashboard_app, "gsc_recent_posts", "ok", f"{len(recent_posts)} posts")
+        print(f"Recent-post search performance complete: {len(recent_posts)} posts.")
+    except Exception as error:  # noqa: BLE001 - best-effort, must not break the core GSC sync
+        log_sync(dashboard_app, "gsc_recent_posts", "skipped", str(error))
+        print(f"WARNING: recent-post search performance skipped ({error})", file=sys.stderr)
 
     return 0
 

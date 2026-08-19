@@ -3,6 +3,56 @@ const IS_STATIC = Boolean(STATIC_DATA);
 
 let dashboard = null;
 
+/* ---------- password gate (published site only) ----------
+   NOT real security - this is a client-side deterrent only. The full
+   dataset is still in this page's HTML/data.js and downloadable by anyone
+   who knows the URL, view-source, or calls the Graph/GA4/GSC endpoints
+   directly. Chosen deliberately (see README.md) over paying for GitHub Pro
+   or setting up Cloudflare Access. To change the password: replace
+   PASSWORD_HASH below with the SHA-256 hex digest of the new password
+   (e.g. in a browser console: crypto.subtle.digest("SHA-256", new
+   TextEncoder().encode("newpassword")) then hex-encode the result, or use
+   any "sha256 hash" tool). */
+const PASSWORD_HASH = "e384f71129f78362b4fbb4edfc53b56f70223d04a148278ef4d9040002442a48"; // "doma2026"
+const PASSWORD_SESSION_KEY = "doma_dashboard_unlocked";
+
+async function sha256Hex(text) {
+  const bytes = new TextEncoder().encode(text);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function initPasswordGate() {
+  if (!IS_STATIC) return true; // local dashboard: no gate, you're already on your own machine
+  if (sessionStorage.getItem(PASSWORD_SESSION_KEY) === "1") return true;
+
+  const gate = document.getElementById("passwordGate");
+  const form = document.getElementById("passwordGateForm");
+  const input = document.getElementById("passwordGateInput");
+  const error = document.getElementById("passwordGateError");
+  if (!gate || !form) return true;
+
+  gate.style.display = "flex";
+  document.querySelector(".shell").style.display = "none";
+
+  return new Promise((resolve) => {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const hash = await sha256Hex(input.value);
+      if (hash === PASSWORD_HASH) {
+        sessionStorage.setItem(PASSWORD_SESSION_KEY, "1");
+        gate.style.display = "none";
+        document.querySelector(".shell").style.display = "";
+        resolve(true);
+      } else {
+        error.style.display = "block";
+        input.value = "";
+        input.focus();
+      }
+    });
+  });
+}
+
 function number(value) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
   return Number(value).toLocaleString("en-US");
@@ -362,6 +412,23 @@ function computeIssues() {
     });
   }
 
+  const gaps = gsc.content_gaps;
+  if (gaps?.available && gaps.gaps.length) {
+    const top = gaps.gaps[0];
+    issues.push({
+      severity: "info",
+      text: `${gaps.gaps.length} content gap(s) found - e.g. "${top.query}" gets ${number(top.impressions)} impressions but ranks at position ${top.position}. See SEO > Content gap opportunities.`,
+    });
+  }
+
+  const onpage = gsc.onpage_audit;
+  if (onpage?.available && onpage.pages.length) {
+    issues.push({
+      severity: "warn",
+      text: `${onpage.pages.length} of ${onpage.total_checked} pages have on-page SEO issues (title/meta/headings/alt text). See SEO > On-page audit.`,
+    });
+  }
+
   return issues;
 }
 
@@ -470,6 +537,32 @@ function renderSeo() {
     (d) => `<tr><td>${DEVICE_LABELS[d.device] || d.device}</td><td>${number(d.clicks)}</td><td>${number(d.impressions)}</td><td>${percent(d.ctr)}</td><td>${d.position}</td></tr>`
   );
 
+  const gaps = gsc.content_gaps;
+  document.getElementById("contentGapsEmpty").style.display = gaps.available ? "none" : "block";
+  renderTable(
+    "contentGapsTable",
+    gaps.gaps || [],
+    (g) => `<tr><td>${g.query}</td><td><a href="${g.page}" target="_blank" rel="noopener">${g.page.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${g.position}</td><td>${number(g.impressions)}</td><td>${number(g.clicks)}</td></tr>`
+  );
+
+  const onpage = gsc.onpage_audit;
+  document.getElementById("onpageEmpty").style.display = onpage.available ? "none" : "block";
+  if (onpage.available) {
+    renderCards("onpageCards", [
+      { label: "Pages checked", value: number(onpage.total_checked) },
+      { label: "Healthy", value: number(onpage.healthy_count) },
+      { label: "Need attention", value: number(onpage.pages.length) },
+    ]);
+  } else {
+    document.getElementById("onpageCards").innerHTML = "";
+  }
+  renderTable(
+    "onpageTable",
+    onpage.pages || [],
+    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${p.findings.join("; ")}</td></tr>`,
+    "Every checked page passes the on-page basics."
+  );
+
   renderTable(
     "indexCoverageTable",
     coverage.issues || [],
@@ -529,6 +622,14 @@ function renderBlog() {
     "blogAgeTable",
     ga4.demographics?.age || [],
     (a) => `<tr><td>${a.value}</td><td>${number(a.active_users)}</td><td>${ageTotal ? percent((a.active_users / ageTotal) * 100) : "—"}</td></tr>`
+  );
+
+  const content = dashboard.content;
+  document.getElementById("recentPostsEmpty").style.display = content?.available ? "none" : "block";
+  renderTable(
+    "recentPostsTable",
+    content?.posts || [],
+    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td><td>${duration(p.avg_engagement_seconds)}</td><td>${number(p.clicks)}</td><td>${number(p.impressions)}</td><td>${p.position || "—"}</td></tr>`
   );
 }
 
@@ -689,6 +790,7 @@ function initRangeSelect() {
 }
 
 (async function init() {
+  await initPasswordGate();
   initTabs();
   initRangeSelect();
   const initialDays = IS_STATIC ? String(STATIC_DATA.default_range || 90) : (document.getElementById("rangeSelect")?.value || 90);

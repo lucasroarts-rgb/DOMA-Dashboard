@@ -15,12 +15,15 @@ Site publicado: https://lucasroarts-rgb.github.io/DOMA-Dashboard/
 app.py                     FastAPI + SQLite + funções de resumo (fonte única de verdade)
 scripts/
   env_utils.py              leitor de .env compartilhado
-  sync_gsc.py                Google Search Console -> search_console_daily / _queries
-  sync_ga4.py                GA4 -> ga4_traffic_daily / _channel_daily / _top_pages
-  sync_ghl.py                GoHighLevel -> ghl_leads_daily / ghl_email_campaigns
-  sync_meta_organic.py       Facebook Page + Instagram Business -> social_followers_daily / _metrics_daily / _posts
+  sitemap_utils.py           leitor do sitemap XML (Yoast/WordPress) compartilhado
+  sync_gsc.py                Search Console -> performance, países, dispositivo, gap de conteúdo, indexação
+  sync_ga4.py                GA4 -> tráfego, países, dispositivo, gênero/idade, posts recentes
+  sync_ghl.py                GoHighLevel -> leads por dia/fonte
+  sync_meta_organic.py       Facebook Page + Instagram Business -> seguidores, posts, demografia
+  sync_seo_audit.py          Auditoria on-page (título, meta, H1, alt text, schema) via crawl direto
+  import_email_stats.py      Importador manual de CSV (campanhas de email do GHL)
   generate_public_site.py    gera docs/ (site estático) a partir das mesmas funções do app.py
-  daily_sync.py              orquestra os 4 syncs + gera site + publica no git
+  daily_sync.py              orquestra os 5 syncs + gera site + publica no git
 static/                     HTML/CSS/JS do dashboard (sem framework pesado)
 docs/                       saída estática publicada no GitHub Pages (gerada, não editar à mão)
 data/                       doma.db (SQLite), git-ignorado
@@ -43,6 +46,7 @@ python scripts/sync_gsc.py
 python scripts/sync_ga4.py
 python scripts/sync_ghl.py
 python scripts/sync_meta_organic.py
+python scripts/sync_seo_audit.py
 ```
 
 Cada script é isolado: se uma fonte falhar (credencial errada, API fora do
@@ -185,6 +189,46 @@ Reporting/Marketing > Emails do GoHighLevel de vez em quando e roda:
 python scripts/import_email_stats.py caminho\para\email_stats.csv
 python scripts/generate_public_site.py
 ```
+
+## Ferramentas de SEO (aba SEO do dashboard)
+
+- **Index coverage**: já documentado acima na seção do Search Console setup.
+- **Content gap opportunities**: cruza `query` x `page` no Search Console -
+  achando queries com impressão real (≥15) onde a melhor página da DOMA
+  ainda não chega no top 15 de posição. É oportunidade de conteúdo: ou não
+  existe página dedicada pro assunto, ou a página atual não fala claro o
+  suficiente sobre aquilo pro Google confiar. Ver `sync_gsc.py:fetch_content_gaps`.
+- **On-page SEO audit** (`sync_seo_audit.py`): faz um crawl direto (HTTP GET,
+  sem API) de cada página/post do site (via sitemap do Yoast SEO) e confere:
+  - Título: presente, 30-60 caracteres
+  - Meta description: presente, 70-160 caracteres
+  - Exatamente 1 H1 (nem zero, nem mais de um)
+  - Imagens sem `alt` text
+  - Conteúdo raso (<300 palavras)
+  - Tag `canonical` presente
+  - Dado estruturado (JSON-LD) presente
+  Funciona com WordPress + Elementor + código customizado normalmente,
+  porque lê o HTML final renderizado pelo servidor - não depende de
+  nenhuma API específica do WordPress.
+- **Recent posts** (aba Blog): junta os posts mais recentes (do sitemap) com
+  sessão/views do GA4 e cliques/impressões do Search Console - sem precisar
+  que o post já seja um dos top-30/top-50 em algum outro lugar.
+
+## Proteção do site publicado
+
+O site é público no GitHub Pages (dado agregado, sem PII). Foi adicionado um
+**gate de senha em JavaScript** (`static/index.html` + `dashboard.js`) por
+decisão explícita - **isso não é segurança de verdade**: o HTML/JSON com
+todos os dados continua baixável por qualquer um que conheça a URL exata
+(`data.js`) ou abra o "view-source". O gate só afasta olhar casual.
+
+Senha padrão: `doma2026`. Pra trocar: gera o hash SHA-256 da senha nova
+(ex: no console do navegador, `crypto.subtle.digest(...)`, ou qualquer
+ferramenta de hash SHA-256) e substitui a constante `PASSWORD_HASH` no topo
+de `static/dashboard.js`.
+
+Se quiser proteção de verdade depois: GitHub Pro ($4/mês) + repositório
+privado, ou Cloudflare Access apontando um subdomínio.
 
 ## Publicar no GitHub Pages
 

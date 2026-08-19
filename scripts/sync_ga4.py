@@ -22,9 +22,11 @@ sys.path.insert(0, str(ROOT))
 
 import app as dashboard_app  # noqa: E402
 from scripts.env_utils import load_env_file, log_sync  # noqa: E402
+from scripts import sitemap_utils  # noqa: E402
 
 LOOKBACK_DAYS = 180
 TOP_PAGE_LIMIT = 30
+MAX_RECENT_POSTS = 15
 
 
 class Ga4SyncError(RuntimeError):
@@ -200,6 +202,50 @@ def fetch_demographics(client, property_id: str) -> list[tuple[str, str, int]]:
     return rows
 
 
+def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[tuple[str, str, int, int, int, float]]:
+    """GA4 metrics for the most recently published blog posts specifically -
+    fetch_top_pages only returns the top 30 by session count, so a
+    brand-new post with modest traffic so far would never show up there."""
+    from google.analytics.data_v1beta.types import (
+        DateRange,
+        Dimension,
+        Filter,
+        FilterExpression,
+        Metric,
+        RunReportRequest,
+    )
+    from urllib.parse import urlparse
+
+    recent_posts = sitemap_utils.fetch_recent_posts(site_url, limit=MAX_RECENT_POSTS)
+    if not recent_posts:
+        return []
+    paths = [urlparse(url).path for url, _ in recent_posts]
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[Dimension(name="pagePath")],
+        metrics=[Metric(name="sessions"), Metric(name="screenPageViews"), Metric(name="activeUsers"), Metric(name="userEngagementDuration")],
+        date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+        dimension_filter=FilterExpression(
+            filter=Filter(field_name="pagePath", in_list_filter=Filter.InListFilter(values=paths))
+        ),
+    )
+    response = client.run_report(request)
+    by_path = {row.dimension_values[0].value: row for row in response.rows}
+
+    rows: list[tuple[str, str, int, int, int, float]] = []
+    for url, lastmod in recent_posts:
+        path = urlparse(url).path
+        match = by_path.get(path)
+        sessions = int(match.metric_values[0].value or 0) if match else 0
+        page_views = int(match.metric_values[1].value or 0) if match else 0
+        active_users = int(match.metric_values[2].value or 0) if match else 0
+        engagement_duration = float(match.metric_values[3].value or 0) if match else 0.0
+        avg_engagement_seconds = round(engagement_duration / page_views, 1) if page_views else 0.0
+        rows.append((url, lastmod, sessions, page_views, active_users, avg_engagement_seconds))
+    return rows
+
+
 def store_daily_traffic(rows: list[tuple[str, int, int, int, int]]) -> None:
     with dashboard_app.db() as con:
         con.executemany(
@@ -270,6 +316,16 @@ def store_devices(rows: list[tuple[str, int, int]]) -> None:
         )
 
 
+def store_recent_post_metrics(rows: list[tuple[str, str, int, int, int, float]]) -> None:
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM content_posts_ga4")
+        con.executemany(
+            "INSERT INTO content_posts_ga4 (url, published_at, sessions, page_views, active_users, avg_engagement_seconds, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
+
+
 def store_demographics(rows: list[tuple[str, str, int]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM ga4_demographics")
@@ -314,6 +370,18 @@ def main() -> int:
         f"GA4 sync complete: {len(traffic)} traffic-days, {len(channels)} channel-day rows, "
         f"{len(top_pages)} top pages, {len(countries)} countries, {len(demographics)} demographic rows."
     )
+
+    site_url = env.get("GSC_SITE_URL")
+    if site_url:
+        try:
+            recent_posts = fetch_recent_post_metrics(client, property_id, site_url)
+            store_recent_post_metrics(recent_posts)
+            log_sync(dashboard_app, "ga4_recent_posts", "ok", f"{len(recent_posts)} posts")
+            print(f"Recent-post GA4 performance complete: {len(recent_posts)} posts.")
+        except Exception as error:  # noqa: BLE001 - best-effort, must not break the core GA4 sync
+            log_sync(dashboard_app, "ga4_recent_posts", "skipped", str(error))
+            print(f"WARNING: recent-post GA4 performance skipped ({error})", file=sys.stderr)
+
     return 0
 
 
