@@ -57,7 +57,27 @@ def _fetch_page(url: str) -> dict[str, object] | None:
     h1_tags = soup.find_all("h1")
     h1_count = len(h1_tags)
 
-    images = soup.find_all("img")
+    def _is_tracking_pixel(img) -> bool:
+        # 1x1 / display:none images (Facebook Pixel noscript fallback, etc)
+        # are invisible on purpose - they should have no alt text, and
+        # flagging them isn't a real finding.
+        w, h = img.get("width"), img.get("height")
+        if w in ("1", 1) and h in ("1", 1):
+            return True
+        style = (img.get("style") or "").replace(" ", "")
+        if "display:none" in style:
+            return True
+        # aria-hidden="true" (directly on the image, or its immediate parent -
+        # a common pattern for decorative hero background images) means an
+        # empty alt is the *correct* accessibility choice, not a finding.
+        if img.get("aria-hidden") == "true":
+            return True
+        parent = img.parent
+        if parent is not None and parent.get("aria-hidden") == "true":
+            return True
+        return False
+
+    images = [img for img in soup.find_all("img") if not _is_tracking_pixel(img)]
     images_total = len(images)
     images_missing_alt = sum(1 for img in images if not (img.get("alt") or "").strip())
 

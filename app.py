@@ -521,13 +521,21 @@ def _onpage_findings(row: dict[str, Any]) -> list[str]:
     elif row["meta_length"] < 70 or row["meta_length"] > 160:
         findings.append(f"Meta description length {row['meta_length']} chars (ideal ~70-160)")
     if row["h1_count"] == 0:
-        findings.append("No H1 heading")
+        findings.append(
+            "No H1 in server-rendered HTML - if this page injects its heading via "
+            "client-side JavaScript (some DOMA post templates do), this may be a false "
+            "alarm; verify with a real browser before treating it as missing"
+        )
     elif row["h1_count"] > 1:
         findings.append(f"{row['h1_count']} H1 headings (should be exactly 1)")
     if row["images_missing_alt"] > 0:
         findings.append(f"{row['images_missing_alt']} of {row['images_total']} images missing alt text")
     if row["word_count"] < 300:
-        findings.append(f"Thin content: {row['word_count']} words")
+        findings.append(
+            f"Only {row['word_count']} words in server-rendered HTML - same JS-rendering "
+            "caveat as the H1 check above; DOMA's blog post template injects the full "
+            "article body client-side, so this is very likely a false alarm for /post/ URLs"
+        )
     if not row["has_canonical"]:
         findings.append("Missing canonical tag")
     if not row["has_schema"]:
