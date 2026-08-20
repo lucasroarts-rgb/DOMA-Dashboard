@@ -33,6 +33,9 @@ data/                       doma.db (SQLite), git-ignorado
 
 1. `python -m venv .venv` e ative o ambiente.
 2. `pip install -r requirements.txt`
+2b. `playwright install chromium` (uma vez só - baixa o browser que o
+    `sync_seo_audit.py` usa pra re-checar H1/thin-content em páginas com
+    template JS antes de marcar como problema real).
 3. `copy .env.example .env` e preencha (ver seções abaixo).
 4. Coloque o JSON da service account do Google Cloud na raiz do projeto
    (nome padrão: `google_service_account.json` — git-ignorado).

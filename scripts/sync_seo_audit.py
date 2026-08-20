@@ -8,6 +8,16 @@ pages, no API or credentials involved.
 Findings (thresholds, why-picked) are computed in app.py:seo_onpage_summary
 from the raw fields stored here - this script only measures, it doesn't
 judge, so the thresholds can be tuned in one place without re-crawling.
+
+Some DOMA page templates (the /post/ blog template in particular) inject
+the H1 and article body via client-side JavaScript, so a plain HTTP GET
+sees an empty heading and ~259 words even though a real visitor (and
+Googlebot) sees the full article. To avoid flagging those as false
+positives, any page that fails the H1 or thin-content check gets a single
+headless-browser recheck (Playwright/Chromium) before being recorded - the
+JS-rendered numbers replace the raw-HTML ones when they're available. If
+Playwright isn't installed, the script still runs fine on the raw-HTML
+numbers alone (see `_recheck_with_browser`).
 """
 
 from __future__ import annotations
@@ -112,6 +122,35 @@ def _fetch_page(url: str) -> dict[str, object] | None:
     }
 
 
+def _needs_js_recheck(result: dict[str, object]) -> bool:
+    return result.get("http_status") == 200 and (result.get("h1_count") == 0 or (result.get("word_count") or 0) < 300)
+
+
+def _recheck_with_browser(browser, url: str) -> dict[str, object] | None:
+    from bs4 import BeautifulSoup
+
+    try:
+        page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) doma-dashboard-seo-audit")
+        # "domcontentloaded" + a fixed buffer, not "networkidle" - pages with
+        # a chat widget/analytics beacon never go fully idle and would time
+        # out here even though the content we care about rendered long ago.
+        page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        page.wait_for_timeout(4000)
+        html = page.content()
+        page.close()
+    except Exception as error:  # noqa: BLE001 - a failed recheck just falls back to the raw-HTML numbers
+        print(f"  WARNING: JS recheck failed for {url} ({error})", file=sys.stderr)
+        return None
+
+    soup = BeautifulSoup(html, "html.parser")
+    h1_count = len(soup.find_all("h1"))
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    body = soup.find("body")
+    word_count = len(body.get_text(separator=" ", strip=True).split()) if body else 0
+    return {"h1_count": h1_count, "word_count": word_count}
+
+
 def fetch_urls_to_audit(site_url: str) -> list[str]:
     urls = list(sitemap_utils.fetch_pages(site_url, limit=MAX_PAGES_TO_AUDIT))
     urls += [loc for loc, _ in sitemap_utils.fetch_recent_posts(site_url, limit=MAX_POSTS_TO_AUDIT)]
@@ -129,7 +168,32 @@ def audit_pages(urls: list[str]) -> list[dict[str, object]]:
     for url in urls:
         result = _fetch_page(url)
         if result is not None:
+            result["js_rechecked"] = False
             results.append(result)
+
+    to_recheck = [r for r in results if _needs_js_recheck(r)]
+    if to_recheck:
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            print(
+                f"  NOTE: playwright not installed - skipping JS recheck for {len(to_recheck)} "
+                "page(s) that may be false positives (H1/thin content). Run: "
+                "pip install playwright && playwright install chromium",
+                file=sys.stderr,
+            )
+        else:
+            print(f"  Rechecking {len(to_recheck)} page(s) with a real browser (H1/thin-content false-positive guard)...")
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                for row in to_recheck:
+                    recheck = _recheck_with_browser(browser, row["url"])
+                    if recheck is not None:
+                        row["h1_count"] = recheck["h1_count"]
+                        row["word_count"] = recheck["word_count"]
+                        row["js_rechecked"] = True
+                browser.close()
+
     return results
 
 
@@ -141,10 +205,10 @@ def store_audit(rows: list[dict[str, object]]) -> None:
             INSERT INTO seo_onpage_audit
                 (url, http_status, fetch_error, title, title_length, meta_description, meta_length,
                  h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url,
-                 has_schema, checked_at)
+                 has_schema, js_rechecked, checked_at)
             VALUES (:url, :http_status, :fetch_error, :title, :title_length, :meta_description, :meta_length,
                     :h1_count, :images_total, :images_missing_alt, :word_count, :has_canonical, :canonical_url,
-                    :has_schema, CURRENT_TIMESTAMP)
+                    :has_schema, :js_rechecked, CURRENT_TIMESTAMP)
             """,
             [
                 {
@@ -162,6 +226,7 @@ def store_audit(rows: list[dict[str, object]]) -> None:
                     "has_canonical": int(bool(r.get("has_canonical", False))),
                     "canonical_url": r.get("canonical_url", ""),
                     "has_schema": int(bool(r.get("has_schema", False))),
+                    "js_rechecked": int(bool(r.get("js_rechecked", False))),
                 }
                 for r in rows
             ],

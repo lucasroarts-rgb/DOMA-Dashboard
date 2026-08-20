@@ -225,6 +225,7 @@ def init_db() -> None:
         has_canonical INTEGER NOT NULL DEFAULT 0,
         canonical_url TEXT,
         has_schema INTEGER NOT NULL DEFAULT 0,
+        js_rechecked INTEGER NOT NULL DEFAULT 0,
         checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -382,6 +383,9 @@ def init_db() -> None:
             con.execute("ALTER TABLE ga4_top_pages ADD COLUMN avg_engagement_seconds REAL NOT NULL DEFAULT 0")
         if "bounce_rate" not in page_columns:
             con.execute("ALTER TABLE ga4_top_pages ADD COLUMN bounce_rate REAL NOT NULL DEFAULT 0")
+        onpage_columns = {row["name"] for row in con.execute("PRAGMA table_info(seo_onpage_audit)").fetchall()}
+        if "js_rechecked" not in onpage_columns:
+            con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN js_rechecked INTEGER NOT NULL DEFAULT 0")
 
 
 def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
@@ -541,21 +545,29 @@ def _onpage_findings(row: dict[str, Any]) -> list[str]:
     elif row["meta_length"] < 70 or row["meta_length"] > 160:
         findings.append(f"Meta description length {row['meta_length']} chars (ideal ~70-160)")
     if row["h1_count"] == 0:
-        findings.append(
-            "No H1 in server-rendered HTML - if this page injects its heading via "
-            "client-side JavaScript (some DOMA post templates do), this may be a false "
-            "alarm; verify with a real browser before treating it as missing"
-        )
+        if row["js_rechecked"]:
+            findings.append("No H1 even after a real-browser (JS-rendered) recheck - confirmed missing")
+        else:
+            findings.append(
+                "No H1 in server-rendered HTML - if this page injects its heading via "
+                "client-side JavaScript (some DOMA post templates do), this may be a false "
+                "alarm; verify with a real browser before treating it as missing"
+            )
     elif row["h1_count"] > 1:
         findings.append(f"{row['h1_count']} H1 headings (should be exactly 1)")
     if row["images_missing_alt"] > 0:
         findings.append(f"{row['images_missing_alt']} of {row['images_total']} images missing alt text")
     if row["word_count"] < 300:
-        findings.append(
-            f"Only {row['word_count']} words in server-rendered HTML - same JS-rendering "
-            "caveat as the H1 check above; DOMA's blog post template injects the full "
-            "article body client-side, so this is very likely a false alarm for /post/ URLs"
-        )
+        if row["js_rechecked"]:
+            findings.append(
+                f"Only {row['word_count']} words even after a real-browser (JS-rendered) recheck - confirmed thin content"
+            )
+        else:
+            findings.append(
+                f"Only {row['word_count']} words in server-rendered HTML - same JS-rendering "
+                "caveat as the H1 check above; DOMA's blog post template injects the full "
+                "article body client-side, so this is very likely a false alarm for /post/ URLs"
+            )
     if not row["has_canonical"]:
         findings.append("Missing canonical tag")
     if not row["has_schema"]:
@@ -566,8 +578,8 @@ def _onpage_findings(row: dict[str, Any]) -> list[str]:
 def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
     rows = con.execute(
         "SELECT url, http_status, fetch_error, title, title_length, meta_description, meta_length, "
-        "h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url, has_schema "
-        "FROM seo_onpage_audit ORDER BY url"
+        "h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url, has_schema, "
+        "js_rechecked FROM seo_onpage_audit ORDER BY url"
     ).fetchall()
     pages = []
     for row in rows:
@@ -586,6 +598,7 @@ def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
             "has_canonical": bool(row[11]),
             "canonical_url": row[12],
             "has_schema": bool(row[13]),
+            "js_rechecked": bool(row[14]),
         }
         page["findings"] = _onpage_findings(page)
         pages.append(page)
