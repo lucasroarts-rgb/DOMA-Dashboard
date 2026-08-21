@@ -247,10 +247,10 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     tooltip.style.display = "block";
     const tw = tooltip.offsetWidth;
     const th = tooltip.offsetHeight;
-    const left = Math.min(clientX + 14, window.innerWidth - tw - 10);
-    const top = Math.min(clientY + 14, window.innerHeight - th - 10);
-    tooltip.style.left = `${Math.max(10, left)}px`;
-    tooltip.style.top = `${Math.max(10, top)}px`;
+    const tooltipLeft = Math.min(clientX + 14, window.innerWidth - tw - 10);
+    const tooltipTop = Math.min(clientY + 14, window.innerHeight - th - 10);
+    tooltip.style.left = `${Math.max(10, tooltipLeft)}px`;
+    tooltip.style.top = `${Math.max(10, tooltipTop)}px`;
   }
 
   function hide() {
