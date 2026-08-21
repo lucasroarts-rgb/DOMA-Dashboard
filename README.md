@@ -51,19 +51,80 @@ python scripts/sync_ghl.py
 python scripts/sync_meta_organic.py
 python scripts/sync_seo_audit.py
 python scripts/sync_pagespeed.py
+python scripts/send_seo_digest.py
 ```
 
 Cada script é isolado: se uma fonte falhar (credencial errada, API fora do
 ar), as outras continuam funcionando. Falhas ficam registradas na tabela
 `sync_log` e aparecem no dashboard, aba "Overview" > "Things to look at".
 
+## Automação de eBooks (Drive -> WordPress + GoHighLevel)
+
+Marianeel manda pra Lucas a imagem de capa + PDF de um novo eBook (sem
+horário fixo, normalmente seg/qua/sex). Lucas sobe os 2 arquivos na pasta
+Google Drive compartilhada (`DRIVE_EBOOKS_FOLDER_ID` no `.env`). A partir
+daí, `scripts/sync_ebook_pipeline.py` automatiza o que a API permite:
+
+```
+scripts/
+  ebook_pipeline/
+    drive_client.py    lista/baixa o par PDF+imagem novo da pasta Drive
+    pdf_extract.py      extrai título/subtítulo/bullets do PDF (pdfplumber)
+    wp_client.py        upload de mídia + criação de página draft no WordPress
+    ghl_client.py        upload de mídia no GoHighLevel + leitura de forms/workflows
+    copy_generator.py   monta slug/tag/excerpt/email/HTML das páginas
+  sync_ebook_pipeline.py   orquestra tudo, grava estado em data/ebook_pipeline_state.json
+```
+
+Já roda sozinho: `AGENDAR_AUTOMACAO_EBOOKS.bat` cria uma tarefa que checa a
+pasta seg/qua/sex, das 10h às 12h, a cada 30 minutos (janela pensada pra
+cobrir o horário que Marianeel costuma mandar, sem ficar rodando o dia
+inteiro). Usa `pythonw.exe` - roda sem abrir janela de console.
+`RODAR_EBOOK_AGORA.bat` ainda existe se quiser forçar uma rodada imediata
+fora da janela agendada.
+
+Cada eBook processado gera `ebook_packages/{slug}/` (git-ignorado, só
+local) com `capture_page.html`, `thank_you_page.html`, `email_delivery.md`,
+`package_details.md` e `package.json` — e já sobe a capa pro WP Media
+Library, o PDF pro GHL Media Storage, e cria as 2 páginas no WordPress como
+**draft** (nunca publica sozinho).
+
+Cada marco importante dispara um aviso na tela (janela do Windows, via
+`scripts/ebook_pipeline/notify.py`) sem precisar checar nada manualmente:
+página nova criada (com o link de edição do draft) e form conectado (pronto
+pra revisar/publicar).
+
+`package_details.md` traz o nome exato que o form/workflow precisam ter no
+GHL (muda por ebook, sempre gerado a partir do título real do PDF - nunca
+precisa adivinhar) e a URL futura da thank-you page pra usar como redirect
+do form. Depois que o form é duplicado+renomeado no GHL, **não precisa
+avisar ninguém**: toda rodada de 30min também rechecka todo ebook pendente
+(`recheck_pending_forms` em `sync_ebook_pipeline.py`) e, assim que acha o
+form pelo nome, cola o embed real na página draft sozinha
+(`scripts/ebook_pipeline/attach.py`). Pra forçar isso na hora sem esperar o
+próximo ciclo: `python scripts/attach_ebook_form.py {slug}`.
+
+**Teto real da API do GHL** (confirmado ao vivo, não é falta de escopo da
+key): não existe endpoint público pra criar form nem workflow do zero — só
+listar. A conta já tem 1 form + 1 workflow publicados por eBook, nomeados
+`Ebook - {Título}` (confirmado via API contra os eBooks já existentes,
+ex.: "Ebook - Burnout at the Front Desk"). Pra cada eBook novo, isso
+continua manual: duplicar um form/workflow existente no GHL, renomear, e
+colar os valores que já estão prontos em `package_details.md` (tag, URL do
+PDF, embed do form). Publicar as páginas do WP e rodar o teste real de
+lead (checklist do CLAUDE.md, regra 48) também continuam manuais.
+
+Setup necessário uma vez: habilitar a Drive API no mesmo projeto Google
+Cloud usado por GA4/GSC (`planar-maxim-305714`) e compartilhar a pasta do
+Drive como Viewer com `doma-dashboard-sync@planar-maxim-305714.iam.gserviceaccount.com`.
+
 ## Automação diária
 
-`python scripts/daily_sync.py` roda os 6 syncs, gera o site estático em
-`docs/` (com os períodos de 30/90/180 dias já pré-calculados, pro seletor de
-período funcionar mesmo no site publicado sem back-end) e faz commit + push
-automático (se `AUTO_PUBLISH=true` no `.env` e o repositório já estiver
-conectado a um remoto no GitHub).
+`python scripts/daily_sync.py` roda os 6 syncs + o digest de e-mail, gera o
+site estático em `docs/` (com os períodos de 30/90/180 dias já
+pré-calculados, pro seletor de período funcionar mesmo no site publicado sem
+back-end) e faz commit + push automático (se `AUTO_PUBLISH=true` no `.env` e
+o repositório já estiver conectado a um remoto no GitHub).
 
 Agendado no Windows via Task Scheduler (`DOMA_Dashboard_Daily_Sync`, todo dia
 06:00). Pra recriar: `AGENDAR_AUTOMACAO_DIARIA.bat`. Pra remover:
@@ -305,6 +366,40 @@ python scripts/generate_public_site.py
   Credentials > API key, sem OAuth/service-account). Se uma página falhar
   (timeout, erro do próprio Lighthouse), o script pula ela e segue com as
   demais - não derruba o sync inteiro.
+
+## Resumo diário de SEO por e-mail
+
+`scripts/send_seo_digest.py` manda um e-mail (texto simples) todo dia com:
+Search Console (cliques/impressões/CTR/posição dos últimos 7 dias), index
+coverage, on-page audit (páginas com problema + os achados de cada uma),
+PageSpeed (score médio + páginas abaixo de 50) e falhas de sync do dia. Usa
+as mesmas funções de resumo do `app.py` que o dashboard usa - nunca vai
+divergir do que aparece lá.
+
+Requer no `.env`: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+`EMAIL_FROM`, `EMAIL_TO`. Pra Gmail, `SMTP_PASSWORD` **tem que ser** uma
+Senha de App (myaccount.google.com/apppasswords, exige verificação em 2
+etapas ativada) - a senha normal da conta não funciona (Google bloqueia
+login via SMTP com senha comum) e não deve ser usada em arquivo de
+automação de qualquer forma.
+
+## Ahrefs (Site Audit) - preparado, mas bloqueado do lado da conta
+
+`AHREFS_API_KEY` + `AHREFS_PROJECT_ID` no `.env`, mas toda chamada à API
+retorna `401 Unauthorized` - já testado com 3 chaves diferentes (geradas do
+zero pela própria conta), em múltiplos endpoints (inclusive endpoints
+públicos básicos, sem `project_id`), com curl puro (não é bug de biblioteca
+Python), confirmado que a requisição chega no servidor real da Ahrefs (não
+é bloqueio de rede/proxy - tem `x-request-trace-id` no header de resposta).
+Conclusão: é um problema do lado da conta Ahrefs (entitlement de API não
+ativo de verdade, mesmo aparecendo na tela de gerenciar chaves) - só o
+suporte da Ahrefs resolve. Nenhum script de sync foi construído ainda
+porque não dá pra testar contra uma API que não autentica; assim que a
+conta liberar, o próximo passo é `scripts/sync_ahrefs.py` seguindo o mesmo
+padrão dos outros syncs (tabela própria, painel no dashboard, alerta em
+"Things to look at" quando algum issue subir muito) mais um painel de
+concorrentes (via o endpoint de "competing domains" da Ahrefs, que descobre
+os concorrentes automaticamente - não precisa de lista manual).
 
 ## Proteção do site publicado
 
