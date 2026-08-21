@@ -258,6 +258,111 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
   overlay.addEventListener("touchend", hide);
 }
 
+/* ---------- donut + horizontal bar charts ---------- */
+
+const SEGMENT_CLASSES = ["a", "b", "c"];
+
+function topSlicesWithOther(items, labelKey, valueKey, maxSlices = 3) {
+  const sorted = [...items].sort((x, y) => y[valueKey] - x[valueKey]);
+  const top = sorted.slice(0, maxSlices);
+  const rest = sorted.slice(maxSlices);
+  const otherValue = rest.reduce((sum, r) => sum + r[valueKey], 0);
+  const slices = top.map((item, i) => ({ label: item[labelKey], value: item[valueKey], cls: SEGMENT_CLASSES[i] }));
+  if (otherValue > 0) slices.push({ label: "Other", value: otherValue, cls: "other" });
+  return slices;
+}
+
+function svgDonutChart(containerId, items, { labelKey, valueKey, formatter = number, centerLabel = "Total" } = {}) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const validItems = (items || []).filter((i) => i[valueKey] > 0);
+  if (!validItems.length) {
+    el.innerHTML = "";
+    return;
+  }
+
+  const slices = topSlicesWithOther(validItems, labelKey, valueKey);
+  const total = slices.reduce((sum, s) => sum + s.value, 0);
+
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 70;
+  const strokeWidth = 26;
+  const circumference = 2 * Math.PI * r;
+  const gapDeg = 2.2;
+
+  let cursorDeg = -90;
+  const arcs = slices
+    .map((s) => {
+      const shareDeg = (s.value / total) * 360;
+      const drawDeg = Math.max(0, shareDeg - gapDeg);
+      const dash = (drawDeg / 360) * circumference;
+      const gap = circumference - dash;
+      const offset = -((cursorDeg + 90) / 360) * circumference;
+      cursorDeg += shareDeg;
+      return `<circle class="donut-seg ${s.cls}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--series-${s.cls})" stroke-width="${strokeWidth}" stroke-dasharray="${dash.toFixed(1)} ${gap.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}" data-label="${s.label}" data-value="${s.value}" data-share="${((s.value / total) * 100).toFixed(1)}"/>`;
+    })
+    .join("");
+
+  const svg = `<svg class="donut-svg" viewBox="0 0 ${size} ${size}" role="img">${arcs}<text x="${cx}" y="${cy - 4}" text-anchor="middle" class="donut-center-value">${formatter(total)}</text><text x="${cx}" y="${cy + 14}" text-anchor="middle" class="donut-center-label">${centerLabel}</text></svg>`;
+
+  const legend = slices
+    .map(
+      (s) =>
+        `<div class="donut-legend-row" data-cls="${s.cls}"><span class="donut-legend-name"><i class="${s.cls}"></i><span>${s.label}</span></span><span><span class="donut-legend-value">${formatter(s.value)}</span><span class="donut-legend-share">${((s.value / total) * 100).toFixed(1)}%</span></span></div>`
+    )
+    .join("");
+
+  el.innerHTML = `${svg}<div class="donut-legend">${legend}</div>`;
+
+  const tooltip = document.getElementById("chartTooltip");
+  el.querySelectorAll(".donut-seg").forEach((seg) => {
+    seg.addEventListener("mousemove", (e) => {
+      tooltip.innerHTML = `<div class="chart-tooltip-row"><i class="${seg.classList[1]}"></i>${seg.dataset.label}: <strong>${formatter(Number(seg.dataset.value))}</strong> (${seg.dataset.share}%)</div>`;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 250)}px`;
+      tooltip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - 60)}px`;
+    });
+    seg.addEventListener("mouseleave", () => (tooltip.style.display = "none"));
+  });
+}
+
+function svgHBarChart(containerId, items, { labelKey, valueKey, formatter = number, maxBars = 6 } = {}) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const validItems = (items || []).filter((i) => i[valueKey] > 0);
+  if (!validItems.length) {
+    el.innerHTML = "";
+    return;
+  }
+  const sorted = [...validItems].sort((x, y) => y[valueKey] - x[valueKey]).slice(0, maxBars);
+  const maxValue = Math.max(...sorted.map((i) => i[valueKey]));
+
+  el.innerHTML = sorted
+    .map((item, i) => {
+      const cls = SEGMENT_CLASSES[i % SEGMENT_CLASSES.length];
+      const pct = Math.max(2, (item[valueKey] / maxValue) * 100);
+      return `<div class="hbar-row"><span class="hbar-name" title="${item[labelKey]}">${item[labelKey]}</span><span class="hbar-track"><span class="hbar-fill" style="width:${pct}%;background:var(--series-${cls})"></span></span><span class="hbar-value">${formatter(item[valueKey])}</span></div>`;
+    })
+    .join("");
+}
+
+/* ---------- theme toggle ---------- */
+
+function initThemeToggle() {
+  const wrap = document.getElementById("themeToggle");
+  if (!wrap) return;
+  const buttons = wrap.querySelectorAll("button");
+  const apply = (theme) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("domaTheme", theme);
+    buttons.forEach((b) => b.classList.toggle("active", b.dataset.themeChoice === theme));
+  };
+  buttons.forEach((b) => b.addEventListener("click", () => apply(b.dataset.themeChoice)));
+  apply(document.documentElement.getAttribute("data-theme") || "dark");
+}
+
 /* ---------- cards ---------- */
 
 function renderCards(containerId, items) {
@@ -647,6 +752,7 @@ function renderBlog() {
     ]);
   }
 
+  svgDonutChart("blogChannelsDonut", ga4.channels, { labelKey: "channel_group", valueKey: "sessions", centerLabel: "Sessions" });
   renderTable("blogChannelsTable", ga4.channels, (c) => `<tr><td>${c.channel_group}</td><td>${number(c.sessions)}</td></tr>`);
   renderTable(
     "blogPagesTable",
@@ -713,6 +819,7 @@ function renderLeads() {
     ]);
   }
 
+  svgHBarChart("leadsSourceBars", ghl.by_source, { labelKey: "source", valueKey: "lead_count" });
   renderTable(
     "leadsSourceTable",
     ghl.by_source,
@@ -849,6 +956,7 @@ function initRangeSelect() {
 }
 
 (async function init() {
+  initThemeToggle();
   await initPasswordGate();
   initTabs();
   initRangeSelect();

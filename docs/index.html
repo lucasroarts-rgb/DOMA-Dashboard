@@ -5,7 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=6">
+<script>
+  (function () {
+    var saved = localStorage.getItem("domaTheme");
+    document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
+  })();
+</script>
 </head>
 <body>
 <div id="passwordGate" class="password-gate" style="display:none">
@@ -43,6 +49,10 @@
       </label>
       <span id="comparisonNote" class="pill muted"></span>
       <span id="lastSynced" class="pill info">—</span>
+      <div class="theme-toggle" id="themeToggle">
+        <button type="button" data-theme-choice="dark">Dark</button>
+        <button type="button" data-theme-choice="light">Light</button>
+      </div>
     </div>
   </header>
 
@@ -195,6 +205,7 @@
       <div class="grid-2">
         <div class="panel">
           <h2>Traffic source</h2>
+          <div id="blogChannelsDonut" class="donut-wrap"></div>
           <div class="table-wrap">
             <table id="blogChannelsTable">
               <thead><tr><th>Channel</th><th>Sessions</th></tr></thead>
@@ -259,6 +270,7 @@
       <div class="grid-2">
         <div class="panel">
           <h2>Leads by source</h2>
+          <div id="leadsSourceBars" class="hbar-list"></div>
           <div class="table-wrap">
             <table id="leadsSourceTable">
               <thead><tr><th>Source</th><th>Leads</th></tr></thead>
