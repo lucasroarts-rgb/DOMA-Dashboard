@@ -348,6 +348,7 @@
         <div class="panel">
           <h2>Instagram audience &middot; gender</h2>
           <div id="socialGenderEmpty" class="empty" style="display:none">No demographics synced yet.</div>
+          <div id="socialGenderDonut" class="donut-wrap"></div>
           <div class="table-wrap">
             <table id="socialGenderTable">
               <thead><tr><th>Gender</th><th>Followers</th><th>Share</th></tr></thead>
@@ -357,9 +358,28 @@
         </div>
         <div class="panel">
           <h2>Instagram audience &middot; top countries</h2>
+          <div id="socialCountryBars" class="hbar-list"></div>
           <div class="table-wrap">
             <table id="socialCountryTable">
               <thead><tr><th>Country</th><th>Followers</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Best time to post &middot; Instagram <span class="h2-note">(avg. engagement per post, by when it was published - all times UTC, based on this account's own post history)</span></h2>
+        <div id="socialBestTimesEmpty" class="empty" style="display:none">Not enough Instagram posts synced yet to spot a pattern (need at least 5).</div>
+        <div class="grid-2">
+          <div class="table-wrap">
+            <table id="socialBestDayTable">
+              <thead><tr><th>Day of week</th><th>Avg. engagement</th><th>Posts</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table id="socialBestPeriodTable">
+              <thead><tr><th>Time of day (UTC)</th><th>Avg. engagement</th><th>Posts</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>

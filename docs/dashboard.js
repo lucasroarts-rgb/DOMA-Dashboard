@@ -926,15 +926,34 @@ function renderSocial() {
   const countryTotal = igCountry.reduce((sum, c) => sum + c.follower_count, 0);
 
   document.getElementById("socialGenderEmpty").style.display = igGender.length ? "none" : "block";
+  svgDonutChart(
+    "socialGenderDonut",
+    igGender.map((g) => ({ label: GENDER_LABELS[g.value] || g.value, follower_count: g.follower_count })),
+    { labelKey: "label", valueKey: "follower_count", centerLabel: "Followers" }
+  );
   renderTable(
     "socialGenderTable",
     igGender,
     (g) => `<tr><td>${GENDER_LABELS[g.value] || g.value}</td><td>${number(g.follower_count)}</td><td>${genderTotal ? percent((g.follower_count / genderTotal) * 100) : "—"}</td></tr>`
   );
+  svgHBarChart("socialCountryBars", igCountry, { labelKey: "value", valueKey: "follower_count", maxBars: 8 });
   renderTable(
     "socialCountryTable",
     igCountry.slice(0, 15),
     (c) => `<tr><td>${c.value}</td><td>${number(c.follower_count)}</td><td>${countryTotal ? percent((c.follower_count / countryTotal) * 100) : "—"}</td></tr>`
+  );
+
+  const bestTimes = social.best_times || { available: false, by_day: [], by_period: [] };
+  document.getElementById("socialBestTimesEmpty").style.display = bestTimes.available ? "none" : "block";
+  renderTable(
+    "socialBestDayTable",
+    bestTimes.by_day || [],
+    (d) => `<tr><td>${d.day}</td><td>${d.avg_engagement}</td><td>${d.post_count}</td></tr>`
+  );
+  renderTable(
+    "socialBestPeriodTable",
+    bestTimes.by_period || [],
+    (p) => `<tr><td>${p.period}</td><td>${p.avg_engagement}</td><td>${p.post_count}</td></tr>`
   );
 }
 

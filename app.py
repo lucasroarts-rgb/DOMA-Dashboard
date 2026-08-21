@@ -1053,6 +1053,8 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
         for row in posts_rows
     ]
 
+    best_times = _instagram_best_times(posts)
+
     audience_rows = con.execute(
         "SELECT platform, dimension_type, dimension_value, follower_count FROM social_audience ORDER BY follower_count DESC"
     ).fetchall()
@@ -1073,7 +1075,65 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
         "metrics_daily": metrics_daily,
         "posts": posts,
         "audience": audience,
+        "best_times": best_times,
         "last_synced_at": last_synced_row[0] if last_synced_row else None,
+    }
+
+
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+TIME_PERIODS = [
+    ("Night (12am-6am)", 0, 6),
+    ("Morning (6am-12pm)", 6, 12),
+    ("Afternoon (12pm-6pm)", 12, 18),
+    ("Evening (6pm-12am)", 18, 24),
+]
+
+
+def _instagram_best_times(posts: list[dict[str, Any]]) -> dict[str, Any]:
+    """When Instagram posts get the most engagement, by day-of-week and
+    rough time-of-day - a real (if small-sample) signal from this
+    account's own post history, not a generic "best time to post on
+    Instagram" industry stat. All times are UTC (Instagram's API doesn't
+    return a post-level timezone) - note that in the UI rather than
+    silently implying local time."""
+    ig_posts = [p for p in posts if p["platform"] == "instagram" and p.get("published_at")]
+    if len(ig_posts) < 5:
+        return {"available": False, "sample_size": len(ig_posts), "by_day": [], "by_period": []}
+
+    by_day: dict[str, list[int]] = {d: [] for d in DAY_NAMES}
+    by_period: dict[str, list[int]] = {p[0]: [] for p in TIME_PERIODS}
+
+    for post in ig_posts:
+        try:
+            dt = datetime.strptime(post["published_at"], "%Y-%m-%dT%H:%M:%S%z")
+        except ValueError:
+            continue
+        engagement = post["engagement_total"] or (post["likes"] + post["comments"] + post["shares"])
+        by_day[DAY_NAMES[dt.weekday()]].append(engagement)
+        for label, start_hour, end_hour in TIME_PERIODS:
+            if start_hour <= dt.hour < end_hour:
+                by_period[label].append(engagement)
+                break
+
+    day_stats = [
+        {"day": day, "avg_engagement": round(sum(vals) / len(vals), 1), "post_count": len(vals)}
+        for day, vals in by_day.items()
+        if vals
+    ]
+    day_stats.sort(key=lambda d: d["avg_engagement"], reverse=True)
+
+    period_stats = [
+        {"period": label, "avg_engagement": round(sum(vals) / len(vals), 1), "post_count": len(vals)}
+        for label, vals in by_period.items()
+        if vals
+    ]
+    period_stats.sort(key=lambda d: d["avg_engagement"], reverse=True)
+
+    return {
+        "available": True,
+        "sample_size": len(ig_posts),
+        "by_day": day_stats,
+        "by_period": period_stats,
     }
 
 
