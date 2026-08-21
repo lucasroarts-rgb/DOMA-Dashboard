@@ -52,6 +52,8 @@ python scripts/sync_meta_organic.py
 python scripts/sync_seo_audit.py
 python scripts/sync_pagespeed.py
 python scripts/sync_ahrefs.py
+python scripts/sync_competitors_content.py
+python scripts/sync_serp_competitors.py
 python scripts/send_seo_digest.py
 ```
 
@@ -121,7 +123,7 @@ Drive como Viewer com `doma-dashboard-sync@planar-maxim-305714.iam.gserviceaccou
 
 ## Automação diária
 
-`python scripts/daily_sync.py` roda os 7 syncs + o digest de e-mail, gera o
+`python scripts/daily_sync.py` roda os 9 syncs + o digest de e-mail, gera o
 site estático em `docs/` (com os períodos de 30/90/180 dias já
 pré-calculados, pro seletor de período funcionar mesmo no site publicado sem
 back-end) e faz commit + push automático (se `AUTO_PUBLISH=true` no `.env` e
@@ -410,6 +412,40 @@ documentação atual da Ahrefs (ou por tentativa e erro) assim que a conta
 autenticar**, antes de confiar cegamente neles. Enquanto isso, a aba
 Competitors mostra um aviso explicando a situação em vez de ficar vazia
 sem explicação.
+
+## Concorrentes - rank real (SERP) e conteúdo novo (aba "Competitors")
+
+Como a Ahrefs tá bloqueada e o Google Custom Search JSON API exige conta de
+faturamento vinculada ao projeto Google Cloud (recusado - ver acima),
+essas duas partes usam caminhos gratuitos, sem chave paga:
+
+- **`scripts/sync_serp_competitors.py`** - "share of voice" real: pega as
+  queries que a DOMA já mira (top por clicks no `search_console_queries`)
+  e busca cada uma no **DuckDuckGo** (`html.duckduckgo.com/html/`, endpoint
+  HTML público, sem API/chave), vendo quem mais aparece no top 10 e em que
+  posição. Não é o índice do Google, é um sinal de concorrência real e
+  gratuito, não uma métrica de "autoridade" inventada. **Limitação
+  conhecida**: a DuckDuckGo aplica rate-limit por IP depois de um número
+  de buscas em sequência (retorna `202` em vez do resultado) - descoberto
+  na prática rodando ~20 buscas seguidas nesta sessão. Rodando 1x/dia (uso
+  normal do `daily_sync.py`) não deve bater nesse limite, mas se acontecer
+  o script já falha graciosamente (não quebra o resto da automação) e os
+  dados parciais já coletados até o bloqueio são salvos mesmo assim. Não
+  tentar contornar esse bloqueio (seria bypass de bot-detection) - se
+  voltar a bloquear com frequência, a alternativa é pagar por uma API tipo
+  DataForSEO.
+- **`scripts/sync_competitors_content.py`** - lê o sitemap público de cada
+  concorrente rastreado (mesma técnica do `sitemap_utils.py` da DOMA,
+  generalizada para sites fora do WordPress via `fetch_all_urls_generic`)
+  e compara com a leitura anterior - URL nova = conteúdo novo publicado.
+  Concorrentes rastreados hoje: **AADOM** (dentalmanagers.com) e
+  **Dental A Team** (thedentalateam.com). **The DALE Foundation**
+  (dalefoundation.org) foi cogitada mas excluída - o `/sitemap.xml` dela
+  serve uma página de "Client Challenge" (bot-detection) em vez do sitemap
+  real, e isso não deve ser contornado.
+
+Lista de concorrentes é curada manualmente em `COMPETITORS` no topo do
+script - editar lá pra adicionar/remover.
 
 ## Proteção do site publicado
 

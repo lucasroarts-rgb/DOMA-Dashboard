@@ -250,6 +250,27 @@ def init_db() -> None:
         UNIQUE(url, strategy)
     );
 
+    CREATE TABLE IF NOT EXISTS competitor_pages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competitor_name TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        url TEXT NOT NULL,
+        lastmod TEXT,
+        first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(url)
+    );
+
+    CREATE TABLE IF NOT EXISTS serp_competitors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain TEXT NOT NULL,
+        appearances INTEGER NOT NULL DEFAULT 0,
+        avg_position REAL,
+        best_position INTEGER,
+        queries_beating_doma INTEGER NOT NULL DEFAULT 0,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(domain)
+    );
+
     CREATE TABLE IF NOT EXISTS ahrefs_domains (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         domain TEXT NOT NULL,
@@ -736,6 +757,62 @@ def ahrefs_issues_summary(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def competitor_content_summary(con: sqlite3.Connection, recent_days: int = 30) -> dict[str, Any]:
+    """New pages found on tracked competitor sites since they were first
+    seen - a page's first_seen_at is when this dashboard's own crawl first
+    noticed it, not when the competitor actually published it, so this is
+    "new to us" not a guaranteed publish date (most sites don't expose a
+    reliable creation date via sitemap lastmod alone)."""
+    cutoff = (date.today() - timedelta(days=recent_days)).isoformat()
+    rows = con.execute(
+        "SELECT competitor_name, domain, url, lastmod, first_seen_at FROM competitor_pages "
+        "WHERE date(first_seen_at) >= ? ORDER BY first_seen_at DESC LIMIT 40",
+        (cutoff,),
+    ).fetchall()
+    pages = [
+        {"competitor_name": row[0], "domain": row[1], "url": row[2], "lastmod": row[3], "first_seen_at": row[4]}
+        for row in rows
+    ]
+    totals = con.execute(
+        "SELECT competitor_name, COUNT(*) FROM competitor_pages GROUP BY competitor_name"
+    ).fetchall()
+    checked_at_row = con.execute("SELECT MAX(first_seen_at) FROM competitor_pages").fetchone()
+    return {
+        "available": bool(pages) or bool(totals),
+        "recent_pages": pages,
+        "totals": [{"competitor_name": row[0], "total_pages_tracked": row[1]} for row in totals],
+        "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
+def serp_competitors_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Real, computed "share of voice" against DOMA's own top Search Console
+    queries - who else shows up in the top 10 for the same searches, and
+    how often - built from live Google results (Custom Search API), not a
+    third-party authority score."""
+    rows = con.execute(
+        "SELECT domain, appearances, avg_position, best_position, queries_beating_doma, checked_at "
+        "FROM serp_competitors ORDER BY appearances DESC LIMIT 15"
+    ).fetchall()
+    competitors = [
+        {
+            "domain": row[0],
+            "appearances": row[1],
+            "avg_position": row[2],
+            "best_position": row[3],
+            "queries_beating_doma": row[4],
+            "checked_at": row[5],
+        }
+        for row in rows
+    ]
+    checked_at_row = con.execute("SELECT MAX(checked_at) FROM serp_competitors").fetchone()
+    return {
+        "available": bool(competitors),
+        "competitors": competitors,
+        "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
 def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
     """Latest blog posts (from the sitemap) joined with their GA4 + Search
     Console performance - answers "how is the post I published last week
@@ -1014,6 +1091,8 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
                 "competitors": ahrefs_competitors_summary(con),
                 "issues": ahrefs_issues_summary(con),
             },
+            "competitor_content": competitor_content_summary(con),
+            "serp_competitors": serp_competitors_summary(con),
             "sync_status": sync_status(con),
         }
 

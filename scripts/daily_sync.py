@@ -29,6 +29,8 @@ from scripts.sync_meta_organic import main as sync_meta_organic  # noqa: E402
 from scripts.sync_seo_audit import main as sync_seo_audit  # noqa: E402
 from scripts.sync_pagespeed import main as sync_pagespeed  # noqa: E402
 from scripts.sync_ahrefs import main as sync_ahrefs  # noqa: E402
+from scripts.sync_competitors_content import main as sync_competitors_content  # noqa: E402
+from scripts.sync_serp_competitors import main as sync_serp_competitors  # noqa: E402
 from scripts.send_seo_digest import main as send_seo_digest  # noqa: E402
 
 LOGS_DIR = ROOT / "logs"
@@ -116,6 +118,8 @@ def main() -> int:
         "seo_audit": run_source("On-page SEO audit", sync_seo_audit),
         "pagespeed": run_source("PageSpeed Insights", sync_pagespeed),
         "ahrefs": run_source("Ahrefs (Site Audit + competitors)", sync_ahrefs),
+        "competitors_content": run_source("Competitor content (sitemaps)", sync_competitors_content),
+        "serp_competitors": run_source("SERP competitor ranking", sync_serp_competitors),
     }
 
     statuses["seo_digest_email"] = run_source("SEO email digest", send_seo_digest)

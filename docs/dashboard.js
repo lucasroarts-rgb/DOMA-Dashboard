@@ -732,6 +732,30 @@ function renderCompetitors() {
     issues.issues || [],
     (i) => `<tr><td>${i.issue}</td><td><span class="delta ${sevClass(i.severity)}">${i.severity}</span></td><td>${number(i.affected_pages)}</td><td>${i.change_vs_prev > 0 ? "+" + i.change_vs_prev : i.change_vs_prev}</td></tr>`
   );
+
+  const serp = dashboard.serp_competitors || { available: false, competitors: [] };
+  document.getElementById("serpCompetitorsEmpty").style.display = serp.available ? "none" : "block";
+  renderTable(
+    "serpCompetitorsTable",
+    serp.competitors || [],
+    (c) => `<tr><td>${c.domain}</td><td>${number(c.appearances)}</td><td>${c.avg_position ?? "—"}</td><td>${c.best_position ?? "—"}</td><td>${number(c.queries_beating_doma)}</td></tr>`
+  );
+
+  const content = dashboard.competitor_content || { available: false, recent_pages: [], totals: [] };
+  document.getElementById("competitorContentEmpty").style.display = content.available ? "none" : "block";
+  if (content.available) {
+    renderCards(
+      "competitorContentCards",
+      (content.totals || []).map((t) => ({ label: t.competitor_name, value: number(t.total_pages_tracked), hint: "pages tracked" }))
+    );
+  } else {
+    document.getElementById("competitorContentCards").innerHTML = "";
+  }
+  renderTable(
+    "competitorContentTable",
+    content.recent_pages || [],
+    (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td><td>${fullDate((p.first_seen_at || "").slice(0, 10))}</td></tr>`
+  );
 }
 
 function renderBlog() {
