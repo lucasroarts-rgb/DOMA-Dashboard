@@ -250,6 +250,29 @@ def init_db() -> None:
         UNIQUE(url, strategy)
     );
 
+    CREATE TABLE IF NOT EXISTS ahrefs_domains (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        domain TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'competitor',
+        domain_rating INTEGER,
+        organic_traffic INTEGER,
+        organic_keywords INTEGER,
+        backlinks INTEGER,
+        referring_domains INTEGER,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(domain)
+    );
+
+    CREATE TABLE IF NOT EXISTS ahrefs_site_audit_issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        affected_pages INTEGER NOT NULL DEFAULT 0,
+        change_vs_prev INTEGER NOT NULL DEFAULT 0,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(issue)
+    );
+
     CREATE TABLE IF NOT EXISTS ga4_demographics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         dimension_type TEXT NOT NULL,
@@ -662,6 +685,57 @@ def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def ahrefs_competitors_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    rows = con.execute(
+        "SELECT domain, role, domain_rating, organic_traffic, organic_keywords, "
+        "backlinks, referring_domains, checked_at FROM ahrefs_domains "
+        "ORDER BY (role != 'self'), organic_traffic DESC"
+    ).fetchall()
+    domains = [
+        {
+            "domain": row[0],
+            "role": row[1],
+            "domain_rating": row[2],
+            "organic_traffic": row[3],
+            "organic_keywords": row[4],
+            "backlinks": row[5],
+            "referring_domains": row[6],
+            "checked_at": row[7],
+        }
+        for row in rows
+    ]
+    checked_at_row = con.execute("SELECT MAX(checked_at) FROM ahrefs_domains").fetchone()
+    return {
+        "available": bool(domains),
+        "domains": domains,
+        "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
+def ahrefs_issues_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    rows = con.execute(
+        "SELECT issue, severity, affected_pages, change_vs_prev, checked_at "
+        "FROM ahrefs_site_audit_issues ORDER BY "
+        "CASE severity WHEN 'Error' THEN 0 WHEN 'Warning' THEN 1 ELSE 2 END, affected_pages DESC"
+    ).fetchall()
+    issues = [
+        {
+            "issue": row[0],
+            "severity": row[1],
+            "affected_pages": row[2],
+            "change_vs_prev": row[3],
+            "checked_at": row[4],
+        }
+        for row in rows
+    ]
+    checked_at_row = con.execute("SELECT MAX(checked_at) FROM ahrefs_site_audit_issues").fetchone()
+    return {
+        "available": bool(issues),
+        "issues": issues,
+        "checked_at": checked_at_row[0] if checked_at_row else None,
+    }
+
+
 def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
     """Latest blog posts (from the sitemap) joined with their GA4 + Search
     Console performance - answers "how is the post I published last week
@@ -936,6 +1010,10 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "ghl": ghl_summary(con, start_date, end_date),
             "social": social_summary(con, start_date, end_date),
             "content": recent_posts_summary(con),
+            "ahrefs": {
+                "competitors": ahrefs_competitors_summary(con),
+                "issues": ahrefs_issues_summary(con),
+            },
             "sync_status": sync_status(con),
         }
 

@@ -49,6 +49,7 @@
   <nav class="tabs" id="tabs">
     <button class="tab active" data-view="overview">Overview</button>
     <button class="tab" data-view="seo">SEO &middot; Search Console</button>
+    <button class="tab" data-view="competitors">Competitors &middot; Ahrefs</button>
     <button class="tab" data-view="blog">Blog &middot; GA4</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
@@ -140,6 +141,35 @@
         <div class="table-wrap">
           <table id="pagespeedTable">
             <thead><tr><th>Page</th><th>Performance</th><th>LCP</th><th>CLS</th><th>Accessibility</th><th>Top opportunity</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-competitors">
+      <div id="ahrefsUnavailable" class="empty" style="display:none">
+        Ahrefs API access isn't working yet for this account (every request returns
+        Unauthorized, confirmed on their end - see README.md "Ahrefs" section). This tab is
+        ready and will populate automatically once that's resolved and
+        <code>scripts/sync_ahrefs.py</code> runs.
+      </div>
+      <div class="panel">
+        <h2>DOMA vs. competitors <span class="h2-note">(domain rating, organic traffic &amp; keywords, backlinks - via Ahrefs, competitors auto-discovered)</span></h2>
+        <div id="competitorsEmpty" class="empty" style="display:none">No competitor data yet.</div>
+        <div class="table-wrap">
+          <table id="competitorsTable">
+            <thead><tr><th>Domain</th><th>Domain Rating</th><th>Organic traffic</th><th>Organic keywords</th><th>Backlinks</th><th>Referring domains</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Site Audit issues <span class="h2-note">(Ahrefs crawl of dentalofficemanagers.com - separate from this dashboard's own on-page audit above)</span></h2>
+        <div id="ahrefsIssuesEmpty" class="empty" style="display:none">No Ahrefs Site Audit data yet.</div>
+        <div class="table-wrap">
+          <table id="ahrefsIssuesTable">
+            <thead><tr><th>Issue</th><th>Severity</th><th>Affected pages</th><th>Change</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>

@@ -51,6 +51,7 @@ python scripts/sync_ghl.py
 python scripts/sync_meta_organic.py
 python scripts/sync_seo_audit.py
 python scripts/sync_pagespeed.py
+python scripts/sync_ahrefs.py
 python scripts/send_seo_digest.py
 ```
 
@@ -120,7 +121,7 @@ Drive como Viewer com `doma-dashboard-sync@planar-maxim-305714.iam.gserviceaccou
 
 ## Automação diária
 
-`python scripts/daily_sync.py` roda os 6 syncs + o digest de e-mail, gera o
+`python scripts/daily_sync.py` roda os 7 syncs + o digest de e-mail, gera o
 site estático em `docs/` (com os períodos de 30/90/180 dias já
 pré-calculados, pro seletor de período funcionar mesmo no site publicado sem
 back-end) e faz commit + push automático (se `AUTO_PUBLISH=true` no `.env` e
@@ -383,7 +384,7 @@ etapas ativada) - a senha normal da conta não funciona (Google bloqueia
 login via SMTP com senha comum) e não deve ser usada em arquivo de
 automação de qualquer forma.
 
-## Ahrefs (Site Audit) - preparado, mas bloqueado do lado da conta
+## Ahrefs (aba "Competitors" do dash) - código pronto, bloqueado do lado da conta
 
 `AHREFS_API_KEY` + `AHREFS_PROJECT_ID` no `.env`, mas toda chamada à API
 retorna `401 Unauthorized` - já testado com 3 chaves diferentes (geradas do
@@ -393,13 +394,22 @@ Python), confirmado que a requisição chega no servidor real da Ahrefs (não
 é bloqueio de rede/proxy - tem `x-request-trace-id` no header de resposta).
 Conclusão: é um problema do lado da conta Ahrefs (entitlement de API não
 ativo de verdade, mesmo aparecendo na tela de gerenciar chaves) - só o
-suporte da Ahrefs resolve. Nenhum script de sync foi construído ainda
-porque não dá pra testar contra uma API que não autentica; assim que a
-conta liberar, o próximo passo é `scripts/sync_ahrefs.py` seguindo o mesmo
-padrão dos outros syncs (tabela própria, painel no dashboard, alerta em
-"Things to look at" quando algum issue subir muito) mais um painel de
-concorrentes (via o endpoint de "competing domains" da Ahrefs, que descobre
-os concorrentes automaticamente - não precisa de lista manual).
+suporte da Ahrefs resolve.
+
+`scripts/sync_ahrefs.py` já existe (tabela `ahrefs_domains` +
+`ahrefs_site_audit_issues`, aba "Competitors" no dashboard com tabela de
+comparação DOMA x concorrentes e a lista de Site Audit issues), mas está
+**não verificado end-to-end** - só dá pra confirmar contra uma API que
+autentica. A chamada de `site-audit/issues` usa o formato exato de um
+exemplo real que veio da própria UI da Ahrefs (esse pedaço é confiável); os
+endpoints de `site-explorer/metrics` (métricas de domínio) e
+`site-explorer/competing-domains` (descoberta automática de concorrentes,
+sem lista manual) são a melhor suposição da estrutura da API v3 da Ahrefs,
+nunca testados contra uma resposta real - **reconferir contra a
+documentação atual da Ahrefs (ou por tentativa e erro) assim que a conta
+autenticar**, antes de confiar cegamente neles. Enquanto isso, a aba
+Competitors mostra um aviso explicando a situação em vez de ficar vazia
+sem explicação.
 
 ## Proteção do site publicado
 

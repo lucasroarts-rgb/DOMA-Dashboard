@@ -606,6 +606,29 @@ function renderSeo() {
   );
 }
 
+function renderCompetitors() {
+  const ahrefs = dashboard.ahrefs || { competitors: { available: false, domains: [] }, issues: { available: false, issues: [] } };
+  const competitors = ahrefs.competitors || { available: false, domains: [] };
+  const issues = ahrefs.issues || { available: false, issues: [] };
+
+  document.getElementById("ahrefsUnavailable").style.display = competitors.available || issues.available ? "none" : "block";
+  document.getElementById("competitorsEmpty").style.display = competitors.available ? "none" : "block";
+  document.getElementById("ahrefsIssuesEmpty").style.display = issues.available ? "none" : "block";
+
+  renderTable(
+    "competitorsTable",
+    competitors.domains || [],
+    (d) => `<tr><td>${d.role === "self" ? `<strong>${d.domain}</strong>` : d.domain}</td><td>${d.domain_rating ?? "—"}</td><td>${number(d.organic_traffic)}</td><td>${number(d.organic_keywords)}</td><td>${number(d.backlinks)}</td><td>${number(d.referring_domains)}</td></tr>`
+  );
+
+  const sevClass = (s) => (s === "Error" ? "delta-bad" : s === "Warning" ? "delta-flat" : "");
+  renderTable(
+    "ahrefsIssuesTable",
+    issues.issues || [],
+    (i) => `<tr><td>${i.issue}</td><td><span class="delta ${sevClass(i.severity)}">${i.severity}</span></td><td>${number(i.affected_pages)}</td><td>${i.change_vs_prev > 0 ? "+" + i.change_vs_prev : i.change_vs_prev}</td></tr>`
+  );
+}
+
 function renderBlog() {
   const ga4 = dashboard.ga4;
   const prev = dashboard.previous;
@@ -778,6 +801,7 @@ function renderAll() {
   }
   renderOverview();
   renderSeo();
+  renderCompetitors();
   renderBlog();
   renderLeads();
   renderSocial();
