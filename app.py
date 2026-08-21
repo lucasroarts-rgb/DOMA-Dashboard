@@ -216,8 +216,10 @@ def init_db() -> None:
         fetch_error TEXT,
         title TEXT,
         title_length INTEGER NOT NULL DEFAULT 0,
+        title_tag_count INTEGER NOT NULL DEFAULT 1,
         meta_description TEXT,
         meta_length INTEGER NOT NULL DEFAULT 0,
+        meta_desc_tag_count INTEGER NOT NULL DEFAULT 1,
         h1_count INTEGER NOT NULL DEFAULT 0,
         images_total INTEGER NOT NULL DEFAULT 0,
         images_missing_alt INTEGER NOT NULL DEFAULT 0,
@@ -386,6 +388,10 @@ def init_db() -> None:
         onpage_columns = {row["name"] for row in con.execute("PRAGMA table_info(seo_onpage_audit)").fetchall()}
         if "js_rechecked" not in onpage_columns:
             con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN js_rechecked INTEGER NOT NULL DEFAULT 0")
+        if "title_tag_count" not in onpage_columns:
+            con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN title_tag_count INTEGER NOT NULL DEFAULT 1")
+        if "meta_desc_tag_count" not in onpage_columns:
+            con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN meta_desc_tag_count INTEGER NOT NULL DEFAULT 1")
 
 
 def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
@@ -536,10 +542,14 @@ def _onpage_findings(row: dict[str, Any]) -> list[str]:
     if row["fetch_error"] or (row["http_status"] and row["http_status"] != 200):
         findings.append(f"Page did not load cleanly (HTTP {row['http_status'] or 'error'})")
         return findings  # other checks are meaningless if the page didn't load
+    if row["title_tag_count"] > 1:
+        findings.append(f"{row['title_tag_count']} <title> tags on this page (should be exactly 1)")
     if not row["title"]:
         findings.append("Missing <title> tag")
     elif row["title_length"] < 30 or row["title_length"] > 60:
         findings.append(f"Title length {row['title_length']} chars (ideal ~30-60)")
+    if row["meta_desc_tag_count"] > 1:
+        findings.append(f"{row['meta_desc_tag_count']} meta description tags on this page (should be exactly 1)")
     if not row["meta_description"]:
         findings.append("Missing meta description")
     elif row["meta_length"] < 70 or row["meta_length"] > 160:
@@ -579,7 +589,7 @@ def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
     rows = con.execute(
         "SELECT url, http_status, fetch_error, title, title_length, meta_description, meta_length, "
         "h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url, has_schema, "
-        "js_rechecked FROM seo_onpage_audit ORDER BY url"
+        "js_rechecked, title_tag_count, meta_desc_tag_count FROM seo_onpage_audit ORDER BY url"
     ).fetchall()
     pages = []
     for row in rows:
@@ -599,6 +609,8 @@ def seo_onpage_summary(con: sqlite3.Connection) -> dict[str, Any]:
             "canonical_url": row[12],
             "has_schema": bool(row[13]),
             "js_rechecked": bool(row[14]),
+            "title_tag_count": int(row[15] or 1),
+            "meta_desc_tag_count": int(row[16] or 1),
         }
         page["findings"] = _onpage_findings(page)
         pages.append(page)

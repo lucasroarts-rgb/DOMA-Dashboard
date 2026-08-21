@@ -58,11 +58,13 @@ def _fetch_page(url: str) -> dict[str, object] | None:
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    title_tag = soup.find("title")
-    title = title_tag.get_text(strip=True) if title_tag else ""
+    title_tags = soup.find_all("title")
+    title_tag_count = len(title_tags)
+    title = title_tags[0].get_text(strip=True) if title_tags else ""
 
-    meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-    meta_description = (meta_desc_tag.get("content") or "").strip() if meta_desc_tag else ""
+    meta_desc_tags = soup.find_all("meta", attrs={"name": "description"})
+    meta_desc_tag_count = len(meta_desc_tags)
+    meta_description = (meta_desc_tags[0].get("content") or "").strip() if meta_desc_tags else ""
 
     h1_tags = soup.find_all("h1")
     h1_count = len(h1_tags)
@@ -110,8 +112,10 @@ def _fetch_page(url: str) -> dict[str, object] | None:
         "fetch_error": "",
         "title": title,
         "title_length": len(title),
+        "title_tag_count": title_tag_count,
         "meta_description": meta_description,
         "meta_length": len(meta_description),
+        "meta_desc_tag_count": meta_desc_tag_count,
         "h1_count": h1_count,
         "images_total": images_total,
         "images_missing_alt": images_missing_alt,
@@ -203,12 +207,12 @@ def store_audit(rows: list[dict[str, object]]) -> None:
         con.executemany(
             """
             INSERT INTO seo_onpage_audit
-                (url, http_status, fetch_error, title, title_length, meta_description, meta_length,
-                 h1_count, images_total, images_missing_alt, word_count, has_canonical, canonical_url,
-                 has_schema, js_rechecked, checked_at)
-            VALUES (:url, :http_status, :fetch_error, :title, :title_length, :meta_description, :meta_length,
-                    :h1_count, :images_total, :images_missing_alt, :word_count, :has_canonical, :canonical_url,
-                    :has_schema, :js_rechecked, CURRENT_TIMESTAMP)
+                (url, http_status, fetch_error, title, title_length, title_tag_count, meta_description,
+                 meta_length, meta_desc_tag_count, h1_count, images_total, images_missing_alt, word_count,
+                 has_canonical, canonical_url, has_schema, js_rechecked, checked_at)
+            VALUES (:url, :http_status, :fetch_error, :title, :title_length, :title_tag_count, :meta_description,
+                    :meta_length, :meta_desc_tag_count, :h1_count, :images_total, :images_missing_alt, :word_count,
+                    :has_canonical, :canonical_url, :has_schema, :js_rechecked, CURRENT_TIMESTAMP)
             """,
             [
                 {
@@ -217,8 +221,10 @@ def store_audit(rows: list[dict[str, object]]) -> None:
                     "fetch_error": r.get("fetch_error", ""),
                     "title": r.get("title", ""),
                     "title_length": r.get("title_length", 0),
+                    "title_tag_count": r.get("title_tag_count", 1),
                     "meta_description": r.get("meta_description", ""),
                     "meta_length": r.get("meta_length", 0),
+                    "meta_desc_tag_count": r.get("meta_desc_tag_count", 1),
                     "h1_count": r.get("h1_count", 0),
                     "images_total": r.get("images_total", 0),
                     "images_missing_alt": r.get("images_missing_alt", 0),
