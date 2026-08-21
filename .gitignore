@@ -1,6 +1,7 @@
 .env
 data/
 logs/
+ebook_packages/
 __pycache__/
 *.pyc
 .venv/
