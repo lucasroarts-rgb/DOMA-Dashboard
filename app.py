@@ -757,17 +757,28 @@ def ahrefs_issues_summary(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def competitor_content_summary(con: sqlite3.Connection, recent_days: int = 30) -> dict[str, Any]:
-    """New pages found on tracked competitor sites since they were first
-    seen - a page's first_seen_at is when this dashboard's own crawl first
-    noticed it, not when the competitor actually published it, so this is
-    "new to us" not a guaranteed publish date (most sites don't expose a
-    reliable creation date via sitemap lastmod alone)."""
-    cutoff = (date.today() - timedelta(days=recent_days)).isoformat()
+def competitor_content_summary(con: sqlite3.Connection, per_competitor: int = 8) -> dict[str, Any]:
+    """Most recently updated/published pages per tracked competitor, sorted
+    by the competitor's own sitemap `lastmod` (a real timestamp from their
+    site) rather than `first_seen_at` (just "when our crawler noticed it,"
+    which is meaningless on the very first sync - everything looks equally
+    "new"). `lastmod` is missing on some sites, so those pages sort last
+    within their own competitor rather than being dropped. Capped per
+    competitor (not a single global top-N) so a competitor with a much
+    larger/more-recently-touched sitemap can't crowd out the other one."""
     rows = con.execute(
-        "SELECT competitor_name, domain, url, lastmod, first_seen_at FROM competitor_pages "
-        "WHERE date(first_seen_at) >= ? ORDER BY first_seen_at DESC LIMIT 40",
-        (cutoff,),
+        """
+        SELECT competitor_name, domain, url, lastmod, first_seen_at FROM (
+            SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY competitor_name
+                ORDER BY (lastmod IS NULL OR lastmod = ''), lastmod DESC
+            ) AS rn
+            FROM competitor_pages
+        )
+        WHERE rn <= ?
+        ORDER BY competitor_name, rn
+        """,
+        (per_competitor,),
     ).fetchall()
     pages = [
         {"competitor_name": row[0], "domain": row[1], "url": row[2], "lastmod": row[3], "first_seen_at": row[4]}

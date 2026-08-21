@@ -85,6 +85,19 @@ function fullDate(isoDate) {
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function titleFromUrl(url) {
+  try {
+    const path = new URL(url).pathname.replace(/\/$/, "");
+    const slug = path.split("/").filter(Boolean).pop();
+    if (!slug) return url.replace(/^https?:\/\/[^/]+/, "") || "/";
+    return slug
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return url;
+  }
+}
+
 function daysBetween(isoA, isoB) {
   const a = new Date(isoA);
   const b = new Date(isoB);
@@ -754,7 +767,7 @@ function renderCompetitors() {
   renderTable(
     "competitorContentTable",
     content.recent_pages || [],
-    (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td><td>${fullDate((p.first_seen_at || "").slice(0, 10))}</td></tr>`
+    (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${titleFromUrl(p.url)}</a></td><td>${p.lastmod ? fullDate(p.lastmod.slice(0, 10)) : "—"}</td></tr>`
   );
 }
 
