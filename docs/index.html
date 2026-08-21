@@ -158,24 +158,28 @@
     </section>
 
     <section class="view" id="view-competitors">
-      <div id="ahrefsUnavailable" class="empty" style="display:none">
-        Ahrefs API access isn't working yet for this account (every request returns
-        Unauthorized, confirmed on their end - see README.md "Ahrefs" section). This tab is
-        ready and will populate automatically once that's resolved and
-        <code>scripts/sync_ahrefs.py</code> runs.
-      </div>
       <div class="panel">
-        <h2>Real ranking share-of-voice <span class="h2-note">(who else shows up in the top 10 for DOMA's own top Search Console queries - a live search snapshot, not a 3rd-party authority score)</span></h2>
-        <div id="serpCompetitorsEmpty" class="empty" style="display:none">No ranking comparison data yet - run scripts/sync_serp_competitors.py. Note: the free DuckDuckGo-based method this uses can get temporarily rate-limited after a burst of checks; if it's been failing, wait a while and retry, or see README.md "Ahrefs" for a paid alternative (DataForSEO etc).</div>
+        <h2>How to read this tab</h2>
+        <p style="margin:0;color:var(--muted);font-size:13.5px;line-height:1.6">
+          Two views of the competition, from two different free data sources - no paid API, no Ahrefs (still blocked, see below).
+          <strong style="color:var(--ink)">Ranking share-of-voice</strong> answers "for the searches DOMA already cares about, which real businesses out-rank us, and by how much" -
+          built from live search results, filtered to exclude generic platforms (Facebook, LinkedIn, YouTube, etc) that show up for almost any search and aren't real competitors.
+          <strong style="color:var(--ink)">New competitor content</strong> answers "what did AADOM/Dental A Team just publish" - a small, hand-picked watchlist, not auto-discovered.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>Ranking share-of-voice <span class="h2-note">(real businesses that out-rank DOMA on our own target searches - live snapshot, not a purchased authority score)</span></h2>
+        <div id="serpCompetitorsEmpty" class="empty" style="display:none">No ranking comparison data yet - run scripts/sync_serp_competitors.py. Note: the free DuckDuckGo-based method this uses can get temporarily rate-limited after a burst of checks; if it's been failing, wait a while and retry.</div>
         <div class="table-wrap">
           <table id="serpCompetitorsTable">
-            <thead><tr><th>Domain</th><th>Appearances</th><th>Avg. position</th><th>Best position</th><th>Beats DOMA on</th></tr></thead>
+            <thead><tr><th>Domain</th><th>Shows up on</th><th>Avg. position</th><th>Best position</th><th>Beats DOMA on</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </div>
       <div class="panel">
-        <h2>New competitor content <span class="h2-note">(pages newly found on tracked competitor sitemaps - AADOM, Dental A Team)</span></h2>
+        <h2>New competitor content <span class="h2-note">(pages newly found on our watchlist's sitemaps - currently AADOM and Dental A Team)</span></h2>
         <div class="cards" id="competitorContentCards"></div>
         <div id="competitorContentEmpty" class="empty" style="display:none">No competitor content data yet - run scripts/sync_competitors_content.py.</div>
         <div class="table-wrap">
@@ -183,6 +187,17 @@
             <thead><tr><th>Competitor</th><th>Page</th><th>First seen</th></tr></thead>
             <tbody></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Waiting on Ahrefs <span class="h2-note">(blocked account-side, not fixable from here - see README.md "Ahrefs")</span></h2>
+        <div id="ahrefsUnavailable" class="empty" style="display:block">
+          Ahrefs API access isn't working yet for this account (every request returns
+          Unauthorized, tested with 4 different keys, confirmed on their end). Once that's
+          resolved and <code>scripts/sync_ahrefs.py</code> runs, the two panels below will
+          show domain rating / organic traffic &amp; keywords / backlinks per competitor,
+          and Ahrefs' own Site Audit issue list.
         </div>
       </div>
       <div class="panel">

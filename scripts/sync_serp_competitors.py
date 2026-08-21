@@ -36,6 +36,22 @@ MAX_QUERIES = 20
 REQUEST_TIMEOUT = 20
 RESULT_LINK_RE = re.compile(r'class="result__a"[^>]*href="([^"]+)"')
 
+# Big general platforms show up for almost any B2B query and aren't real
+# competitors (a LinkedIn company page, a YouTube video, a Facebook group) -
+# they'd otherwise dominate a "share of voice" table meant to answer "which
+# businesses are we actually losing search visibility to."
+NON_COMPETITOR_DOMAINS = {
+    "facebook.com", "linkedin.com", "youtube.com", "instagram.com",
+    "twitter.com", "x.com", "pinterest.com", "tiktok.com", "reddit.com",
+    "quora.com", "wikipedia.org", "amazon.com", "indeed.com", "glassdoor.com",
+    "yelp.com", "google.com", "apple.com", "medium.com",
+}
+
+
+def _is_noise_domain(domain: str) -> bool:
+    bare = domain.lower().removeprefix("www.")
+    return any(bare == d or bare.endswith("." + d) for d in NON_COMPETITOR_DOMAINS)
+
 
 class SerpError(RuntimeError):
     pass
@@ -107,13 +123,20 @@ def main() -> int:
 
         doma_position = next((i + 1 for i, d in enumerate(domains) if self_domain in d), None)
         for i, domain in enumerate(domains):
-            if self_domain in domain:
+            if self_domain in domain or _is_noise_domain(domain):
                 continue
             position = i + 1
             domain_positions.setdefault(domain, []).append(position)
             if doma_position is None or position < doma_position:
                 domain_beats_doma[domain] = domain_beats_doma.get(domain, 0) + 1
         time.sleep(1.0)  # be polite - one request per second, this is a free public page, not an API
+
+    if checked == 0:
+        # DuckDuckGo rate-limited every single query this run - keep whatever
+        # data is already in the table rather than wiping it out with an
+        # empty result. A partial run (some queries got through) still
+        # replaces the table below, same as before.
+        raise SerpError("All queries were rate-limited (202) - keeping previous data, not overwriting.")
 
     with dashboard_app.db() as con:
         con.execute("DELETE FROM serp_competitors")
