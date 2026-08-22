@@ -164,12 +164,31 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
   const plotW = width - left - right;
   const plotH = height - top - bottom;
 
-  const allValues = validSeries.flatMap((s) => s.points.map((p) => p.value));
+  const hasValue = (p) => p.value !== null && p.value !== undefined;
+  const allValues = validSeries.flatMap((s) => s.points.filter(hasValue).map((p) => p.value));
   const maxValue = Math.max(1, ...allValues);
   const pointCount = validSeries[0].points.length;
 
   const x = (i) => left + (pointCount <= 1 ? 0 : (i / (pointCount - 1)) * plotW);
   const y = (v) => top + plotH - (v / maxValue) * plotH;
+
+  // Points with no synced value (null) break the line into segments instead
+  // of drawing a misleading flat 0 - e.g. GSC clicks before a property has
+  // backfilled shouldn't look identical to a real, confirmed zero-click day.
+  function segmentsOf(points) {
+    const segments = [];
+    let current = [];
+    points.forEach((p, i) => {
+      if (hasValue(p)) {
+        current.push(i);
+      } else if (current.length) {
+        segments.push(current);
+        current = [];
+      }
+    });
+    if (current.length) segments.push(current);
+    return segments;
+  }
 
   const ticks = [0, 0.25, 0.5, 0.75, 1];
   const grid = ticks
@@ -186,9 +205,13 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
 
   const lines = validSeries
     .map((s, seriesIndex) => {
-      const points = s.points.map((p, i) => `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
       const cls = seriesIndex === 0 ? "a" : "b";
-      return `<polyline points="${points}" class="chart-line ${cls}"/>`;
+      return segmentsOf(s.points)
+        .map((indices) => {
+          const points = indices.map((i) => `${x(i).toFixed(1)},${y(s.points[i].value).toFixed(1)}`).join(" ");
+          return `<polyline points="${points}" class="chart-line ${cls}"/>`;
+        })
+        .join("");
     })
     .join("");
 
@@ -197,15 +220,16 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     .map((s, seriesIndex) => {
       const cls = seriesIndex === 0 ? "a" : "b";
       return s.points
-        .map((p, i) => (i % dotEvery === 0 || i === pointCount - 1 ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.6" class="chart-dot ${cls}"/>` : ""))
+        .map((p, i) => (hasValue(p) && (i % dotEvery === 0 || i === pointCount - 1) ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.6" class="chart-dot ${cls}"/>` : ""))
         .join("");
     })
     .join("");
 
   const legend = validSeries
     .map((s, i) => {
-      const last = s.points[s.points.length - 1];
-      return `<span><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${formatter(last.value)}</strong> <span class="legend-date">(${fullDate(last.date)})</span></span>`;
+      const last = [...s.points].reverse().find(hasValue) || s.points[s.points.length - 1];
+      const valueLabel = hasValue(last) ? formatter(last.value) : "No data yet";
+      return `<span><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${valueLabel}</strong> <span class="legend-date">(${fullDate(last.date)})</span></span>`;
     })
     .join("");
 
@@ -239,7 +263,8 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
       .map((s, i) => {
         const point = s.points[index];
         if (!point) return "";
-        return `<div class="chart-tooltip-row"><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${formatter(point.value)}</strong></div>`;
+        const valueLabel = point.value === null || point.value === undefined ? "No data yet" : formatter(point.value);
+        return `<div class="chart-tooltip-row"><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${valueLabel}</strong></div>`;
       })
       .join("");
     const dateLabel = fullDate(validSeries[0].points[index]?.date);
@@ -616,7 +641,7 @@ function renderOverview() {
   const dates = [...new Set([...gscByDate.keys(), ...ga4ByDate.keys()])].sort();
 
   svgLineChart("overviewChart", [
-    { label: "Organic clicks", points: dates.map((d) => ({ date: d, value: gscByDate.get(d) || 0 })) },
+    { label: "Organic clicks", points: dates.map((d) => ({ date: d, value: gscByDate.has(d) ? gscByDate.get(d) : null })) },
     { label: "Sessions (GA4)", points: dates.map((d) => ({ date: d, value: ga4ByDate.get(d) || 0 })) },
   ]);
 
