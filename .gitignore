@@ -2,6 +2,7 @@
 data/
 logs/
 ebook_packages/
+.claude/settings.local.json
 __pycache__/
 *.pyc
 .venv/
