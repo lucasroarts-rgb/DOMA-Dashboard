@@ -795,6 +795,22 @@ function renderCompetitors() {
     (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${titleFromUrl(p.url)}</a></td><td>${p.lastmod ? fullDate(p.lastmod.slice(0, 10)) : "—"}</td></tr>`
   );
 
+  const tech = dashboard.competitor_tech || { available: false, entries: [] };
+  document.getElementById("competitorTechEmpty").style.display = tech.available ? "none" : "block";
+  renderTable(
+    "competitorTechTable",
+    tech.entries || [],
+    (t) => `<tr><td>${t.competitor_name}</td><td>${t.signals.length ? t.signals.join(", ") : "(no known signatures matched)"}</td></tr>`
+  );
+
+  const wayback = dashboard.competitor_wayback || { available: false, entries: [] };
+  document.getElementById("competitorWaybackEmpty").style.display = wayback.available ? "none" : "block";
+  renderTable(
+    "competitorWaybackTable",
+    wayback.entries || [],
+    (w) => `<tr><td>${w.competitor_name}</td><td>${number(w.total_snapshots)}</td><td>${w.last_snapshot ? fullDate(`${w.last_snapshot.slice(0, 4)}-${w.last_snapshot.slice(4, 6)}-${w.last_snapshot.slice(6, 8)}`) : "—"}</td><td>${number(w.snapshots_last_90d)}</td></tr>`
+  );
+
   const adSpy = dashboard.ad_spy || { available: false, entries: [], by_competitor: [] };
   document.getElementById("adSpyEmpty").style.display = adSpy.available ? "none" : "block";
   if (adSpy.available) {

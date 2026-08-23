@@ -189,11 +189,33 @@
           </table>
         </div>
       </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h2>Competitor marketing stack <span class="h2-note">(detected live from each competitor's own public homepage - same technique as a Wappalyzer-style checker)</span></h2>
+          <div id="competitorTechEmpty" class="empty" style="display:none">No tech-stack data yet - run scripts/sync_competitor_intel.py.</div>
+          <div class="table-wrap">
+            <table id="competitorTechTable">
+              <thead><tr><th>Competitor</th><th>Tools detected</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Site activity &middot; Wayback Machine <span class="h2-note">(how often each competitor's homepage has been archived - a rough proxy for how actively they maintain it, not traffic or revenue)</span></h2>
+          <div id="competitorWaybackEmpty" class="empty" style="display:none">No Wayback data yet - run scripts/sync_competitor_intel.py.</div>
+          <div class="table-wrap">
+            <table id="competitorWaybackTable">
+              <thead><tr><th>Competitor</th><th>Total snapshots</th><th>Last snapshot</th><th>Last 90 days</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       <div class="panel">
         <h2>Ad Spy &middot; paid ads intelligence <span class="h2-note">(manually researched from Meta/Google/TikTok/LinkedIn ad libraries - no public API for any of them, see README.md "Ad Spy")</span></h2>
         <div class="cards" id="adSpyCards"></div>
-        <div id="adSpyEmpty" class="empty" style="display:none">No ad intelligence logged yet - see README.md "Ad Spy" for how to research and add entries via scripts/add_ad_spy_entry.py.</div>
+        <div id="adSpyEmpty" class="empty" style="display:none">No ad intelligence logged yet.</div>
         <div class="table-wrap">
           <table id="adSpyTable">
             <thead><tr><th>Competitor</th><th>Platform</th><th>Found</th><th>Format</th><th>Hook</th><th>Offer</th><th>CTA</th><th>Hypothesis</th></tr></thead>

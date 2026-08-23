@@ -54,6 +54,7 @@ python scripts/sync_pagespeed.py
 python scripts/sync_ahrefs.py
 python scripts/sync_competitors_content.py
 python scripts/sync_serp_competitors.py
+python scripts/sync_competitor_intel.py
 python scripts/send_seo_digest.py
 ```
 
@@ -412,6 +413,26 @@ documentação atual da Ahrefs (ou por tentativa e erro) assim que a conta
 autenticar**, antes de confiar cegamente neles. Enquanto isso, a aba
 Competitors mostra um aviso explicando a situação em vez de ficar vazia
 sem explicação.
+
+## Mais formas de inspecionar concorrentes (aba "Competitors")
+
+`scripts/sync_competitor_intel.py` - duas checagens gratuitas, sem chave,
+reaproveitando a mesma lista `COMPETITORS` de `sync_competitors_content.py`:
+
+- **Stack de marketing/tech**: busca a home pública de cada concorrente e
+  compara o HTML contra uma lista de assinaturas conhecidas (WordPress,
+  HubSpot, Klaviyo, Meta Pixel, Elementor, chat widgets, etc) - mesma
+  técnica de uma extensão tipo Wappalyzer, só que rodando aqui. Mostra em
+  que ferramenta de marketing o concorrente investe de verdade (ex:
+  confirmado que Dental A Team usa HubSpot, AADOM não).
+- **Histórico via Wayback Machine**: `web.archive.org/cdx/search/cdx` é
+  uma API pública, sem chave - conta quantas vezes a home do concorrente
+  foi arquivada e quando foi a última vez. É um proxy aproximado de "o
+  quão ativo" o site é, não mede tráfego nem faturamento.
+
+Outras formas existem (Visualping, PageCrawl, monitorar vagas no
+LinkedIn) mas exigem criar conta nova em outro serviço - mesma fricção de
+sempre. Ficam de fora até serem pedidas explicitamente.
 
 ## Ad Spy - inteligência de anúncios pagos de concorrentes (aba "Competitors")
 

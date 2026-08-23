@@ -271,6 +271,27 @@ def init_db() -> None:
         UNIQUE(domain)
     );
 
+    CREATE TABLE IF NOT EXISTS competitor_tech_stack (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competitor_name TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        signals TEXT NOT NULL DEFAULT '[]',
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(domain)
+    );
+
+    CREATE TABLE IF NOT EXISTS competitor_wayback_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        competitor_name TEXT NOT NULL,
+        domain TEXT NOT NULL,
+        total_snapshots INTEGER NOT NULL DEFAULT 0,
+        first_snapshot TEXT,
+        last_snapshot TEXT,
+        snapshots_last_90d INTEGER NOT NULL DEFAULT 0,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(domain)
+    );
+
     CREATE TABLE IF NOT EXISTS ad_spy_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entry_id TEXT,
@@ -730,6 +751,50 @@ def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "avg_performance_score": avg_performance,
         "checked_at": pages[0]["checked_at"] if pages else None,
     }
+
+
+def competitor_tech_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Marketing/tech stack fingerprint per tracked competitor - detected
+    by fetching each competitor's own public homepage HTML and matching
+    known signatures (WordPress, HubSpot, Klaviyo, Meta Pixel, etc), the
+    same technique a browser extension like Wappalyzer uses. Not a guess
+    or a paid lookup - a live check of what that competitor's own page
+    actually loads."""
+    import json
+
+    rows = con.execute(
+        "SELECT competitor_name, domain, signals, checked_at FROM competitor_tech_stack ORDER BY competitor_name"
+    ).fetchall()
+    entries = [
+        {"competitor_name": row[0], "domain": row[1], "signals": json.loads(row[2]) if row[2] else [], "checked_at": row[3]}
+        for row in rows
+    ]
+    return {"available": bool(entries), "entries": entries}
+
+
+def competitor_wayback_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """How often a tracked competitor's site has actually changed, per the
+    Internet Archive's Wayback Machine (web.archive.org) - a free, public,
+    no-key API. Snapshot count/frequency is a rough proxy for how actively
+    a competitor maintains their site, not a direct measure of traffic or
+    revenue."""
+    rows = con.execute(
+        "SELECT competitor_name, domain, total_snapshots, first_snapshot, last_snapshot, snapshots_last_90d, checked_at "
+        "FROM competitor_wayback_history ORDER BY competitor_name"
+    ).fetchall()
+    entries = [
+        {
+            "competitor_name": row[0],
+            "domain": row[1],
+            "total_snapshots": row[2],
+            "first_snapshot": row[3],
+            "last_snapshot": row[4],
+            "snapshots_last_90d": row[5],
+            "checked_at": row[6],
+        }
+        for row in rows
+    ]
+    return {"available": bool(entries), "entries": entries}
 
 
 def ad_spy_summary(con: sqlite3.Connection) -> dict[str, Any]:
@@ -1231,6 +1296,8 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "competitor_content": competitor_content_summary(con),
             "serp_competitors": serp_competitors_summary(con),
             "ad_spy": ad_spy_summary(con),
+            "competitor_tech": competitor_tech_summary(con),
+            "competitor_wayback": competitor_wayback_summary(con),
             "sync_status": sync_status(con),
         }
 
