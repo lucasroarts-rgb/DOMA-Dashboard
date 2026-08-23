@@ -413,6 +413,36 @@ autenticar**, antes de confiar cegamente neles. Enquanto isso, a aba
 Competitors mostra um aviso explicando a situação em vez de ficar vazia
 sem explicação.
 
+## Ad Spy - inteligência de anúncios pagos de concorrentes (aba "Competitors")
+
+**Exceção deliberada à regra "só orgânico"**: o resto deste dashboard nunca
+toca em mídia paga (ver "O que não foi construído (de propósito)" mais
+abaixo) - esse painel é a única exceção, autorizada explicitamente pelo
+usuário, porque o objetivo aqui não é a mídia paga *da DOMA* (isso
+continua fora do escopo), e sim entender o que **concorrentes** estão
+testando em anúncio, como sinal estratégico pra copywriting/oferta -
+baseado num guia próprio ("Claude Ad Spy") que o usuário trouxe do Notion.
+
+**Não é sync automático.** Meta Ads Library, Google Ads Transparency
+Center, TikTok Creative Center e LinkedIn Ads Library não têm API pública
+pra coleta em lote/agendada - o processo é manual: navegar numa dessas
+bibliotecas, achar um anúncio real de um concorrente, e registrar aqui.
+Não tentar contornar isso com scraping - viola os termos das próprias
+plataformas.
+
+`scripts/add_ad_spy_entry.py` grava um achado por vez (competidor,
+plataforma, hook, oferta, CTA, prova, hipótese estratégica, link, etc -
+mesma estrutura da base de dados do Passo 11 do guia original). Rodar
+`python scripts/generate_public_site.py` depois pra publicar. Exemplo:
+
+```
+python scripts/add_ad_spy_entry.py --competitor "AADOM" --platform Meta --date-found 2026-08-22 --format Video --hook "..." --offer "..." --cta "..." --link "https://www.facebook.com/ads/library/?id=..." --hypothesis "..."
+```
+
+Regra do guia original mantida: nunca inventar métrica, orçamento, ROAS
+ou conversão - só registrar o que é observável publicamente na própria
+biblioteca de anúncios. Campo vazio é melhor que campo inventado.
+
 ## Concorrentes - rank real (SERP) e conteúdo novo (aba "Competitors")
 
 Como a Ahrefs tá bloqueada e o Google Custom Search JSON API exige conta de
@@ -492,10 +522,17 @@ lead individual. Ver "Privacidade" abaixo.
 ## O que não foi construído (de propósito)
 
 Sem Meta Ads, sem Google Ads, sem API de anúncios de forma alguma — nenhum
-gasto pago é medido neste dashboard. O que existe de Facebook/Instagram
-(`sync_meta_organic.py`) é só Page/Instagram Insights **orgânicos**: posts,
-seguidores, engajamento — nenhum dado de campanha, ad set, ad ou CAC/CPL
-baseado em spend. Se tráfego pago entrar no futuro, adicionar como
-integração isolada nova (`sync_meta_ads.py` / `sync_google_ads.py`, tabela
-nova, função de resumo nova, aba nova), sem misturar com o código orgânico
-existente.
+gasto pago **da DOMA** é medido neste dashboard. O que existe de
+Facebook/Instagram (`sync_meta_organic.py`) é só Page/Instagram Insights
+**orgânicos**: posts, seguidores, engajamento — nenhum dado de campanha,
+ad set, ad ou CAC/CPL baseado em spend próprio. Se tráfego pago da DOMA
+entrar no futuro, adicionar como integração isolada nova
+(`sync_meta_ads.py` / `sync_google_ads.py`, tabela nova, função de resumo
+nova, aba nova), sem misturar com o código orgânico existente.
+
+**Exceção única e deliberada**: o painel "Ad Spy" (ver seção própria
+acima) analisa anúncios pagos **de concorrentes**, não da DOMA - não
+mede spend, CAC ou CPL de ninguém, só registra hooks/ofertas/CTAs
+observáveis publicamente nas bibliotecas de transparência de anúncio de
+cada plataforma. Autorizado explicitamente pelo usuário como exceção à
+regra acima, não uma reversão dela.

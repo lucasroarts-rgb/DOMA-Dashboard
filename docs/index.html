@@ -191,6 +191,18 @@
       </div>
 
       <div class="panel">
+        <h2>Ad Spy &middot; paid ads intelligence <span class="h2-note">(manually researched from Meta/Google/TikTok/LinkedIn ad libraries - no public API for any of them, see README.md "Ad Spy")</span></h2>
+        <div class="cards" id="adSpyCards"></div>
+        <div id="adSpyEmpty" class="empty" style="display:none">No ad intelligence logged yet - see README.md "Ad Spy" for how to research and add entries via scripts/add_ad_spy_entry.py.</div>
+        <div class="table-wrap">
+          <table id="adSpyTable">
+            <thead><tr><th>Competitor</th><th>Platform</th><th>Found</th><th>Format</th><th>Hook</th><th>Offer</th><th>CTA</th><th>Hypothesis</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
         <h2>Waiting on Ahrefs <span class="h2-note">(blocked account-side, not fixable from here - see README.md "Ahrefs")</span></h2>
         <div id="ahrefsUnavailable" class="empty" style="display:block">
           Ahrefs API access isn't working yet for this account (every request returns

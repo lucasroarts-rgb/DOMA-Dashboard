@@ -794,6 +794,22 @@ function renderCompetitors() {
     content.recent_pages || [],
     (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${titleFromUrl(p.url)}</a></td><td>${p.lastmod ? fullDate(p.lastmod.slice(0, 10)) : "—"}</td></tr>`
   );
+
+  const adSpy = dashboard.ad_spy || { available: false, entries: [], by_competitor: [] };
+  document.getElementById("adSpyEmpty").style.display = adSpy.available ? "none" : "block";
+  if (adSpy.available) {
+    renderCards(
+      "adSpyCards",
+      (adSpy.by_competitor || []).map((c) => ({ label: c.competitor, value: number(c.count), hint: "ads logged" }))
+    );
+  } else {
+    document.getElementById("adSpyCards").innerHTML = "";
+  }
+  renderTable(
+    "adSpyTable",
+    adSpy.entries || [],
+    (e) => `<tr><td>${e.competitor}</td><td>${e.platform}</td><td>${e.date_found ? fullDate(e.date_found) : "—"}</td><td>${e.format || "—"}</td><td>${e.hook ? (e.link ? `<a href="${e.link}" target="_blank" rel="noopener">${e.hook}</a>` : e.hook) : "—"}</td><td>${e.offer || "—"}</td><td>${e.cta || "—"}</td><td>${e.strategic_hypothesis || "—"}</td></tr>`
+  );
 }
 
 function renderBlog() {

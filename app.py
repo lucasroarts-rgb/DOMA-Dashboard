@@ -271,6 +271,32 @@ def init_db() -> None:
         UNIQUE(domain)
     );
 
+    CREATE TABLE IF NOT EXISTS ad_spy_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id TEXT,
+        competitor TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        date_found TEXT NOT NULL,
+        start_date TEXT,
+        status_observed TEXT,
+        format TEXT,
+        hook TEXT,
+        angle TEXT,
+        pain_or_desire TEXT,
+        promise TEXT,
+        offer TEXT,
+        proof TEXT,
+        cta TEXT,
+        tone_of_voice TEXT,
+        visual_style TEXT,
+        landing_page TEXT,
+        strategic_hypothesis TEXT,
+        link TEXT,
+        notes TEXT,
+        last_reviewed TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS ahrefs_domains (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         domain TEXT NOT NULL,
@@ -703,6 +729,46 @@ def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "pages": pages,
         "avg_performance_score": avg_performance,
         "checked_at": pages[0]["checked_at"] if pages else None,
+    }
+
+
+def ad_spy_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Paid-ads competitive intelligence - manually researched (Meta Ads
+    Library, Google Ads Transparency Center, TikTok Creative Center,
+    LinkedIn Ads Library don't have public APIs for this), entered via
+    scripts/add_ad_spy_entry.py after browsing those libraries by hand.
+    Not auto-synced like the rest of this dashboard - see README.md
+    "Ad Spy" section."""
+    rows = con.execute(
+        "SELECT competitor, platform, date_found, status_observed, format, hook, offer, cta, "
+        "proof, strategic_hypothesis, link, notes FROM ad_spy_entries ORDER BY date_found DESC, id DESC"
+    ).fetchall()
+    entries = [
+        {
+            "competitor": row[0],
+            "platform": row[1],
+            "date_found": row[2],
+            "status_observed": row[3],
+            "format": row[4],
+            "hook": row[5],
+            "offer": row[6],
+            "cta": row[7],
+            "proof": row[8],
+            "strategic_hypothesis": row[9],
+            "link": row[10],
+            "notes": row[11],
+        }
+        for row in rows
+    ]
+    by_competitor = con.execute(
+        "SELECT competitor, COUNT(*) FROM ad_spy_entries GROUP BY competitor ORDER BY COUNT(*) DESC"
+    ).fetchall()
+    checked_at_row = con.execute("SELECT MAX(created_at) FROM ad_spy_entries").fetchone()
+    return {
+        "available": bool(entries),
+        "entries": entries,
+        "by_competitor": [{"competitor": row[0], "count": row[1]} for row in by_competitor],
+        "last_updated": checked_at_row[0] if checked_at_row else None,
     }
 
 
@@ -1164,6 +1230,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             },
             "competitor_content": competitor_content_summary(con),
             "serp_competitors": serp_competitors_summary(con),
+            "ad_spy": ad_spy_summary(con),
             "sync_status": sync_status(con),
         }
 
