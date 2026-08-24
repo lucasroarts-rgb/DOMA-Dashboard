@@ -292,6 +292,27 @@ def init_db() -> None:
         UNIQUE(domain)
     );
 
+    CREATE TABLE IF NOT EXISTS team_meetings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_date TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT,
+        raw_notes TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(meeting_date, title)
+    );
+
+    CREATE TABLE IF NOT EXISTS team_action_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id INTEGER NOT NULL REFERENCES team_meetings(id),
+        owner TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        context TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS ad_spy_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         entry_id TEXT,
@@ -750,6 +771,63 @@ def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "pages": pages,
         "avg_performance_score": avg_performance,
         "checked_at": pages[0]["checked_at"] if pages else None,
+    }
+
+
+def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, Any]:
+    """Weekly team meeting recaps turned into a trackable action-item
+    checklist - who owns what, and whether it's been marked done by the
+    next meeting. Meetings and their action items are entered manually
+    (scripts/add_meeting.py) since there's no meeting-transcription API
+    wired in here - Claude extracts the checklist from a pasted recap/
+    transcript at meeting time, same "manual research, structured entry"
+    pattern as the Ad Spy panel."""
+    cutoff = (date.today() - timedelta(weeks=weeks)).isoformat()
+    meetings_rows = con.execute(
+        "SELECT id, meeting_date, title, summary FROM team_meetings WHERE meeting_date >= ? ORDER BY meeting_date DESC",
+        (cutoff,),
+    ).fetchall()
+    meetings = []
+    for m_id, m_date, title, summary in meetings_rows:
+        items = con.execute(
+            "SELECT id, owner, description, status, context, completed_at FROM team_action_items "
+            "WHERE meeting_id = ? ORDER BY owner, id",
+            (m_id,),
+        ).fetchall()
+        meetings.append(
+            {
+                "id": m_id,
+                "meeting_date": m_date,
+                "title": title,
+                "summary": summary,
+                "action_items": [
+                    {
+                        "id": row[0],
+                        "owner": row[1],
+                        "description": row[2],
+                        "status": row[3],
+                        "context": row[4],
+                        "completed_at": row[5],
+                    }
+                    for row in items
+                ],
+            }
+        )
+
+    open_rows = con.execute(
+        "SELECT owner, COUNT(*) FROM team_action_items WHERE status = 'open' GROUP BY owner ORDER BY COUNT(*) DESC"
+    ).fetchall()
+    total_open = sum(row[1] for row in open_rows)
+    total_all = con.execute("SELECT COUNT(*) FROM team_action_items").fetchone()[0]
+    total_done = con.execute("SELECT COUNT(*) FROM team_action_items WHERE status = 'done'").fetchone()[0]
+
+    return {
+        "available": bool(meetings),
+        "meetings": meetings,
+        "open_by_owner": [{"owner": row[0], "count": row[1]} for row in open_rows],
+        "total_open": total_open,
+        "total_done": total_done,
+        "total_all": total_all,
     }
 
 
@@ -1296,6 +1374,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "competitor_content": competitor_content_summary(con),
             "serp_competitors": serp_competitors_summary(con),
             "ad_spy": ad_spy_summary(con),
+            "team_meetings": team_meetings_summary(con),
             "competitor_tech": competitor_tech_summary(con),
             "competitor_wayback": competitor_wayback_summary(con),
             "sync_status": sync_status(con),

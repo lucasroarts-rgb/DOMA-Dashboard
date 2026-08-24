@@ -1014,6 +1014,60 @@ function renderSocial() {
   );
 }
 
+function renderTeam() {
+  const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_done: 0, total_all: 0 };
+  document.getElementById("teamEmpty").style.display = team.available ? "none" : "block";
+
+  const ownerCards = (team.open_by_owner || []).map((o) => ({ label: `${o.owner} - open items`, value: number(o.count) }));
+  renderCards("teamCards", [
+    { label: "Open action items", value: number(team.total_open) },
+    { label: "Completed", value: number(team.total_done), hint: team.total_all ? `${percent((team.total_done / team.total_all) * 100)} of all items logged` : "" },
+    ...ownerCards,
+  ]);
+
+  const container = document.getElementById("teamMeetings");
+  if (!team.available) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = team.meetings
+    .map((m) => {
+      const byOwner = new Map();
+      (m.action_items || []).forEach((item) => {
+        if (!byOwner.has(item.owner)) byOwner.set(item.owner, []);
+        byOwner.get(item.owner).push(item);
+      });
+
+      const groups = [...byOwner.entries()]
+        .map(
+          ([owner, items]) => `
+          <div class="owner-group">
+            <h3>${owner}</h3>
+            ${items
+              .map(
+                (item) => `
+              <div class="checklist-item ${item.status === "done" ? "done" : "open"}">
+                <span class="checklist-mark">${item.status === "done" ? "✓" : ""}</span>
+                <span class="checklist-text">${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span></span>
+              </div>`
+              )
+              .join("")}
+          </div>`
+        )
+        .join("");
+
+      return `
+        <div class="panel meeting-panel">
+          <h2>${m.title}</h2>
+          <div class="panel-meta">${fullDate(m.meeting_date)}</div>
+          ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
+          <div class="checklist-grid">${groups}</div>
+        </div>`;
+    })
+    .join("");
+}
+
 function renderAll() {
   if (!dashboard) {
     document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Could not load the dashboard. Make sure the local server is running (RUN_DASHBOARD.bat) and data has been synced.</div></div>`;
@@ -1025,6 +1079,7 @@ function renderAll() {
   renderBlog();
   renderLeads();
   renderSocial();
+  renderTeam();
 
   const synced = [
     dashboard.search_console.last_synced_at,

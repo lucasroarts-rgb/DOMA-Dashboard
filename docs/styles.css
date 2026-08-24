@@ -213,6 +213,22 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .issue-error .issue-dot{background:var(--red)}
 .issue-info .issue-dot{background:var(--teal-2)}
 
+/* team meetings / action-item checklist */
+.owner-group{margin-bottom:18px}
+.owner-group:last-child{margin-bottom:0}
+.owner-group h3{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-2);margin:0 0 8px}
+.checklist-item{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.5}
+.checklist-item:last-child{border-bottom:0}
+.checklist-mark{flex:0 0 auto;width:18px;height:18px;border-radius:5px;margin-top:1px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+.checklist-item.done .checklist-mark{background:var(--green-soft);color:var(--green)}
+.checklist-item.open .checklist-mark{background:rgba(128,128,128,.14);color:transparent}
+.checklist-item.done .checklist-text{color:var(--muted);text-decoration:line-through}
+.checklist-context{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.checklist-id{color:var(--muted);font-size:11px;margin-left:6px}
+.meeting-panel .panel-meta{color:var(--muted);font-size:12.5px;margin:-6px 0 14px}
+.meeting-panel .panel-summary{font-size:13.5px;line-height:1.6;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.checklist-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px}
+
 .footer{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
 
 .password-gate{

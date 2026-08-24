@@ -434,6 +434,34 @@ Outras formas existem (Visualping, PageCrawl, monitorar vagas no
 LinkedIn) mas exigem criar conta nova em outro serviço - mesma fricção de
 sempre. Ficam de fora até serem pedidas explicitamente.
 
+## Team & Meetings - checklist de reunião (aba "Team · Meetings")
+
+Pedido do Kyle: transformar a recap/transcrição da reunião semanal do time
+em checklist de action items rastreável (quem ficou com o quê, o que já
+foi feito) - separado do resto do dashboard (que é SEO/marketing da
+DOMA), essa aba é sobre acompanhamento do time.
+
+**Não é automático** - não existe API de transcrição de reunião plugada
+aqui. O fluxo é: colar a recap/transcrição no Claude, o Claude extrai o
+checklist estruturado (dono, descrição, contexto) igual já faz em
+qualquer resumo de reunião, e grava com o script abaixo.
+
+`scripts/add_meeting.py` - grava uma reunião + seu checklist (um
+arquivo JSON com a lista de action items). Reunião com mesma data+título
+sobrescreve o checklist anterior (útil se a recap for corrigida depois).
+
+```
+python scripts/add_meeting.py --date 2026-08-24 --title "DOMA Team Meeting Recap" --summary "..." --items-json items.json
+```
+
+`scripts/toggle_action_item.py --id N --done` (ou `--open`) marca um
+item como feito/reaberto na revisão semanal. Os IDs aparecem discretos
+no fim de cada item na aba (`#12`, etc).
+
+Depois de qualquer uma dessas duas ações, rodar
+`python scripts/generate_public_site.py` pra publicar a atualização -
+igual todo o resto deste projeto.
+
 ## Ad Spy - inteligência de anúncios pagos de concorrentes (aba "Competitors")
 
 **Exceção deliberada à regra "só orgânico"**: o resto deste dashboard nunca
