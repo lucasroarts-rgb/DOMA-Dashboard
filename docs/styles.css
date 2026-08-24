@@ -214,7 +214,11 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .issue-info .issue-dot{background:var(--teal-2)}
 
 /* team meetings / action-item checklist */
+.owner-filter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.owner-filter button{border:1px solid var(--line-strong);background:var(--panel-2);color:var(--muted);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700}
+.owner-filter button.active{background:linear-gradient(135deg, var(--teal-2), var(--teal));color:#1a1305;border-color:transparent}
 .owner-group{margin-bottom:18px}
+.owner-group.hidden{display:none}
 .owner-group:last-child{margin-bottom:0}
 .owner-group h3{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-2);margin:0 0 8px}
 .checklist-item{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;line-height:1.5}

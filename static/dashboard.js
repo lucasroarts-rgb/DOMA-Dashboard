@@ -1014,6 +1014,21 @@ function renderSocial() {
   );
 }
 
+let teamOwnerFilter = "all";
+
+function applyTeamOwnerFilter() {
+  document.querySelectorAll("#teamMeetings .owner-group").forEach((el) => {
+    el.classList.toggle("hidden", teamOwnerFilter !== "all" && el.dataset.owner !== teamOwnerFilter);
+  });
+  // A meeting panel with every owner-group filtered out (this person had
+  // no items that meeting) collapses too, instead of showing an empty shell.
+  document.querySelectorAll("#teamMeetings .meeting-panel").forEach((panel) => {
+    const anyVisible = [...panel.querySelectorAll(".owner-group")].some((g) => !g.classList.contains("hidden"));
+    panel.style.display = anyVisible ? "" : "none";
+  });
+  document.querySelectorAll("#teamOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.owner === teamOwnerFilter));
+}
+
 function renderTeam() {
   const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_done: 0, total_all: 0 };
   document.getElementById("teamEmpty").style.display = team.available ? "none" : "block";
@@ -1026,10 +1041,23 @@ function renderTeam() {
   ]);
 
   const container = document.getElementById("teamMeetings");
+  const filterEl = document.getElementById("teamOwnerFilter");
   if (!team.available) {
     container.innerHTML = "";
+    filterEl.innerHTML = "";
     return;
   }
+
+  const allOwners = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.owner)))];
+  filterEl.innerHTML = ["all", ...allOwners]
+    .map((owner) => `<button type="button" data-owner="${owner}">${owner === "all" ? "All" : owner}</button>`)
+    .join("");
+  filterEl.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      teamOwnerFilter = b.dataset.owner;
+      applyTeamOwnerFilter();
+    })
+  );
 
   container.innerHTML = team.meetings
     .map((m) => {
@@ -1042,7 +1070,7 @@ function renderTeam() {
       const groups = [...byOwner.entries()]
         .map(
           ([owner, items]) => `
-          <div class="owner-group">
+          <div class="owner-group" data-owner="${owner}">
             <h3>${owner}</h3>
             ${items
               .map(
@@ -1066,6 +1094,8 @@ function renderTeam() {
         </div>`;
     })
     .join("");
+
+  applyTeamOwnerFilter();
 }
 
 function renderAll() {
