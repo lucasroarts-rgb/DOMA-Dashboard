@@ -69,16 +69,25 @@ app = FastAPI(title="DOMA Dashboard")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+# Exempted from admin-auth: this is the local dashboard's own team-checklist
+# state (who's working on what), not a remote-content-editing action like the
+# WordPress/Ahrefs writes the admin gate was built for. Same trust boundary
+# already used for IS_STATIC=false pages in dashboard.js - "you're already on
+# your own machine" - so a Basic Auth prompt on every status click would be
+# pure friction with no real security benefit here.
+WRITE_EXEMPT_PATH_PREFIXES = ("/api/team/action-items/",)
+
+
 @app.middleware("http")
 async def protect_writes(request: Request, call_next):
-    """No admin/write surface exists yet (read-only dashboard), but this stays
-    in place so any future POST/DELETE route is protected the same way the
-    sibling PreSubs project protects its admin routes."""
-    is_write = request.url.path.startswith("/api/") and request.method.upper() not in {
-        "GET",
-        "HEAD",
-        "OPTIONS",
-    }
+    """No general admin/write surface exists yet (read-only dashboard), but
+    this stays in place so any future POST/DELETE route is protected the same
+    way the sibling PreSubs project protects its admin routes."""
+    is_write = (
+        request.url.path.startswith("/api/")
+        and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}
+        and not request.url.path.startswith(WRITE_EXEMPT_PATH_PREFIXES)
+    )
     if is_write:
         if not ADMIN_PASSWORD:
             return JSONResponse(
@@ -824,6 +833,7 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
     ).fetchall()
     total_open = sum(row[1] for row in open_rows)
     total_all = con.execute("SELECT COUNT(*) FROM team_action_items").fetchone()[0]
+    total_in_progress = con.execute("SELECT COUNT(*) FROM team_action_items WHERE status = 'in_progress'").fetchone()[0]
     total_done = con.execute("SELECT COUNT(*) FROM team_action_items WHERE status = 'done'").fetchone()[0]
 
     return {
@@ -831,6 +841,7 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
         "meetings": meetings,
         "open_by_owner": [{"owner": row[0], "count": row[1]} for row in open_rows],
         "total_open": total_open,
+        "total_in_progress": total_in_progress,
         "total_done": total_done,
         "total_all": total_all,
     }
@@ -1422,6 +1433,32 @@ def health():
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+TEAM_ACTION_ITEM_STATUSES = {"open", "in_progress", "done"}
+
+
+@app.post("/api/team/action-items/{item_id}/status")
+async def set_team_action_item_status(item_id: int, request: Request):
+    payload = await request.json()
+    status = payload.get("status")
+    if status not in TEAM_ACTION_ITEM_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(TEAM_ACTION_ITEM_STATUSES)}")
+    with db() as con:
+        existing = con.execute("SELECT id FROM team_action_items WHERE id = ?", (item_id,)).fetchone()
+        if not existing:
+            raise HTTPException(404, "action item not found")
+        if status == "done":
+            con.execute(
+                "UPDATE team_action_items SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (status, item_id),
+            )
+        else:
+            con.execute(
+                "UPDATE team_action_items SET status = ?, completed_at = NULL WHERE id = ?",
+                (status, item_id),
+            )
+    return {"ok": True, "id": item_id, "status": status}
 
 
 @app.get("/api/dashboard")

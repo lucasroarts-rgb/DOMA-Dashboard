@@ -1015,6 +1015,14 @@ function renderSocial() {
 }
 
 let teamFilters = { owner: "all", topic: "all", date: "all" };
+// Collapse state persists across re-renders (status clicks re-render the
+// whole tab) so opening/closing a status section doesn't reset on every
+// click - keyed by "meetingDate|status", collapsed = true.
+let teamCollapsed = {};
+let teamListenersAttached = false;
+
+const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
+const TEAM_STATUS_LABELS = { open: "To do", in_progress: "In progress", done: "Completed" };
 
 function buildTeamFilterPills(containerId, key, values, labelFn) {
   const el = document.getElementById(containerId);
@@ -1037,22 +1045,22 @@ function applyTeamFilters() {
     }
     panel.style.display = "";
 
-    let anyGroupVisible = false;
-    panel.querySelectorAll(".owner-group").forEach((group) => {
-      const ownerMatch = teamFilters.owner === "all" || group.dataset.owner === teamFilters.owner;
+    let anySectionVisible = false;
+    panel.querySelectorAll(".status-section").forEach((section) => {
       let anyItemVisible = false;
-      group.querySelectorAll(".checklist-item").forEach((item) => {
+      section.querySelectorAll(".checklist-item").forEach((item) => {
+        const ownerMatch = teamFilters.owner === "all" || item.dataset.owner === teamFilters.owner;
         const topicMatch = teamFilters.topic === "all" || item.dataset.topic === teamFilters.topic;
         const visible = ownerMatch && topicMatch;
         item.classList.toggle("hidden", !visible);
         if (visible) anyItemVisible = true;
       });
-      // A group with every item filtered out (wrong owner or topic) collapses
-      // too, instead of showing an empty shell.
-      group.classList.toggle("hidden", !anyItemVisible);
-      if (anyItemVisible) anyGroupVisible = true;
+      // A status section with every item filtered out (wrong owner/topic)
+      // disappears entirely too, instead of showing an empty accordion tab.
+      section.classList.toggle("hidden", !anyItemVisible);
+      if (anyItemVisible) anySectionVisible = true;
     });
-    if (!anyGroupVisible) panel.style.display = "none";
+    if (!anySectionVisible) panel.style.display = "none";
   });
 
   document.querySelectorAll("#teamOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.owner));
@@ -1060,14 +1068,92 @@ function applyTeamFilters() {
   document.querySelectorAll("#teamDateFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.date));
 }
 
+async function setTeamActionItemStatus(itemId, status) {
+  try {
+    const res = await fetch(`/api/team/action-items/${itemId}/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    if (!res.ok) throw new Error(`status endpoint returned ${res.status}`);
+    return true;
+  } catch (error) {
+    console.error("Failed to update action item status:", error);
+    return false;
+  }
+}
+
+function ensureTeamListeners() {
+  if (teamListenersAttached) return;
+  teamListenersAttached = true;
+  document.getElementById("teamMeetings").addEventListener("click", async (event) => {
+    const header = event.target.closest(".status-header");
+    if (header) {
+      const section = header.closest(".status-section");
+      const key = section.dataset.statusKey;
+      teamCollapsed[key] = !teamCollapsed[key];
+      section.classList.toggle("collapsed", teamCollapsed[key]);
+      return;
+    }
+
+    const mark = event.target.closest(".checklist-mark");
+    if (!mark || mark.disabled) return;
+    const itemEl = mark.closest(".checklist-item");
+    const itemId = Number(itemEl.dataset.id);
+    const next = TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(itemEl.dataset.status) + 1) % TEAM_STATUS_ORDER.length];
+    mark.disabled = true;
+    const ok = await setTeamActionItemStatus(itemId, next);
+    if (ok) {
+      for (const m of dashboard.team_meetings?.meetings || []) {
+        const found = (m.action_items || []).find((i) => i.id === itemId);
+        if (found) {
+          found.status = next;
+          break;
+        }
+      }
+      renderTeam();
+    } else {
+      mark.disabled = false;
+    }
+  });
+}
+
+function teamStatusIcon(status) {
+  if (status === "done") return "✓";
+  if (status === "in_progress") return "●";
+  return "";
+}
+
+function teamChecklistItemHtml(item) {
+  return `
+    <div class="checklist-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${item.status}">
+      <button type="button" class="checklist-mark" ${IS_STATIC ? "disabled" : ""} title="${IS_STATIC ? "Read-only on the published site" : "Click to change status"}">${teamStatusIcon(item.status)}</button>
+      <span class="checklist-text">
+        <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
+      </span>
+    </div>`;
+}
+
 function renderTeam() {
-  const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_done: 0, total_all: 0 };
+  ensureTeamListeners();
+  const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_in_progress: 0, total_done: 0, total_all: 0 };
   document.getElementById("teamEmpty").style.display = team.available ? "none" : "block";
 
-  const ownerCards = (team.open_by_owner || []).map((o) => ({ label: `${o.owner} - open items`, value: number(o.count) }));
+  // Derived live from the items themselves (not the backend's total_* fields)
+  // so a status click updates these cards immediately, without waiting for
+  // the next full /api/dashboard reload.
+  const allItems = team.meetings.flatMap((m) => m.action_items || []);
+  const countByStatus = { open: 0, in_progress: 0, done: 0 };
+  const openByOwner = new Map();
+  allItems.forEach((item) => {
+    countByStatus[item.status] = (countByStatus[item.status] || 0) + 1;
+    if (item.status === "open") openByOwner.set(item.owner, (openByOwner.get(item.owner) || 0) + 1);
+  });
+  const ownerCards = [...openByOwner.entries()].map(([owner, count]) => ({ label: `${owner} - to do`, value: number(count) }));
   renderCards("teamCards", [
-    { label: "Open action items", value: number(team.total_open) },
-    { label: "Completed", value: number(team.total_done), hint: team.total_all ? `${percent((team.total_done / team.total_all) * 100)} of all items logged` : "" },
+    { label: "To do", value: number(countByStatus.open) },
+    { label: "In progress", value: number(countByStatus.in_progress) },
+    { label: "Completed", value: number(countByStatus.done), hint: allItems.length ? `${percent((countByStatus.done / allItems.length) * 100)} of all items logged` : "" },
     ...ownerCards,
   ]);
 
@@ -1083,7 +1169,6 @@ function renderTeam() {
     return;
   }
 
-  teamFilters = { owner: "all", topic: "all", date: "all" };
   const allOwners = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.owner)))];
   const allTopics = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.topic || "General")))];
   const allDates = [...new Set(team.meetings.map((m) => m.meeting_date))];
@@ -1093,28 +1178,26 @@ function renderTeam() {
 
   container.innerHTML = team.meetings
     .map((m) => {
-      const byOwner = new Map();
+      const byStatus = { open: [], in_progress: [], done: [] };
       (m.action_items || []).forEach((item) => {
-        if (!byOwner.has(item.owner)) byOwner.set(item.owner, []);
-        byOwner.get(item.owner).push(item);
+        (byStatus[item.status] || byStatus.open).push(item);
       });
 
-      const groups = [...byOwner.entries()]
-        .map(
-          ([owner, items]) => `
-          <div class="owner-group" data-owner="${owner}">
-            <h3>${owner}</h3>
-            ${items
-              .map(
-                (item) => `
-              <div class="checklist-item ${item.status === "done" ? "done" : "open"}" data-topic="${item.topic || "General"}">
-                <span class="checklist-mark">${item.status === "done" ? "✓" : ""}</span>
-                <span class="checklist-text"><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span></span>
-              </div>`
-              )
-              .join("")}
-          </div>`
-        )
+      const sections = TEAM_STATUS_ORDER.filter((status) => byStatus[status].length)
+        .map((status) => {
+          const key = `${m.meeting_date}|${status}`;
+          const collapsed = !!teamCollapsed[key];
+          return `
+            <div class="status-section status-section-${status}${collapsed ? " collapsed" : ""}" data-status-key="${key}">
+              <button type="button" class="status-header">
+                <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
+                <span class="status-dot"></span>
+                <span class="status-label">${TEAM_STATUS_LABELS[status]}</span>
+                <span class="status-count">${byStatus[status].length}</span>
+              </button>
+              <div class="status-body">${byStatus[status].map(teamChecklistItemHtml).join("")}</div>
+            </div>`;
+        })
         .join("");
 
       return `
@@ -1122,7 +1205,7 @@ function renderTeam() {
           <h2>${m.title}</h2>
           <div class="panel-meta">${fullDate(m.meeting_date)}</div>
           ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
-          <div class="checklist-grid">${groups}</div>
+          <div class="status-grid">${sections}</div>
         </div>`;
     })
     .join("");

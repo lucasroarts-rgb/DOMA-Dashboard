@@ -1,8 +1,13 @@
-"""Mark one team action item done (or reopen it) during a weekly review.
+"""Set one team action item's status during a weekly review.
 
 Usage:
     python scripts/toggle_action_item.py --id 7 --done
+    python scripts/toggle_action_item.py --id 7 --in-progress
     python scripts/toggle_action_item.py --id 7 --open
+
+Same effect as clicking the checkmark in the dashboard's Team & Meetings
+tab (which cycles open -> in_progress -> done -> open) - this CLI lets you
+jump straight to a specific status instead of clicking through.
 
 Run scripts/generate_public_site.py afterward to publish. To see item
 IDs, check the "Team & Meetings" tab locally (RUN_DASHBOARD.bat) or
@@ -30,8 +35,11 @@ def main() -> int:
     parser.add_argument("--id", type=int, required=True, help="team_action_items.id")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--done", action="store_true")
+    group.add_argument("--in-progress", action="store_true")
     group.add_argument("--open", action="store_true")
     args = parser.parse_args()
+
+    status = "done" if args.done else "in_progress" if args.in_progress else "open"
 
     dashboard_app.init_db()
 
@@ -40,18 +48,17 @@ def main() -> int:
         if not existing:
             raise ToggleError(f"No action item with id={args.id}")
 
-        if args.done:
+        if status == "done":
             con.execute(
                 "UPDATE team_action_items SET status = 'done', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (args.id,),
             )
-            print(f"Marked done: [{existing[1]}] {existing[0]}")
         else:
             con.execute(
-                "UPDATE team_action_items SET status = 'open', completed_at = NULL WHERE id = ?",
-                (args.id,),
+                "UPDATE team_action_items SET status = ?, completed_at = NULL WHERE id = ?",
+                (status, args.id),
             )
-            print(f"Reopened: [{existing[1]}] {existing[0]}")
+        print(f"Status set to '{status}': [{existing[1]}] {existing[0]}")
 
     print("Run scripts/generate_public_site.py to publish.")
     return 0
