@@ -14,7 +14,8 @@ Usage:
         --items-json path/to/items.json
 
 items.json is a JSON list of objects:
-    [{"owner": "Lucas", "description": "...", "context": "optional extra detail"}, ...]
+    [{"owner": "Lucas", "description": "...", "context": "optional extra detail",
+      "topic": "optional subject tag, e.g. SEO / Content / Dashboard"}, ...]
 
 Run scripts/generate_public_site.py afterward to publish.
 """
@@ -76,9 +77,9 @@ def main() -> int:
         con.execute("DELETE FROM team_action_items WHERE meeting_id = ?", (meeting_id,))
         for item in items:
             con.execute(
-                "INSERT INTO team_action_items (meeting_id, owner, description, status, context, created_at) "
-                "VALUES (?, ?, ?, 'open', ?, CURRENT_TIMESTAMP)",
-                (meeting_id, item["owner"], item["description"], item.get("context")),
+                "INSERT INTO team_action_items (meeting_id, owner, description, status, context, topic, created_at) "
+                "VALUES (?, ?, ?, 'open', ?, ?, CURRENT_TIMESTAMP)",
+                (meeting_id, item["owner"], item["description"], item.get("context"), item.get("topic")),
             )
 
     print(f"Logged meeting '{args.title}' ({args.date}) with {len(items)} action item(s), id={meeting_id}")

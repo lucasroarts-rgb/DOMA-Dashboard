@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -425,7 +425,11 @@
     <section class="view" id="view-team">
       <div class="cards" id="teamCards"></div>
       <div id="teamEmpty" class="empty" style="display:none">No meetings logged yet - see README.md "Team &amp; Meetings" for how to add one via scripts/add_meeting.py.</div>
-      <div class="owner-filter" id="teamOwnerFilter"></div>
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Person</span><div class="owner-filter" id="teamOwnerFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Subject</span><div class="owner-filter" id="teamTopicFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Date</span><div class="owner-filter" id="teamDateFilter"></div></div>
+      </div>
       <div id="teamMeetings"></div>
     </section>
 
@@ -438,6 +442,6 @@
 </div>
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
-<script src="dashboard.js?v=5"></script>
+<script src="dashboard.js?v=6"></script>
 </body>
 </html>

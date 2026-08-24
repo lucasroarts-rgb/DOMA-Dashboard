@@ -309,6 +309,7 @@ def init_db() -> None:
         description TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'open',
         context TEXT,
+        topic TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         completed_at TEXT
     );
@@ -504,6 +505,9 @@ def init_db() -> None:
             con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN title_tag_count INTEGER NOT NULL DEFAULT 1")
         if "meta_desc_tag_count" not in onpage_columns:
             con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN meta_desc_tag_count INTEGER NOT NULL DEFAULT 1")
+        action_item_columns = {row["name"] for row in con.execute("PRAGMA table_info(team_action_items)").fetchall()}
+        if "topic" not in action_item_columns:
+            con.execute("ALTER TABLE team_action_items ADD COLUMN topic TEXT")
 
 
 def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
@@ -790,7 +794,7 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
     meetings = []
     for m_id, m_date, title, summary in meetings_rows:
         items = con.execute(
-            "SELECT id, owner, description, status, context, completed_at FROM team_action_items "
+            "SELECT id, owner, description, status, context, completed_at, topic FROM team_action_items "
             "WHERE meeting_id = ? ORDER BY owner, id",
             (m_id,),
         ).fetchall()
@@ -808,6 +812,7 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
                         "status": row[3],
                         "context": row[4],
                         "completed_at": row[5],
+                        "topic": row[6] or "General",
                     }
                     for row in items
                 ],

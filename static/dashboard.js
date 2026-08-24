@@ -1014,19 +1014,50 @@ function renderSocial() {
   );
 }
 
-let teamOwnerFilter = "all";
+let teamFilters = { owner: "all", topic: "all", date: "all" };
 
-function applyTeamOwnerFilter() {
-  document.querySelectorAll("#teamMeetings .owner-group").forEach((el) => {
-    el.classList.toggle("hidden", teamOwnerFilter !== "all" && el.dataset.owner !== teamOwnerFilter);
-  });
-  // A meeting panel with every owner-group filtered out (this person had
-  // no items that meeting) collapses too, instead of showing an empty shell.
+function buildTeamFilterPills(containerId, key, values, labelFn) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = ["all", ...values]
+    .map((v) => `<button type="button" data-value="${v}">${v === "all" ? "All" : labelFn ? labelFn(v) : v}</button>`)
+    .join("");
+  el.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      teamFilters[key] = b.dataset.value;
+      applyTeamFilters();
+    })
+  );
+}
+
+function applyTeamFilters() {
   document.querySelectorAll("#teamMeetings .meeting-panel").forEach((panel) => {
-    const anyVisible = [...panel.querySelectorAll(".owner-group")].some((g) => !g.classList.contains("hidden"));
-    panel.style.display = anyVisible ? "" : "none";
+    if (teamFilters.date !== "all" && panel.dataset.date !== teamFilters.date) {
+      panel.style.display = "none";
+      return;
+    }
+    panel.style.display = "";
+
+    let anyGroupVisible = false;
+    panel.querySelectorAll(".owner-group").forEach((group) => {
+      const ownerMatch = teamFilters.owner === "all" || group.dataset.owner === teamFilters.owner;
+      let anyItemVisible = false;
+      group.querySelectorAll(".checklist-item").forEach((item) => {
+        const topicMatch = teamFilters.topic === "all" || item.dataset.topic === teamFilters.topic;
+        const visible = ownerMatch && topicMatch;
+        item.classList.toggle("hidden", !visible);
+        if (visible) anyItemVisible = true;
+      });
+      // A group with every item filtered out (wrong owner or topic) collapses
+      // too, instead of showing an empty shell.
+      group.classList.toggle("hidden", !anyItemVisible);
+      if (anyItemVisible) anyGroupVisible = true;
+    });
+    if (!anyGroupVisible) panel.style.display = "none";
   });
-  document.querySelectorAll("#teamOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.owner === teamOwnerFilter));
+
+  document.querySelectorAll("#teamOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.owner));
+  document.querySelectorAll("#teamTopicFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.topic));
+  document.querySelectorAll("#teamDateFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.date));
 }
 
 function renderTeam() {
@@ -1041,23 +1072,24 @@ function renderTeam() {
   ]);
 
   const container = document.getElementById("teamMeetings");
-  const filterEl = document.getElementById("teamOwnerFilter");
+  const ownerFilterEl = document.getElementById("teamOwnerFilter");
+  const topicFilterEl = document.getElementById("teamTopicFilter");
+  const dateFilterEl = document.getElementById("teamDateFilter");
   if (!team.available) {
     container.innerHTML = "";
-    filterEl.innerHTML = "";
+    ownerFilterEl.innerHTML = "";
+    topicFilterEl.innerHTML = "";
+    dateFilterEl.innerHTML = "";
     return;
   }
 
+  teamFilters = { owner: "all", topic: "all", date: "all" };
   const allOwners = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.owner)))];
-  filterEl.innerHTML = ["all", ...allOwners]
-    .map((owner) => `<button type="button" data-owner="${owner}">${owner === "all" ? "All" : owner}</button>`)
-    .join("");
-  filterEl.querySelectorAll("button").forEach((b) =>
-    b.addEventListener("click", () => {
-      teamOwnerFilter = b.dataset.owner;
-      applyTeamOwnerFilter();
-    })
-  );
+  const allTopics = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.topic || "General")))];
+  const allDates = [...new Set(team.meetings.map((m) => m.meeting_date))];
+  buildTeamFilterPills("teamOwnerFilter", "owner", allOwners);
+  buildTeamFilterPills("teamTopicFilter", "topic", allTopics);
+  buildTeamFilterPills("teamDateFilter", "date", allDates, (d) => fullDate(d));
 
   container.innerHTML = team.meetings
     .map((m) => {
@@ -1075,9 +1107,9 @@ function renderTeam() {
             ${items
               .map(
                 (item) => `
-              <div class="checklist-item ${item.status === "done" ? "done" : "open"}">
+              <div class="checklist-item ${item.status === "done" ? "done" : "open"}" data-topic="${item.topic || "General"}">
                 <span class="checklist-mark">${item.status === "done" ? "✓" : ""}</span>
-                <span class="checklist-text">${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span></span>
+                <span class="checklist-text"><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span></span>
               </div>`
               )
               .join("")}
@@ -1086,7 +1118,7 @@ function renderTeam() {
         .join("");
 
       return `
-        <div class="panel meeting-panel">
+        <div class="panel meeting-panel" data-date="${m.meeting_date}">
           <h2>${m.title}</h2>
           <div class="panel-meta">${fullDate(m.meeting_date)}</div>
           ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
@@ -1095,7 +1127,7 @@ function renderTeam() {
     })
     .join("");
 
-  applyTeamOwnerFilter();
+  applyTeamFilters();
 }
 
 function renderAll() {
