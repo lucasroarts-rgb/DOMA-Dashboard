@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=8">
+<link rel="stylesheet" href="/static/styles.css?v=9">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -424,10 +424,31 @@
 
     <section class="view" id="view-team">
       <div class="cards" id="teamCards"></div>
-      <div id="teamEmpty" class="empty" style="display:none">No meetings logged yet - see README.md "Team &amp; Meetings" for how to add one via scripts/add_meeting.py.</div>
+      <div id="teamEmpty" class="empty" style="display:none">No meetings logged yet - see README.md "Team &amp; Meetings" for how to add one via scripts/add_meeting.py, or add a ticket manually below.</div>
+
+      <div class="team-add" id="teamAdd">
+        <button type="button" class="btn-add-ticket" id="teamAddToggle">+ Add ticket</button>
+        <form class="team-add-form hidden" id="teamAddForm">
+          <div class="team-add-row">
+            <input type="text" name="owner" placeholder="Owner (e.g. Lucas)" required list="teamOwnerOptions" />
+            <input type="text" name="topic" placeholder="Subject (e.g. SEO)" list="teamTopicOptions" />
+            <input type="date" name="meeting_date" required />
+          </div>
+          <textarea name="description" placeholder="What needs to be done?" required></textarea>
+          <input type="text" name="context" placeholder="Extra context (optional)" />
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add ticket</button>
+            <button type="button" id="teamAddCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="teamOwnerOptions"></datalist>
+        <datalist id="teamTopicOptions"></datalist>
+      </div>
+
       <div class="team-filters">
         <div class="team-filter-row"><span class="team-filter-label">Person</span><div class="owner-filter" id="teamOwnerFilter"></div></div>
         <div class="team-filter-row"><span class="team-filter-label">Subject</span><div class="owner-filter" id="teamTopicFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Status</span><div class="owner-filter" id="teamStatusFilter"></div></div>
         <div class="team-filter-row"><span class="team-filter-label">Date</span><div class="owner-filter" id="teamDateFilter"></div></div>
       </div>
       <div id="teamMeetings"></div>
@@ -443,6 +464,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js"></script>
-<script src="/static/dashboard.js?v=9"></script>
+<script src="/static/dashboard.js?v=10"></script>
 </body>
 </html>

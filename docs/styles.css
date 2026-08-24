@@ -214,6 +214,17 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .issue-info .issue-dot{background:var(--teal-2)}
 
 /* team meetings / action-item checklist */
+.team-add{margin-bottom:16px}
+.btn-add-ticket{border:1px solid var(--line-strong);background:linear-gradient(135deg, var(--teal-2), var(--teal));color:#1a1305;font-weight:800;font-size:13px;padding:8px 16px;border-radius:10px;cursor:pointer}
+.team-add-form{margin-top:10px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--panel-2);display:flex;flex-direction:column;gap:8px}
+.team-add-form.hidden{display:none}
+.team-add-row{display:flex;gap:8px;flex-wrap:wrap}
+.team-add-row input{flex:1 1 160px}
+.team-add-form input,.team-add-form textarea{border:1px solid var(--line-strong);border-radius:8px;padding:8px 10px;background:var(--panel);color:var(--ink);font-size:13.5px;font-family:inherit}
+.team-add-form textarea{min-height:60px;resize:vertical}
+.team-add-actions{display:flex;gap:8px}
+.team-add-actions .btn-primary{border:0;background:linear-gradient(135deg, var(--teal-2), var(--teal));color:#1a1305;font-weight:800;font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer}
+.team-add-actions button:not(.btn-primary){border:1px solid var(--line-strong);background:transparent;color:var(--muted);font-size:13px;padding:8px 16px;border-radius:8px;cursor:pointer}
 .team-filters{margin-bottom:16px;display:flex;flex-direction:column;gap:8px}
 .team-filter-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .team-filter-label{flex:0 0 auto;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);width:56px}

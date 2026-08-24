@@ -1014,15 +1014,53 @@ function renderSocial() {
   );
 }
 
-let teamFilters = { owner: "all", topic: "all", date: "all" };
+let teamFilters = { owner: "all", topic: "all", date: "all", status: "all" };
 // Collapse state persists across re-renders (status clicks re-render the
 // whole tab) so opening/closing a status section doesn't reset on every
 // click - keyed by "meetingDate|status", collapsed = true.
 let teamCollapsed = {};
 let teamListenersAttached = false;
+let teamAddFormAttached = false;
+// Firestore is authoritative for status once a doc exists (itemId -> status);
+// manually-added tickets live entirely in Firestore, keyed by their own doc
+// id. Both are merged onto the SQLite/data.js-baked meetings fresh on every
+// render - never mutated onto the baked objects - so a live update can't
+// accumulate duplicates across repeated onSnapshot-triggered re-renders.
+let teamLiveStatuses = new Map();
+let teamManualItems = [];
 
 const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
 const TEAM_STATUS_LABELS = { open: "To do", in_progress: "In progress", done: "Completed" };
+
+function teamEffectiveStatus(item) {
+  return teamLiveStatuses.get(String(item.id)) || item.status || "open";
+}
+
+// Combines the baked meetings (from SQLite/data.js) with any manually-added
+// tickets from Firestore, grouping ad-hoc tickets into the matching meeting
+// by date, or a synthetic "Manually added" panel for a date with no real
+// meeting. Recomputed fresh every render, so nothing is ever double-added.
+function teamMergedMeetings(team) {
+  const manualByDate = new Map();
+  teamManualItems.forEach((mi) => {
+    const list = manualByDate.get(mi.meeting_date) || [];
+    list.push({ id: mi.id, owner: mi.owner, topic: mi.topic || "General", description: mi.description, context: mi.context || null, status: mi.status || "open" });
+    manualByDate.set(mi.meeting_date, list);
+  });
+
+  const meetings = team.meetings.map((m) => ({ ...m }));
+  const seenDates = new Set(meetings.map((m) => m.meeting_date));
+  manualByDate.forEach((_items, mdate) => {
+    if (!seenDates.has(mdate)) {
+      meetings.push({ id: `manual-${mdate}`, meeting_date: mdate, title: "Manually added tickets", summary: null, action_items: [] });
+      seenDates.add(mdate);
+    }
+  });
+
+  return meetings
+    .map((m) => ({ ...m, action_items: [...(m.action_items || []), ...(manualByDate.get(m.meeting_date) || [])] }))
+    .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : a.meeting_date > b.meeting_date ? -1 : 0));
+}
 
 function buildTeamFilterPills(containerId, key, values, labelFn) {
   const el = document.getElementById(containerId);
@@ -1051,7 +1089,8 @@ function applyTeamFilters() {
       section.querySelectorAll(".checklist-item").forEach((item) => {
         const ownerMatch = teamFilters.owner === "all" || item.dataset.owner === teamFilters.owner;
         const topicMatch = teamFilters.topic === "all" || item.dataset.topic === teamFilters.topic;
-        const visible = ownerMatch && topicMatch;
+        const statusMatch = teamFilters.status === "all" || item.dataset.status === teamFilters.status;
+        const visible = ownerMatch && topicMatch && statusMatch;
         item.classList.toggle("hidden", !visible);
         if (visible) visibleCount += 1;
       });
@@ -1059,8 +1098,8 @@ function applyTeamFilters() {
       // filters, not the section's full unfiltered size.
       const countEl = section.querySelector(".status-count");
       if (countEl) countEl.textContent = visibleCount;
-      // A status section with every item filtered out (wrong owner/topic)
-      // disappears entirely too, instead of showing an empty accordion tab.
+      // A status section with every item filtered out disappears entirely
+      // too, instead of showing an empty accordion tab.
       section.classList.toggle("hidden", visibleCount === 0);
       if (visibleCount > 0) anySectionVisible = true;
     });
@@ -1070,6 +1109,7 @@ function applyTeamFilters() {
   document.querySelectorAll("#teamOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.owner));
   document.querySelectorAll("#teamTopicFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.topic));
   document.querySelectorAll("#teamDateFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.date));
+  document.querySelectorAll("#teamStatusFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.status));
 }
 
 function whenFirestoreReady(callback) {
@@ -1104,41 +1144,78 @@ function ensureTeamListeners() {
     const mark = event.target.closest(".checklist-mark");
     if (!mark || mark.disabled) return;
     const itemEl = mark.closest(".checklist-item");
-    const itemId = Number(itemEl.dataset.id);
+    const itemId = itemEl.dataset.id;
     const next = TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(itemEl.dataset.status) + 1) % TEAM_STATUS_ORDER.length];
     mark.disabled = true;
+    // No optimistic local mutation needed: our own write lands in the same
+    // onSnapshot stream everyone else's does (usually well under a second),
+    // which re-renders via teamLiveStatuses. Just guard against a double
+    // click while the write is in flight.
     const ok = await setTeamActionItemStatus(itemId, next);
-    if (ok) {
-      for (const m of dashboard.team_meetings?.meetings || []) {
-        const found = (m.action_items || []).find((i) => i.id === itemId);
-        if (found) {
-          found.status = next;
-          break;
-        }
-      }
-      renderTeam();
-    } else {
-      mark.disabled = false;
-    }
+    if (!ok) mark.disabled = false;
   });
 
-  // Live sync: any click (from this tab, another tab, or a different person
-  // entirely - local dashboard or the published site, same Firestore
-  // project either way) shows up here within a second or two.
+  // Live sync: any click or added ticket (from this tab, another tab, or a
+  // different person entirely - local dashboard or the published site, same
+  // Firestore project either way) shows up here within a second or two.
   whenFirestoreReady(() => {
     window.domaTeamSync.subscribeAll((liveStatuses) => {
-      let changed = false;
-      for (const m of dashboard.team_meetings?.meetings || []) {
-        for (const item of m.action_items || []) {
-          const live = liveStatuses.get(String(item.id));
-          if (live && live !== item.status) {
-            item.status = live;
-            changed = true;
-          }
-        }
-      }
-      if (changed) renderTeam();
+      teamLiveStatuses = liveStatuses;
+      renderTeam();
     });
+    window.domaTeamSync.subscribeManualItems((items) => {
+      teamManualItems = items;
+      renderTeam();
+    });
+  });
+}
+
+function ensureTeamAddForm(allOwners, allTopics) {
+  const ownerOptions = document.getElementById("teamOwnerOptions");
+  const topicOptions = document.getElementById("teamTopicOptions");
+  if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
+  if (topicOptions) topicOptions.innerHTML = allTopics.map((t) => `<option value="${t}">`).join("");
+
+  if (teamAddFormAttached) return;
+  teamAddFormAttached = true;
+  const toggle = document.getElementById("teamAddToggle");
+  const form = document.getElementById("teamAddForm");
+  if (!toggle || !form) return;
+  const dateInput = form.querySelector('[name="meeting_date"]');
+  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+
+  toggle.addEventListener("click", () => form.classList.toggle("hidden"));
+  document.getElementById("teamAddCancel")?.addEventListener("click", () => {
+    form.reset();
+    form.classList.add("hidden");
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const owner = String(fd.get("owner") || "").trim();
+    const description = String(fd.get("description") || "").trim();
+    const meetingDate = String(fd.get("meeting_date") || "").trim();
+    if (!owner || !description || !meetingDate) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
+      await window.domaTeamSync.addManualItem({
+        meeting_date: meetingDate,
+        owner,
+        topic: String(fd.get("topic") || "").trim() || "General",
+        description,
+        context: String(fd.get("context") || "").trim() || null,
+      });
+      form.reset();
+      dateInput.value = new Date().toISOString().slice(0, 10);
+      form.classList.add("hidden");
+    } catch (error) {
+      console.error("Failed to add ticket:", error);
+      alert("Could not add the ticket - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 }
 
@@ -1149,9 +1226,10 @@ function teamStatusIcon(status) {
 }
 
 function teamChecklistItemHtml(item) {
+  const status = teamEffectiveStatus(item);
   return `
-    <div class="checklist-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${item.status}">
-      <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
+    <div class="checklist-item status-${status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${status}">
+      <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(status)}</button>
       <span class="checklist-text">
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
       </span>
@@ -1161,17 +1239,20 @@ function teamChecklistItemHtml(item) {
 function renderTeam() {
   ensureTeamListeners();
   const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_in_progress: 0, total_done: 0, total_all: 0 };
-  document.getElementById("teamEmpty").style.display = team.available ? "none" : "block";
+  document.getElementById("teamEmpty").style.display = team.available || teamManualItems.length ? "none" : "block";
+
+  const mergedMeetings = teamMergedMeetings(team);
+  const allItems = mergedMeetings.flatMap((m) => m.action_items || []);
 
   // Derived live from the items themselves (not the backend's total_* fields)
-  // so a status click updates these cards immediately, without waiting for
-  // the next full /api/dashboard reload.
-  const allItems = team.meetings.flatMap((m) => m.action_items || []);
+  // so a status click or a new manual ticket updates these cards instantly,
+  // without waiting for the next full /api/dashboard reload.
   const countByStatus = { open: 0, in_progress: 0, done: 0 };
   const openByOwner = new Map();
   allItems.forEach((item) => {
-    countByStatus[item.status] = (countByStatus[item.status] || 0) + 1;
-    if (item.status === "open") openByOwner.set(item.owner, (openByOwner.get(item.owner) || 0) + 1);
+    const status = teamEffectiveStatus(item);
+    countByStatus[status] = (countByStatus[status] || 0) + 1;
+    if (status === "open") openByOwner.set(item.owner, (openByOwner.get(item.owner) || 0) + 1);
   });
   const ownerCards = [...openByOwner.entries()].map(([owner, count]) => ({ label: `${owner} - to do`, value: number(count) }));
   renderCards("teamCards", [
@@ -1181,30 +1262,36 @@ function renderTeam() {
     ...ownerCards,
   ]);
 
+  const allOwners = [...new Set(allItems.map((i) => i.owner))];
+  const allTopics = [...new Set(allItems.map((i) => i.topic || "General"))];
+  ensureTeamAddForm(allOwners, allTopics);
+
   const container = document.getElementById("teamMeetings");
   const ownerFilterEl = document.getElementById("teamOwnerFilter");
   const topicFilterEl = document.getElementById("teamTopicFilter");
   const dateFilterEl = document.getElementById("teamDateFilter");
-  if (!team.available) {
+  const statusFilterEl = document.getElementById("teamStatusFilter");
+  if (!allItems.length) {
     container.innerHTML = "";
     ownerFilterEl.innerHTML = "";
     topicFilterEl.innerHTML = "";
     dateFilterEl.innerHTML = "";
+    statusFilterEl.innerHTML = "";
     return;
   }
 
-  const allOwners = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.owner)))];
-  const allTopics = [...new Set(team.meetings.flatMap((m) => (m.action_items || []).map((i) => i.topic || "General")))];
-  const allDates = [...new Set(team.meetings.map((m) => m.meeting_date))];
+  const allDates = [...new Set(mergedMeetings.map((m) => m.meeting_date))];
   buildTeamFilterPills("teamOwnerFilter", "owner", allOwners);
   buildTeamFilterPills("teamTopicFilter", "topic", allTopics);
   buildTeamFilterPills("teamDateFilter", "date", allDates, (d) => fullDate(d));
+  buildTeamFilterPills("teamStatusFilter", "status", TEAM_STATUS_ORDER, (s) => TEAM_STATUS_LABELS[s]);
 
-  container.innerHTML = team.meetings
+  container.innerHTML = mergedMeetings
     .map((m) => {
       const byStatus = { open: [], in_progress: [], done: [] };
       (m.action_items || []).forEach((item) => {
-        (byStatus[item.status] || byStatus.open).push(item);
+        const status = teamEffectiveStatus(item);
+        (byStatus[status] || byStatus.open).push(item);
       });
 
       const sections = TEAM_STATUS_ORDER.filter((status) => byStatus[status].length)
