@@ -1047,18 +1047,22 @@ function applyTeamFilters() {
 
     let anySectionVisible = false;
     panel.querySelectorAll(".status-section").forEach((section) => {
-      let anyItemVisible = false;
+      let visibleCount = 0;
       section.querySelectorAll(".checklist-item").forEach((item) => {
         const ownerMatch = teamFilters.owner === "all" || item.dataset.owner === teamFilters.owner;
         const topicMatch = teamFilters.topic === "all" || item.dataset.topic === teamFilters.topic;
         const visible = ownerMatch && topicMatch;
         item.classList.toggle("hidden", !visible);
-        if (visible) anyItemVisible = true;
+        if (visible) visibleCount += 1;
       });
+      // The count badge reflects what's actually shown under the active
+      // filters, not the section's full unfiltered size.
+      const countEl = section.querySelector(".status-count");
+      if (countEl) countEl.textContent = visibleCount;
       // A status section with every item filtered out (wrong owner/topic)
       // disappears entirely too, instead of showing an empty accordion tab.
-      section.classList.toggle("hidden", !anyItemVisible);
-      if (anyItemVisible) anySectionVisible = true;
+      section.classList.toggle("hidden", visibleCount === 0);
+      if (visibleCount > 0) anySectionVisible = true;
     });
     if (!anySectionVisible) panel.style.display = "none";
   });
@@ -1068,14 +1072,15 @@ function applyTeamFilters() {
   document.querySelectorAll("#teamDateFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === teamFilters.date));
 }
 
+function whenFirestoreReady(callback) {
+  if (window.domaTeamSyncReady) return callback();
+  window.addEventListener("doma-team-sync-ready", callback, { once: true });
+}
+
 async function setTeamActionItemStatus(itemId, status) {
   try {
-    const res = await fetch(`/api/team/action-items/${itemId}/status`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (!res.ok) throw new Error(`status endpoint returned ${res.status}`);
+    if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
+    await window.domaTeamSync.setStatus(itemId, status);
     return true;
   } catch (error) {
     console.error("Failed to update action item status:", error);
@@ -1116,6 +1121,25 @@ function ensureTeamListeners() {
       mark.disabled = false;
     }
   });
+
+  // Live sync: any click (from this tab, another tab, or a different person
+  // entirely - local dashboard or the published site, same Firestore
+  // project either way) shows up here within a second or two.
+  whenFirestoreReady(() => {
+    window.domaTeamSync.subscribeAll((liveStatuses) => {
+      let changed = false;
+      for (const m of dashboard.team_meetings?.meetings || []) {
+        for (const item of m.action_items || []) {
+          const live = liveStatuses.get(String(item.id));
+          if (live && live !== item.status) {
+            item.status = live;
+            changed = true;
+          }
+        }
+      }
+      if (changed) renderTeam();
+    });
+  });
 }
 
 function teamStatusIcon(status) {
@@ -1127,7 +1151,7 @@ function teamStatusIcon(status) {
 function teamChecklistItemHtml(item) {
   return `
     <div class="checklist-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${item.status}">
-      <button type="button" class="checklist-mark" ${IS_STATIC ? "disabled" : ""} title="${IS_STATIC ? "Read-only on the published site" : "Click to change status"}">${teamStatusIcon(item.status)}</button>
+      <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
       <span class="checklist-text">
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
       </span>
