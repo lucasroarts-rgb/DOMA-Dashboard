@@ -1030,6 +1030,11 @@ let teamLiveStatuses = new Map();
 let teamManualItems = [];
 
 const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
+// Always offered as owner options (filter pills + the add-ticket datalist)
+// even before anyone has a ticket assigned to them yet - e.g. Mariannel
+// starting to log tickets shouldn't require her first ticket to exist
+// before her name is selectable.
+const TEAM_KNOWN_OWNERS = ["Kyle", "Juli", "Lucas", "Mariannel"];
 const TEAM_STATUS_LABELS = { open: "To do", in_progress: "In progress", done: "Completed" };
 
 function teamEffectiveStatus(item) {
@@ -1262,7 +1267,7 @@ function renderTeam() {
     ...ownerCards,
   ]);
 
-  const allOwners = [...new Set(allItems.map((i) => i.owner))];
+  const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...allItems.map((i) => i.owner)])];
   const allTopics = [...new Set(allItems.map((i) => i.topic || "General"))];
   ensureTeamAddForm(allOwners, allTopics);
 
