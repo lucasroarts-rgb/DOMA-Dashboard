@@ -107,7 +107,7 @@ def build_open_tickets_by_owner() -> dict[str, list[dict[str, Any]]]:
     return by_owner
 
 
-def build_email_for_owner(owner: str, tickets: list[dict[str, Any]]) -> tuple[str, str]:
+def build_email_for_owner(owner: str, tickets: list[dict[str, Any]], dashboard_url: str | None) -> tuple[str, str]:
     """Returns (subject, plain_text_body)."""
     open_count = sum(1 for t in tickets if t["status"] == "open")
     in_progress_count = sum(1 for t in tickets if t["status"] == "in_progress")
@@ -123,8 +123,9 @@ def build_email_for_owner(owner: str, tickets: list[dict[str, Any]]) -> tuple[st
             lines.append(f"  - [{t['topic']}] {t['description']} (#{t['id']})")
         lines.append("")
 
-    lines.append("-" * 40)
-    lines.append("Update status or add tickets: see GITHUB_PAGES_URL in .env > Team & Meetings tab.")
+    if dashboard_url:
+        lines.append("-" * 40)
+        lines.append(f"Update status or add tickets: {dashboard_url.rstrip('/')}/ (Team & Meetings tab)")
     return subject, "\n".join(lines)
 
 
@@ -155,6 +156,7 @@ def main() -> int:
     dashboard_app.init_db()
 
     by_owner = build_open_tickets_by_owner()
+    dashboard_url = env.get("GITHUB_PAGES_URL")
 
     sent = []
     for owner, email in OWNER_EMAILS.items():
@@ -162,7 +164,7 @@ def main() -> int:
         if not tickets:
             print(f"Skipped {owner} ({email}): no open tickets.")
             continue
-        subject, body = build_email_for_owner(owner, tickets)
+        subject, body = build_email_for_owner(owner, tickets, dashboard_url)
         send_email(subject, body, email, env)
         sent.append(f"{owner} ({len(tickets)})")
         print(f"Sent to {owner} <{email}>: {subject}")
