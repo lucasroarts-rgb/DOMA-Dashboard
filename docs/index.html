@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -62,9 +62,11 @@
     <button class="tab" data-view="competitors">Competitors &middot; Ahrefs</button>
     <button class="tab" data-view="blog">Blog &middot; GA4</button>
     <button class="tab" data-view="content-ideas">Content Suggestions</button>
+    <button class="tab" data-view="content-calendar">Content Calendar</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
+    <button class="tab" data-view="links">Useful Links</button>
   </nav>
 
   <main id="app">
@@ -388,6 +390,48 @@
       </div>
     </section>
 
+    <section class="view" id="view-content-calendar">
+      <div class="cards" id="calendarCards"></div>
+      <div id="calendarEmpty" class="empty" style="display:none">No content scheduled yet - add one below, or use a suggestion from the Content Suggestions tab.</div>
+
+      <div class="panel">
+        <h2>Suggested topics <span class="h2-note">(from Content Suggestions - click to prefill the form below)</span></h2>
+        <div id="calendarSuggestions" class="calendar-suggestions"></div>
+      </div>
+
+      <div class="team-add" id="calendarAdd">
+        <button type="button" class="btn-add-ticket" id="calendarAddToggle">+ Add to calendar</button>
+        <form class="team-add-form hidden" id="calendarAddForm">
+          <div class="team-add-row">
+            <input type="date" name="date" required />
+            <select name="type">
+              <option>Blog post</option>
+              <option>Ebook</option>
+              <option>Social post</option>
+              <option>Sponsor highlight</option>
+              <option>Podcast</option>
+              <option>Other</option>
+            </select>
+            <input type="text" name="owner" placeholder="Owner (e.g. Mariannel)" list="calendarOwnerOptions" />
+          </div>
+          <input type="text" name="title" placeholder="Title / topic" required />
+          <input type="text" name="notes" placeholder="Notes (optional)" />
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add to calendar</button>
+            <button type="button" id="calendarAddCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="calendarOwnerOptions"></datalist>
+      </div>
+
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Person</span><div class="owner-filter" id="calendarOwnerFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Type</span><div class="owner-filter" id="calendarTypeFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Status</span><div class="owner-filter" id="calendarStatusFilter"></div></div>
+      </div>
+      <div id="calendarList"></div>
+    </section>
+
     <section class="view" id="view-leads">
       <div class="cards" id="leadsCards"></div>
       <div class="panel">
@@ -510,6 +554,32 @@
       <div id="teamMeetings"></div>
     </section>
 
+    <section class="view" id="view-links">
+      <div class="panel">
+        <h2>Useful Links</h2>
+        <p class="panel-intro">Shared, organized bookmarks for the tools this dashboard/team relies on - add one below, updates live for everyone.</p>
+      </div>
+      <div id="linksEmpty" class="empty" style="display:none">No links added yet.</div>
+
+      <div class="team-add" id="linksAdd">
+        <button type="button" class="btn-add-ticket" id="linksAddToggle">+ Add link</button>
+        <form class="team-add-form hidden" id="linksAddForm">
+          <div class="team-add-row">
+            <input type="text" name="title" placeholder="Title (e.g. Google Search Console)" required />
+            <input type="text" name="category" placeholder="Category (e.g. SEO)" list="linksCategoryOptions" />
+          </div>
+          <input type="url" name="url" placeholder="https://..." required />
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add link</button>
+            <button type="button" id="linksAddCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="linksCategoryOptions"></datalist>
+      </div>
+
+      <div id="linksList" class="links-list"></div>
+    </section>
+
   </main>
 
   <footer class="footer">
@@ -520,6 +590,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js"></script>
-<script src="dashboard.js?v=12"></script>
+<script src="dashboard.js?v=13"></script>
 </body>
 </html>

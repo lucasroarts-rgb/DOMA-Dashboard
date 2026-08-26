@@ -1067,17 +1067,19 @@ function teamMergedMeetings(team) {
     .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : a.meeting_date > b.meeting_date ? -1 : 0));
 }
 
-function buildTeamFilterPills(containerId, key, values, labelFn) {
+function buildFilterPills(containerId, values, labelFn, onSelect) {
   const el = document.getElementById(containerId);
   el.innerHTML = ["all", ...values]
     .map((v) => `<button type="button" data-value="${v}">${v === "all" ? "All" : labelFn ? labelFn(v) : v}</button>`)
     .join("");
-  el.querySelectorAll("button").forEach((b) =>
-    b.addEventListener("click", () => {
-      teamFilters[key] = b.dataset.value;
-      applyTeamFilters();
-    })
-  );
+  el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => onSelect(b.dataset.value)));
+}
+
+function buildTeamFilterPills(containerId, key, values, labelFn) {
+  buildFilterPills(containerId, values, labelFn, (value) => {
+    teamFilters[key] = value;
+    applyTeamFilters();
+  });
 }
 
 function applyTeamFilters() {
@@ -1329,6 +1331,340 @@ function renderTeam() {
   applyTeamFilters();
 }
 
+/* ---------- content calendar ---------- */
+
+const CALENDAR_STATUS_LABELS = { open: "Planned", in_progress: "In progress", done: "Published" };
+const CALENDAR_TYPES = ["Blog post", "Ebook", "Social post", "Sponsor highlight", "Podcast", "Other"];
+
+let calendarItems = [];
+let calendarLiveStatuses = new Map();
+let calendarFilters = { owner: "all", type: "all", status: "all" };
+let calendarListenersAttached = false;
+let calendarAddFormAttached = false;
+
+function buildCalendarFilterPills(containerId, key, values, labelFn) {
+  buildFilterPills(containerId, values, labelFn, (value) => {
+    calendarFilters[key] = value;
+    applyCalendarFilters();
+  });
+}
+
+function applyCalendarFilters() {
+  document.querySelectorAll("#calendarList .calendar-month-group").forEach((group) => {
+    let anyVisible = false;
+    group.querySelectorAll(".checklist-item").forEach((item) => {
+      const ownerMatch = calendarFilters.owner === "all" || item.dataset.owner === calendarFilters.owner;
+      const typeMatch = calendarFilters.type === "all" || item.dataset.type === calendarFilters.type;
+      const statusMatch = calendarFilters.status === "all" || item.dataset.status === calendarFilters.status;
+      const visible = ownerMatch && typeMatch && statusMatch;
+      item.classList.toggle("hidden", !visible);
+      if (visible) anyVisible = true;
+    });
+    group.style.display = anyVisible ? "" : "none";
+  });
+  document.querySelectorAll("#calendarOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.owner));
+  document.querySelectorAll("#calendarTypeFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.type));
+  document.querySelectorAll("#calendarStatusFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.status));
+}
+
+function ensureCalendarListeners() {
+  if (calendarListenersAttached) return;
+  calendarListenersAttached = true;
+  document.getElementById("calendarList").addEventListener("click", async (event) => {
+    const del = event.target.closest(".checklist-delete");
+    if (del) {
+      const itemEl = del.closest(".checklist-item");
+      if (!confirm("Remove this calendar item?")) return;
+      del.disabled = true;
+      try {
+        await window.domaContentCalendar.deleteItem(itemEl.dataset.id);
+      } catch (error) {
+        console.error("Failed to delete calendar item:", error);
+        del.disabled = false;
+      }
+      return;
+    }
+
+    const mark = event.target.closest(".checklist-mark");
+    if (!mark || mark.disabled) return;
+    const itemEl = mark.closest(".checklist-item");
+    const itemId = itemEl.dataset.id;
+    const next = TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(itemEl.dataset.status) + 1) % TEAM_STATUS_ORDER.length];
+    mark.disabled = true;
+    try {
+      await window.domaContentCalendar.setStatus(itemId, next);
+    } catch (error) {
+      console.error("Failed to update calendar item status:", error);
+    }
+    mark.disabled = false;
+  });
+
+  whenFirestoreReady(() => {
+    window.domaContentCalendar.subscribeItems((items) => {
+      calendarItems = items;
+      renderContentCalendar();
+    });
+    window.domaContentCalendar.subscribeStatuses((statuses) => {
+      calendarLiveStatuses = statuses;
+      renderContentCalendar();
+    });
+  });
+}
+
+function renderCalendarSuggestions() {
+  const container = document.getElementById("calendarSuggestions");
+  if (!container) return;
+  const suggestions = dashboard.content_suggestions || { content_gaps: [], top_ebooks: [] };
+  const gapChips = (suggestions.content_gaps || [])
+    .slice(0, 6)
+    .map(
+      (g) =>
+        `<button type="button" class="calendar-suggestion-chip" data-title="${g.query}" data-type="Blog post">${g.query}<span class="cal-suggestion-meta">${number(g.impressions)} impressions, no ranking content yet</span></button>`
+    );
+  const ebookChips = (suggestions.top_ebooks || [])
+    .slice(0, 4)
+    .map(
+      (e) =>
+        `<button type="button" class="calendar-suggestion-chip" data-title="Blog post based on: ${e.page_title || titleFromUrl(e.page_path)}" data-type="Blog post">${e.page_title || titleFromUrl(e.page_path)}<span class="cal-suggestion-meta">${number(e.sessions)} sessions - repurpose into a blog post</span></button>`
+    );
+  container.innerHTML = [...gapChips, ...ebookChips].join("") || `<div class="empty">No suggestions yet - sync Search Console/GA4 data first.</div>`;
+}
+
+function ensureCalendarAddForm(allOwners) {
+  const ownerOptions = document.getElementById("calendarOwnerOptions");
+  if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
+
+  if (calendarAddFormAttached) return;
+  calendarAddFormAttached = true;
+  const toggle = document.getElementById("calendarAddToggle");
+  const form = document.getElementById("calendarAddForm");
+  if (!toggle || !form) return;
+  const dateInput = form.querySelector('[name="date"]');
+  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+
+  toggle.addEventListener("click", () => form.classList.toggle("hidden"));
+  document.getElementById("calendarAddCancel")?.addEventListener("click", () => {
+    form.reset();
+    form.classList.add("hidden");
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const title = String(fd.get("title") || "").trim();
+    const date = String(fd.get("date") || "").trim();
+    if (!title || !date) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaContentCalendar) throw new Error("Firestore sync not ready yet");
+      await window.domaContentCalendar.addItem({
+        date,
+        type: String(fd.get("type") || "Blog post"),
+        title,
+        owner: String(fd.get("owner") || "").trim() || null,
+        notes: String(fd.get("notes") || "").trim() || null,
+      });
+      form.reset();
+      dateInput.value = new Date().toISOString().slice(0, 10);
+      form.classList.add("hidden");
+    } catch (error) {
+      console.error("Failed to add calendar item:", error);
+      alert("Could not add the calendar item - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  // Suggestion chips prefill the form instead of submitting directly, so
+  // date/owner/notes can still be adjusted before saving.
+  document.getElementById("calendarSuggestions")?.addEventListener("click", (event) => {
+    const chip = event.target.closest(".calendar-suggestion-chip");
+    if (!chip) return;
+    form.classList.remove("hidden");
+    form.querySelector('[name="title"]').value = chip.dataset.title || "";
+    form.querySelector('[name="type"]').value = chip.dataset.type || "Blog post";
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+function renderContentCalendar() {
+  ensureCalendarListeners();
+  renderCalendarSuggestions();
+
+  const items = calendarItems.map((item) => ({ ...item, status: calendarLiveStatuses.get(String(item.id)) || item.status || "open" }));
+
+  const countByStatus = { open: 0, in_progress: 0, done: 0 };
+  items.forEach((item) => {
+    countByStatus[item.status] = (countByStatus[item.status] || 0) + 1;
+  });
+  renderCards("calendarCards", [
+    { label: "Planned", value: number(countByStatus.open) },
+    { label: "In progress", value: number(countByStatus.in_progress) },
+    { label: "Published", value: number(countByStatus.done) },
+  ]);
+
+  document.getElementById("calendarEmpty").style.display = items.length ? "none" : "block";
+
+  const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...items.map((i) => i.owner).filter(Boolean)])];
+  ensureCalendarAddForm(allOwners);
+
+  const container = document.getElementById("calendarList");
+  const ownerFilterEl = document.getElementById("calendarOwnerFilter");
+  const typeFilterEl = document.getElementById("calendarTypeFilter");
+  const statusFilterEl = document.getElementById("calendarStatusFilter");
+  if (!items.length) {
+    container.innerHTML = "";
+    ownerFilterEl.innerHTML = "";
+    typeFilterEl.innerHTML = "";
+    statusFilterEl.innerHTML = "";
+    return;
+  }
+
+  const allTypes = [...new Set([...CALENDAR_TYPES, ...items.map((i) => i.type)])];
+  buildCalendarFilterPills("calendarOwnerFilter", "owner", allOwners);
+  buildCalendarFilterPills("calendarTypeFilter", "type", allTypes);
+  buildCalendarFilterPills("calendarStatusFilter", "status", TEAM_STATUS_ORDER, (s) => CALENDAR_STATUS_LABELS[s]);
+
+  const byMonth = new Map();
+  [...items]
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+    .forEach((item) => {
+      const monthKey = (item.date || "").slice(0, 7) || "unscheduled";
+      if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+      byMonth.get(monthKey).push(item);
+    });
+
+  container.innerHTML = [...byMonth.entries()]
+    .map(([monthKey, monthItems]) => {
+      const monthLabel = monthKey === "unscheduled" ? "No date" : new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const rows = monthItems
+        .map(
+          (item) => `
+          <div class="checklist-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}">
+            <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
+            <span class="checklist-text">
+              <span class="checklist-date">${fullDate(item.date)}</span><span class="checklist-topic">${item.type}</span>${item.owner ? `<span class="checklist-owner">${item.owner}</span>` : ""}${item.title}${item.notes ? `<span class="checklist-context">${item.notes}</span>` : ""}
+            </span>
+            <button type="button" class="checklist-delete" title="Remove">&times;</button>
+          </div>`
+        )
+        .join("");
+      return `
+        <div class="panel calendar-month-group">
+          <h2>${monthLabel}</h2>
+          <div class="status-body">${rows}</div>
+        </div>`;
+    })
+    .join("");
+
+  applyCalendarFilters();
+}
+
+/* ---------- useful links ---------- */
+
+let linksItems = [];
+let linksListenersAttached = false;
+let linksAddFormAttached = false;
+
+function ensureLinksListeners() {
+  if (linksListenersAttached) return;
+  linksListenersAttached = true;
+  document.getElementById("linksList").addEventListener("click", async (event) => {
+    const del = event.target.closest(".checklist-delete");
+    if (!del) return;
+    if (!confirm("Remove this link?")) return;
+    const card = del.closest(".link-card");
+    del.disabled = true;
+    try {
+      await window.domaUsefulLinks.deleteLink(card.dataset.id);
+    } catch (error) {
+      console.error("Failed to delete link:", error);
+      del.disabled = false;
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaUsefulLinks.subscribeLinks((links) => {
+      linksItems = links;
+      renderLinks();
+    });
+  });
+}
+
+function ensureLinksAddForm(allCategories) {
+  const categoryOptions = document.getElementById("linksCategoryOptions");
+  if (categoryOptions) categoryOptions.innerHTML = allCategories.map((c) => `<option value="${c}">`).join("");
+
+  if (linksAddFormAttached) return;
+  linksAddFormAttached = true;
+  const toggle = document.getElementById("linksAddToggle");
+  const form = document.getElementById("linksAddForm");
+  if (!toggle || !form) return;
+
+  toggle.addEventListener("click", () => form.classList.toggle("hidden"));
+  document.getElementById("linksAddCancel")?.addEventListener("click", () => {
+    form.reset();
+    form.classList.add("hidden");
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const title = String(fd.get("title") || "").trim();
+    const url = String(fd.get("url") || "").trim();
+    if (!title || !url) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaUsefulLinks) throw new Error("Firestore sync not ready yet");
+      await window.domaUsefulLinks.addLink({ title, url, category: String(fd.get("category") || "").trim() || "General" });
+      form.reset();
+      form.classList.add("hidden");
+    } catch (error) {
+      console.error("Failed to add link:", error);
+      alert("Could not add the link - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function renderLinks() {
+  ensureLinksListeners();
+  document.getElementById("linksEmpty").style.display = linksItems.length ? "none" : "block";
+
+  const allCategories = [...new Set(linksItems.map((l) => l.category || "General"))];
+  ensureLinksAddForm(allCategories);
+
+  const byCategory = new Map();
+  linksItems.forEach((link) => {
+    const cat = link.category || "General";
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push(link);
+  });
+
+  const container = document.getElementById("linksList");
+  container.innerHTML = [...byCategory.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(
+      ([category, links]) => `
+        <div class="links-category">
+          <h3>${category}</h3>
+          <div class="links-grid">
+            ${links
+              .map(
+                (link) => `
+              <div class="link-card" data-id="${link.id}">
+                <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+                <button type="button" class="checklist-delete" title="Remove">&times;</button>
+              </div>`
+              )
+              .join("")}
+          </div>
+        </div>`
+    )
+    .join("");
+}
+
 function renderContentIdeas() {
   const suggestions = dashboard.content_suggestions || { available: false, content_gaps: [], top_ebooks: [], top_blog_posts: [], best_post_times: { available: false, by_day: [], by_period: [] } };
   document.getElementById("contentIdeasEmpty").style.display = suggestions.available ? "none" : "block";
@@ -1376,9 +1712,11 @@ function renderAll() {
   renderCompetitors();
   renderBlog();
   renderContentIdeas();
+  renderContentCalendar();
   renderLeads();
   renderSocial();
   renderTeam();
+  renderLinks();
 
   const synced = [
     dashboard.search_console.last_synced_at,

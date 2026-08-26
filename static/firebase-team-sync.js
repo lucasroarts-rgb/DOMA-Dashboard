@@ -9,7 +9,7 @@
 // not real security" posture - see README.md. Don't add a secret key here
 // expecting it to gate access; only Firestore Rules can actually do that.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, setDoc, addDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, addDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAend14H6sI98DrjZvNfw-sfNYfEykaI6o",
@@ -24,6 +24,9 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const STATUS_COLLECTION = "team_action_item_status";
 const MANUAL_ITEMS_COLLECTION = "team_manual_items";
+const CALENDAR_ITEMS_COLLECTION = "content_calendar_items";
+const CALENDAR_STATUS_COLLECTION = "content_calendar_item_status";
+const LINKS_COLLECTION = "useful_links";
 
 function watch(collectionName, onChange, mapEntry) {
   return onSnapshot(
@@ -73,5 +76,68 @@ window.domaTeamSync = {
     });
   },
 };
+
+// Content calendar - planned/in-progress/published content across blog,
+// ebooks, social, sponsor highlights, etc. Same shared-live-state pattern
+// as team tickets, own collections so the two never collide on ids.
+window.domaContentCalendar = {
+  async addItem({ date, type, title, owner, notes }) {
+    const ref = await addDoc(collection(db, CALENDAR_ITEMS_COLLECTION), {
+      date,
+      type: type || "Blog post",
+      title,
+      owner: owner || null,
+      notes: notes || null,
+      status: "planned",
+      created_at: Date.now(),
+    });
+    return ref.id;
+  },
+  subscribeItems(callback) {
+    return watch(CALENDAR_ITEMS_COLLECTION, (snapshot) => {
+      const items = [];
+      snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
+      callback(items);
+    });
+  },
+  async setStatus(itemId, status) {
+    await setDoc(doc(db, CALENDAR_STATUS_COLLECTION, String(itemId)), { status, updated_at: Date.now() });
+  },
+  subscribeStatuses(callback) {
+    return watch(CALENDAR_STATUS_COLLECTION, (snapshot) => {
+      const statuses = new Map();
+      snapshot.forEach((docSnap) => statuses.set(docSnap.id, docSnap.data().status));
+      callback(statuses);
+    });
+  },
+  async deleteItem(itemId) {
+    await deleteDoc(doc(db, CALENDAR_ITEMS_COLLECTION, itemId));
+    await deleteDoc(doc(db, CALENDAR_STATUS_COLLECTION, itemId)).catch(() => {});
+  },
+};
+
+// Useful Links tab - just a shared, organized bookmark list.
+window.domaUsefulLinks = {
+  async addLink({ title, url, category }) {
+    const ref = await addDoc(collection(db, LINKS_COLLECTION), {
+      title,
+      url,
+      category: category || "General",
+      created_at: Date.now(),
+    });
+    return ref.id;
+  },
+  subscribeLinks(callback) {
+    return watch(LINKS_COLLECTION, (snapshot) => {
+      const links = [];
+      snapshot.forEach((docSnap) => links.push({ id: docSnap.id, ...docSnap.data() }));
+      callback(links);
+    });
+  },
+  async deleteLink(linkId) {
+    await deleteDoc(doc(db, LINKS_COLLECTION, linkId));
+  },
+};
+
 window.domaTeamSyncReady = true;
 window.dispatchEvent(new Event("doma-team-sync-ready"));
