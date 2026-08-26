@@ -891,7 +891,42 @@ function renderBlog() {
   );
 }
 
+let communityListenersAttached = false;
+
+function ensureCommunityListeners() {
+  if (communityListenersAttached) return;
+  communityListenersAttached = true;
+  document.getElementById("communityEditBtn")?.addEventListener("click", async () => {
+    const current = document.getElementById("communityMemberCount").textContent;
+    const input = prompt("Update DOMA Free Community member count (read from the GHL Communities panel):", current === "—" ? "" : current);
+    if (input === null) return;
+    const count = parseInt(input, 10);
+    if (Number.isNaN(count) || count < 0) {
+      alert("Enter a whole number.");
+      return;
+    }
+    try {
+      if (!window.domaCommunityStats) throw new Error("Firestore sync not ready yet");
+      await window.domaCommunityStats.setMemberCount(count);
+    } catch (error) {
+      console.error("Failed to update community member count:", error);
+      alert("Could not save - check the browser console for details.");
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaCommunityStats.subscribe((data) => {
+      const countEl = document.getElementById("communityMemberCount");
+      const updatedEl = document.getElementById("communityUpdatedAt");
+      if (!countEl) return;
+      countEl.textContent = data ? number(data.member_count) : "—";
+      updatedEl.textContent = data?.updated_at ? `Updated ${new Date(data.updated_at).toLocaleString("en-US")}` : "Not set yet";
+    });
+  });
+}
+
 function renderLeads() {
+  ensureCommunityListeners();
   const ghl = dashboard.ghl;
   const prev = dashboard.previous;
   renderCards("leadsCards", [

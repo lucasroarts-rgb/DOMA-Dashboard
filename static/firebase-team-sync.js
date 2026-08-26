@@ -27,6 +27,8 @@ const MANUAL_ITEMS_COLLECTION = "team_manual_items";
 const CALENDAR_ITEMS_COLLECTION = "content_calendar_items";
 const CALENDAR_STATUS_COLLECTION = "content_calendar_item_status";
 const LINKS_COLLECTION = "useful_links";
+const COMMUNITY_STATS_COLLECTION = "community_stats";
+const COMMUNITY_STATS_DOC_ID = "doma_free_community";
 
 function watch(collectionName, onChange, mapEntry) {
   return onSnapshot(
@@ -140,6 +142,25 @@ window.domaUsefulLinks = {
   },
   async deleteLink(linkId) {
     await deleteDoc(doc(db, LINKS_COLLECTION, linkId));
+  },
+};
+
+// Community member count - GoHighLevel has no public API for its
+// Communities feature, so this is a manually-updated number (read off the
+// GHL Communities panel by hand) rather than a synced one.
+window.domaCommunityStats = {
+  async setMemberCount(count) {
+    await setDoc(doc(db, COMMUNITY_STATS_COLLECTION, COMMUNITY_STATS_DOC_ID), {
+      member_count: count,
+      updated_at: Date.now(),
+    });
+  },
+  subscribe(callback) {
+    return onSnapshot(
+      doc(db, COMMUNITY_STATS_COLLECTION, COMMUNITY_STATS_DOC_ID),
+      (docSnap) => callback(docSnap.exists() ? docSnap.data() : null),
+      (error) => console.error("Community stats live-sync stopped:", error.code, error.message)
+    );
   },
 };
 
