@@ -33,6 +33,7 @@ from scripts.sync_competitors_content import main as sync_competitors_content  #
 from scripts.sync_serp_competitors import main as sync_serp_competitors  # noqa: E402
 from scripts.sync_competitor_intel import main as sync_competitor_intel  # noqa: E402
 from scripts.send_seo_digest import main as send_seo_digest  # noqa: E402
+from scripts.send_task_digest import main as send_task_digest  # noqa: E402
 
 LOGS_DIR = ROOT / "logs"
 
@@ -125,6 +126,7 @@ def main() -> int:
     }
 
     statuses["seo_digest_email"] = run_source("SEO email digest", send_seo_digest)
+    statuses["task_digest_email"] = run_source("Task digest email (per-person open tickets)", send_task_digest)
 
     print("Generating the static site...")
     if generate_public_site() != 0:
