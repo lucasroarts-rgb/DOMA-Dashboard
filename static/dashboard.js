@@ -1600,11 +1600,25 @@ function renderContentCalendar() {
 let linksItems = [];
 let linksListenersAttached = false;
 let linksAddFormAttached = false;
+// Which category sections start closed - "Ebooks" has ~20 links and would
+// otherwise dominate the tab; anything not listed here starts open. Once a
+// category is manually toggled, its state persists across re-renders here
+// too (same pattern as teamCollapsed).
+let linksCollapsedCategories = { Ebooks: true };
 
 function ensureLinksListeners() {
   if (linksListenersAttached) return;
   linksListenersAttached = true;
   document.getElementById("linksList").addEventListener("click", async (event) => {
+    const header = event.target.closest(".links-category-header");
+    if (header) {
+      const section = header.closest(".links-category");
+      const category = section.dataset.category;
+      linksCollapsedCategories[category] = !linksCollapsedCategories[category];
+      section.classList.toggle("collapsed", linksCollapsedCategories[category]);
+      return;
+    }
+
     const del = event.target.closest(".checklist-delete");
     if (!del) return;
     if (!confirm("Remove this link?")) return;
@@ -1680,10 +1694,15 @@ function renderLinks() {
   const container = document.getElementById("linksList");
   container.innerHTML = [...byCategory.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(
-      ([category, links]) => `
-        <div class="links-category">
-          <h3>${category}</h3>
+    .map(([category, links]) => {
+      const collapsed = !!linksCollapsedCategories[category];
+      return `
+        <div class="links-category${collapsed ? " collapsed" : ""}" data-category="${category}">
+          <button type="button" class="links-category-header">
+            <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
+            <h3>${category}</h3>
+            <span class="status-count">${links.length}</span>
+          </button>
           <div class="links-grid">
             ${links
               .map(
@@ -1695,8 +1714,8 @@ function renderLinks() {
               )
               .join("")}
           </div>
-        </div>`
-    )
+        </div>`;
+    })
     .join("");
 }
 
