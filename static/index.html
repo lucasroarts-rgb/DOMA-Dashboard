@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=9">
+<link rel="stylesheet" href="/static/styles.css?v=10">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -61,6 +61,7 @@
     <button class="tab" data-view="seo">SEO &middot; Search Console</button>
     <button class="tab" data-view="competitors">Competitors &middot; Ahrefs</button>
     <button class="tab" data-view="blog">Blog &middot; GA4</button>
+    <button class="tab" data-view="content-ideas">Content Suggestions</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
@@ -332,6 +333,61 @@
       </div>
     </section>
 
+    <section class="view" id="view-content-ideas">
+      <div class="panel">
+        <h2>Content Suggestions</h2>
+        <p class="panel-intro">Pulls together signals already in other tabs - SEO content gaps, top-performing ebooks/posts (GA4), and best posting times (Social) - so planning what to write or promote next doesn't mean hopping between tabs.</p>
+      </div>
+      <div id="contentIdeasEmpty" class="empty" style="display:none">No suggestions yet - needs at least one of Search Console, GA4, or Social data synced.</div>
+      <div class="panel">
+        <h2>Content gap opportunities <span class="h2-note">(real searches, weak current ranking - see SEO tab)</span></h2>
+        <div class="table-wrap">
+          <table id="contentGapsTable">
+            <thead><tr><th>Search query</th><th>Best-ranking page</th><th>Position</th><th>Impressions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <h2>Top-performing ebooks <span class="h2-note">(GA4 sessions)</span></h2>
+          <div class="table-wrap">
+            <table id="topEbooksTable">
+              <thead><tr><th>Ebook</th><th>Sessions</th><th>Views</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Top-performing blog posts <span class="h2-note">(GA4 sessions)</span></h2>
+          <div class="table-wrap">
+            <table id="topBlogPostsTable">
+              <thead><tr><th>Post</th><th>Sessions</th><th>Views</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Best time to publish/post <span class="h2-note">(Instagram engagement by day &amp; time, UTC - see Social tab)</span></h2>
+        <div id="contentBestTimesEmpty" class="empty" style="display:none">Not enough Instagram post history yet.</div>
+        <div class="grid-2">
+          <div class="table-wrap">
+            <table id="contentBestDayTable">
+              <thead><tr><th>Day</th><th>Avg. engagement</th><th>Posts</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table id="contentBestPeriodTable">
+              <thead><tr><th>Time of day</th><th>Avg. engagement</th><th>Posts</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="view" id="view-leads">
       <div class="cards" id="leadsCards"></div>
       <div class="panel">
@@ -464,6 +520,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js"></script>
-<script src="/static/dashboard.js?v=11"></script>
+<script src="/static/dashboard.js?v=12"></script>
 </body>
 </html>

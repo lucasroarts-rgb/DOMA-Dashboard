@@ -1329,6 +1329,43 @@ function renderTeam() {
   applyTeamFilters();
 }
 
+function renderContentIdeas() {
+  const suggestions = dashboard.content_suggestions || { available: false, content_gaps: [], top_ebooks: [], top_blog_posts: [], best_post_times: { available: false, by_day: [], by_period: [] } };
+  document.getElementById("contentIdeasEmpty").style.display = suggestions.available ? "none" : "block";
+
+  renderTable(
+    "contentGapsTable",
+    suggestions.content_gaps,
+    (g) => `<tr><td>${g.query}</td><td>${titleFromUrl(g.page)}</td><td>${g.position.toFixed(1)}</td><td>${number(g.impressions)}</td></tr>`,
+    "No content gaps found yet - see SEO tab."
+  );
+  renderTable(
+    "topEbooksTable",
+    suggestions.top_ebooks,
+    (p) => `<tr><td>${p.page_title || titleFromUrl(p.page_path)}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td></tr>`,
+    "No ebook page data yet."
+  );
+  renderTable(
+    "topBlogPostsTable",
+    suggestions.top_blog_posts,
+    (p) => `<tr><td>${p.page_title || titleFromUrl(p.page_path)}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td></tr>`,
+    "No blog post data yet."
+  );
+
+  const bestTimes = suggestions.best_post_times || { available: false, by_day: [], by_period: [] };
+  document.getElementById("contentBestTimesEmpty").style.display = bestTimes.available ? "none" : "block";
+  renderTable(
+    "contentBestDayTable",
+    bestTimes.by_day || [],
+    (d) => `<tr><td>${d.day}</td><td>${d.avg_engagement}</td><td>${d.post_count}</td></tr>`
+  );
+  renderTable(
+    "contentBestPeriodTable",
+    bestTimes.by_period || [],
+    (p) => `<tr><td>${p.period}</td><td>${p.avg_engagement}</td><td>${p.post_count}</td></tr>`
+  );
+}
+
 function renderAll() {
   if (!dashboard) {
     document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Could not load the dashboard. Make sure the local server is running (RUN_DASHBOARD.bat) and data has been synced.</div></div>`;
@@ -1338,6 +1375,7 @@ function renderAll() {
   renderSeo();
   renderCompetitors();
   renderBlog();
+  renderContentIdeas();
   renderLeads();
   renderSocial();
   renderTeam();

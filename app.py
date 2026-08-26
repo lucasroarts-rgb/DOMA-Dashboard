@@ -634,6 +634,68 @@ def index_coverage_summary(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _fetch_recent_social_posts(con: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = con.execute(
+        "SELECT platform, post_id, caption, published_at, permalink, likes, comments, shares, reach, engagement_total "
+        "FROM social_posts ORDER BY published_at DESC LIMIT 40"
+    ).fetchall()
+    return [
+        {
+            "platform": row[0],
+            "post_id": row[1],
+            "caption": row[2],
+            "published_at": row[3],
+            "permalink": row[4],
+            "likes": int(row[5] or 0),
+            "comments": int(row[6] or 0),
+            "shares": int(row[7] or 0),
+            "reach": int(row[8] or 0),
+            "engagement_total": int(row[9] or 0),
+        }
+        for row in rows
+    ]
+
+
+def content_suggestions_summary(con: sqlite3.Connection) -> dict[str, Any]:
+    """Content Suggestions tab - doesn't sync anything new, just pulls
+    together signals that already live in other tabs (content gaps from
+    SEO, top-performing ebooks/blog posts from GA4, best posting times from
+    Social) so planning the next piece of content doesn't mean hopping
+    between four different tabs. Requested after a real meeting where Kyle
+    and Juli read these exact numbers off separate tabs by hand."""
+    gaps = content_gap_summary(con)
+
+    def _top_pages(where_clause: str, params: tuple, limit: int = 10) -> list[dict[str, Any]]:
+        rows = con.execute(
+            f"SELECT page_path, page_title, sessions, page_views FROM ga4_top_pages "
+            f"WHERE {where_clause} ORDER BY sessions DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        return [
+            {"page_path": row[0], "page_title": row[1], "sessions": int(row[2] or 0), "page_views": int(row[3] or 0)}
+            for row in rows
+        ]
+
+    # Slugs alone aren't consistent ("the-10-reports-..." has no "ebook" in
+    # its URL, only in its title's "Free Guide" suffix) - match either field,
+    # excluding thank-you/conversion pages that also mention "free".
+    top_ebooks = _top_pages(
+        "(page_path LIKE ? OR page_title LIKE ? OR page_title LIKE ?) AND page_path NOT LIKE '%thank-you%'",
+        ("%ebook%", "%ebook%", "%guide%"),
+    )
+    top_blog_posts = _top_pages("page_path LIKE ?", ("/post/%",))
+    best_post_times = _instagram_best_times(_fetch_recent_social_posts(con))
+
+    return {
+        "available": bool(gaps["gaps"] or top_ebooks or top_blog_posts),
+        "content_gaps": gaps["gaps"][:10],
+        "content_gaps_checked_at": gaps["checked_at"],
+        "top_ebooks": top_ebooks,
+        "top_blog_posts": top_blog_posts,
+        "best_post_times": best_post_times,
+    }
+
+
 def content_gap_summary(con: sqlite3.Connection) -> dict[str, Any]:
     """Queries with real impressions where DOMA's best-ranking page still
     isn't in the top 15 - content opportunities, see sync_gsc.py:fetch_content_gaps
@@ -1249,26 +1311,7 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
         for row in metrics_rows
     ]
 
-    posts_rows = con.execute(
-        "SELECT platform, post_id, caption, published_at, permalink, likes, comments, shares, reach, engagement_total "
-        "FROM social_posts ORDER BY published_at DESC LIMIT 40"
-    ).fetchall()
-    posts = [
-        {
-            "platform": row[0],
-            "post_id": row[1],
-            "caption": row[2],
-            "published_at": row[3],
-            "permalink": row[4],
-            "likes": int(row[5] or 0),
-            "comments": int(row[6] or 0),
-            "shares": int(row[7] or 0),
-            "reach": int(row[8] or 0),
-            "engagement_total": int(row[9] or 0),
-        }
-        for row in posts_rows
-    ]
-
+    posts = _fetch_recent_social_posts(con)
     best_times = _instagram_best_times(posts)
 
     audience_rows = con.execute(
@@ -1374,6 +1417,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "ghl": ghl_summary(con, start_date, end_date),
             "social": social_summary(con, start_date, end_date),
             "content": recent_posts_summary(con),
+            "content_suggestions": content_suggestions_summary(con),
             "ahrefs": {
                 "competitors": ahrefs_competitors_summary(con),
                 "issues": ahrefs_issues_summary(con),
