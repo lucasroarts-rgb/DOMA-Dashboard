@@ -88,7 +88,11 @@ window.domaContentCalendar = {
       title,
       owner: owner || null,
       notes: notes || null,
-      status: "planned",
+      // Internal status values stay "open"/"in_progress"/"done" - same enum
+      // as team tickets, so the click-to-cycle logic (TEAM_STATUS_ORDER)
+      // works unmodified. CALENDAR_STATUS_LABELS maps "open" to "Planned"
+      // and "done" to "Published" for display only.
+      status: "open",
       created_at: Date.now(),
     });
     return ref.id;
