@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=13">
+<link rel="stylesheet" href="/static/styles.css?v=14">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -429,7 +429,24 @@
         <div class="team-filter-row"><span class="team-filter-label">Type</span><div class="owner-filter" id="calendarTypeFilter"></div></div>
         <div class="team-filter-row"><span class="team-filter-label">Status</span><div class="owner-filter" id="calendarStatusFilter"></div></div>
       </div>
-      <div id="calendarList"></div>
+
+      <div class="panel">
+        <div class="calendar-nav">
+          <button type="button" id="calendarPrevMonth" class="calendar-nav-btn">&lsaquo;</button>
+          <h2 id="calendarMonthLabel"></h2>
+          <button type="button" id="calendarNextMonth" class="calendar-nav-btn">&rsaquo;</button>
+          <button type="button" id="calendarTodayBtn" class="calendar-today-btn">Today</button>
+        </div>
+        <div class="calendar-weekdays">
+          <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+        </div>
+        <div class="calendar-grid" id="calendarGrid"></div>
+      </div>
+
+      <div class="panel" id="calendarUnscheduledPanel" style="display:none">
+        <h2>Unscheduled</h2>
+        <div id="calendarUnscheduledList" class="calendar-unscheduled-list"></div>
+      </div>
     </section>
 
     <section class="view" id="view-leads">
@@ -599,6 +616,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js"></script>
-<script src="/static/dashboard.js?v=15"></script>
+<script src="/static/dashboard.js?v=16"></script>
 </body>
 </html>

@@ -1376,6 +1376,7 @@ let calendarLiveStatuses = new Map();
 let calendarFilters = { owner: "all", type: "all", status: "all" };
 let calendarListenersAttached = false;
 let calendarAddFormAttached = false;
+let calendarViewMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM", the month currently shown
 
 function buildCalendarFilterPills(containerId, key, values, labelFn) {
   buildFilterPills(containerId, values, labelFn, (value) => {
@@ -1385,17 +1386,11 @@ function buildCalendarFilterPills(containerId, key, values, labelFn) {
 }
 
 function applyCalendarFilters() {
-  document.querySelectorAll("#calendarList .calendar-month-group").forEach((group) => {
-    let anyVisible = false;
-    group.querySelectorAll(".checklist-item").forEach((item) => {
-      const ownerMatch = calendarFilters.owner === "all" || item.dataset.owner === calendarFilters.owner;
-      const typeMatch = calendarFilters.type === "all" || item.dataset.type === calendarFilters.type;
-      const statusMatch = calendarFilters.status === "all" || item.dataset.status === calendarFilters.status;
-      const visible = ownerMatch && typeMatch && statusMatch;
-      item.classList.toggle("hidden", !visible);
-      if (visible) anyVisible = true;
-    });
-    group.style.display = anyVisible ? "" : "none";
+  document.querySelectorAll("#calendarGrid .cal-item, #calendarUnscheduledList .cal-item").forEach((item) => {
+    const ownerMatch = calendarFilters.owner === "all" || item.dataset.owner === calendarFilters.owner;
+    const typeMatch = calendarFilters.type === "all" || item.dataset.type === calendarFilters.type;
+    const statusMatch = calendarFilters.status === "all" || item.dataset.status === calendarFilters.status;
+    item.classList.toggle("hidden", !(ownerMatch && typeMatch && statusMatch));
   });
   document.querySelectorAll("#calendarOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.owner));
   document.querySelectorAll("#calendarTypeFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.type));
@@ -1405,10 +1400,11 @@ function applyCalendarFilters() {
 function ensureCalendarListeners() {
   if (calendarListenersAttached) return;
   calendarListenersAttached = true;
-  document.getElementById("calendarList").addEventListener("click", async (event) => {
-    const del = event.target.closest(".checklist-delete");
+
+  const handleGridClick = async (event) => {
+    const del = event.target.closest(".cal-item-delete");
     if (del) {
-      const itemEl = del.closest(".checklist-item");
+      const itemEl = del.closest(".cal-item");
       if (!confirm("Remove this calendar item?")) return;
       del.disabled = true;
       try {
@@ -1420,9 +1416,9 @@ function ensureCalendarListeners() {
       return;
     }
 
-    const mark = event.target.closest(".checklist-mark");
+    const mark = event.target.closest(".cal-item-mark");
     if (!mark || mark.disabled) return;
-    const itemEl = mark.closest(".checklist-item");
+    const itemEl = mark.closest(".cal-item");
     const itemId = itemEl.dataset.id;
     const next = TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(itemEl.dataset.status) + 1) % TEAM_STATUS_ORDER.length];
     mark.disabled = true;
@@ -1432,6 +1428,21 @@ function ensureCalendarListeners() {
       console.error("Failed to update calendar item status:", error);
     }
     mark.disabled = false;
+  };
+  document.getElementById("calendarGrid").addEventListener("click", handleGridClick);
+  document.getElementById("calendarUnscheduledList").addEventListener("click", handleGridClick);
+
+  document.getElementById("calendarPrevMonth")?.addEventListener("click", () => {
+    calendarViewMonth = shiftMonth(calendarViewMonth, -1);
+    renderContentCalendar();
+  });
+  document.getElementById("calendarNextMonth")?.addEventListener("click", () => {
+    calendarViewMonth = shiftMonth(calendarViewMonth, 1);
+    renderContentCalendar();
+  });
+  document.getElementById("calendarTodayBtn")?.addEventListener("click", () => {
+    calendarViewMonth = new Date().toISOString().slice(0, 7);
+    renderContentCalendar();
   });
 
   whenFirestoreReady(() => {
@@ -1492,13 +1503,32 @@ function ensureCalendarAddForm(allOwners) {
     submitBtn.disabled = true;
     try {
       if (!window.domaContentCalendar) throw new Error("Firestore sync not ready yet");
+      const type = String(fd.get("type") || "Blog post");
+      const owner = String(fd.get("owner") || "").trim();
+      const notes = String(fd.get("notes") || "").trim();
       await window.domaContentCalendar.addItem({
         date,
-        type: String(fd.get("type") || "Blog post"),
+        type,
         title,
-        owner: String(fd.get("owner") || "").trim() || null,
-        notes: String(fd.get("notes") || "").trim() || null,
+        owner: owner || null,
+        notes: notes || null,
       });
+      // Every calendar item also gets a matching Team & Meetings ticket, so
+      // "what's scheduled" and "what everyone's working on" don't live in
+      // two places that can drift apart.
+      if (owner && window.domaTeamSync) {
+        try {
+          await window.domaTeamSync.addManualItem({
+            meeting_date: date,
+            owner,
+            topic: type,
+            description: title,
+            context: notes || "Added via Content Calendar",
+          });
+        } catch (ticketError) {
+          console.error("Calendar item saved, but failed to create the matching Team & Meetings ticket:", ticketError);
+        }
+      }
       form.reset();
       dateInput.value = new Date().toISOString().slice(0, 10);
       form.classList.add("hidden");
@@ -1522,6 +1552,21 @@ function ensureCalendarAddForm(allOwners) {
   });
 }
 
+function shiftMonth(monthStr, delta) {
+  const [year, month] = monthStr.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function calItemHtml(item) {
+  return `
+    <div class="cal-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}" title="${item.title}">
+      <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
+      <span class="cal-item-title">${item.title}</span>
+      <button type="button" class="cal-item-delete" title="Remove">&times;</button>
+    </div>`;
+}
+
 function renderContentCalendar() {
   ensureCalendarListeners();
   renderCalendarSuggestions();
@@ -1543,15 +1588,21 @@ function renderContentCalendar() {
   const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...items.map((i) => i.owner).filter(Boolean)])];
   ensureCalendarAddForm(allOwners);
 
-  const container = document.getElementById("calendarList");
+  const grid = document.getElementById("calendarGrid");
+  const unscheduledPanel = document.getElementById("calendarUnscheduledPanel");
+  const unscheduledList = document.getElementById("calendarUnscheduledList");
+  const monthLabelEl = document.getElementById("calendarMonthLabel");
   const ownerFilterEl = document.getElementById("calendarOwnerFilter");
   const typeFilterEl = document.getElementById("calendarTypeFilter");
   const statusFilterEl = document.getElementById("calendarStatusFilter");
+
   if (!items.length) {
-    container.innerHTML = "";
+    grid.innerHTML = "";
+    unscheduledPanel.style.display = "none";
     ownerFilterEl.innerHTML = "";
     typeFilterEl.innerHTML = "";
     statusFilterEl.innerHTML = "";
+    if (monthLabelEl) monthLabelEl.textContent = new Date(`${calendarViewMonth}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
     return;
   }
 
@@ -1560,37 +1611,53 @@ function renderContentCalendar() {
   buildCalendarFilterPills("calendarTypeFilter", "type", allTypes);
   buildCalendarFilterPills("calendarStatusFilter", "status", TEAM_STATUS_ORDER, (s) => CALENDAR_STATUS_LABELS[s]);
 
-  const byMonth = new Map();
-  [...items]
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
-    .forEach((item) => {
-      const monthKey = (item.date || "").slice(0, 7) || "unscheduled";
-      if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
-      byMonth.get(monthKey).push(item);
-    });
+  // Real month-grid: 7 columns (Sun-Sat), one cell per day, items shown
+  // inside the day they're scheduled for. Items with no date at all can't
+  // go in a cell - those get their own "Unscheduled" list below the grid.
+  const byDate = new Map();
+  const unscheduled = [];
+  items.forEach((item) => {
+    if (!item.date) {
+      unscheduled.push(item);
+      return;
+    }
+    if (!byDate.has(item.date)) byDate.set(item.date, []);
+    byDate.get(item.date).push(item);
+  });
 
-  container.innerHTML = [...byMonth.entries()]
-    .map(([monthKey, monthItems]) => {
-      const monthLabel = monthKey === "unscheduled" ? "No date" : new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-      const rows = monthItems
-        .map(
-          (item) => `
-          <div class="checklist-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}">
-            <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
-            <span class="checklist-text">
-              <span class="checklist-date">${fullDate(item.date)}</span><span class="checklist-topic">${item.type}</span>${item.owner ? `<span class="checklist-owner">${item.owner}</span>` : ""}${item.title}${item.notes ? `<span class="checklist-context">${item.notes}</span>` : ""}
-            </span>
-            <button type="button" class="checklist-delete" title="Remove">&times;</button>
-          </div>`
-        )
-        .join("");
-      return `
-        <div class="panel calendar-month-group">
-          <h2>${monthLabel}</h2>
-          <div class="status-body">${rows}</div>
-        </div>`;
-    })
-    .join("");
+  const [year, month] = calendarViewMonth.split("-").map(Number);
+  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const startOffset = firstOfMonth.getUTCDay(); // 0 = Sunday
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  if (monthLabelEl) monthLabelEl.textContent = firstOfMonth.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  const cells = [];
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - startOffset + 1;
+    if (dayNum < 1 || dayNum > daysInMonth) {
+      cells.push(`<div class="calendar-day calendar-day-outside"></div>`);
+      continue;
+    }
+    const dateIso = `${calendarViewMonth}-${String(dayNum).padStart(2, "0")}`;
+    const dayItems = byDate.get(dateIso) || [];
+    cells.push(`
+      <div class="calendar-day${dateIso === todayIso ? " calendar-day-today" : ""}" data-date="${dateIso}">
+        <div class="calendar-day-num">${dayNum}</div>
+        <div class="calendar-day-items">${dayItems.map(calItemHtml).join("")}</div>
+      </div>`);
+  }
+  grid.innerHTML = cells.join("");
+
+  if (unscheduled.length) {
+    unscheduledPanel.style.display = "";
+    unscheduledList.innerHTML = unscheduled.map(calItemHtml).join("");
+  } else {
+    unscheduledPanel.style.display = "none";
+    unscheduledList.innerHTML = "";
+  }
 
   applyCalendarFilters();
 }
@@ -1616,6 +1683,23 @@ function ensureLinksListeners() {
       const category = section.dataset.category;
       linksCollapsedCategories[category] = !linksCollapsedCategories[category];
       section.classList.toggle("collapsed", linksCollapsedCategories[category]);
+      return;
+    }
+
+    const copyBtn = event.target.closest(".link-copy");
+    if (copyBtn) {
+      try {
+        await navigator.clipboard.writeText(copyBtn.dataset.url);
+        const original = copyBtn.textContent;
+        copyBtn.textContent = "✓";
+        copyBtn.classList.add("copied");
+        setTimeout(() => {
+          copyBtn.textContent = original;
+          copyBtn.classList.remove("copied");
+        }, 1200);
+      } catch (error) {
+        console.error("Failed to copy link:", error);
+      }
       return;
     }
 
@@ -1709,6 +1793,7 @@ function renderLinks() {
                 (link) => `
               <div class="link-card" data-id="${link.id}">
                 <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+                <button type="button" class="link-copy" data-url="${link.url}" title="Copy link">⧉</button>
                 <button type="button" class="checklist-delete" title="Remove">&times;</button>
               </div>`
               )
