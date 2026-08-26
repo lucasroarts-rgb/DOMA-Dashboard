@@ -143,9 +143,11 @@ def main() -> int:
 
     api_key = env.get("AHREFS_API_KEY")
     project_id = env.get("AHREFS_PROJECT_ID")
-    site_url = env.get("GSC_SITE_URL")
+    # sync_competitors() needs a real domain/URL for Ahrefs' own site-explorer
+    # target param - GSC_SITE_URL is `sc-domain:...` for a Domain property.
+    site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
     if not api_key or not project_id or not site_url:
-        raise AhrefsError("Missing AHREFS_API_KEY, AHREFS_PROJECT_ID, or GSC_SITE_URL in .env")
+        raise AhrefsError("Missing AHREFS_API_KEY, AHREFS_PROJECT_ID, or WP_URL (or GSC_SITE_URL) in .env")
 
     issues_count = sync_site_audit_issues(api_key, project_id)
     print(f"  {issues_count} Site Audit issue types synced")

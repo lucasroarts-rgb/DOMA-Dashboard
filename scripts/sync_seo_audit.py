@@ -242,9 +242,13 @@ def store_audit(rows: list[dict[str, object]]) -> None:
 def main() -> int:
     env = load_env_file()
     dashboard_app.init_db()
-    site_url = env.get("GSC_SITE_URL")
+    # This script only crawls the sitemap over plain HTTP - never calls the
+    # Search Console API - so it needs a real fetchable URL. GSC_SITE_URL is
+    # `sc-domain:...` for a Domain property (not a URL at all), so prefer
+    # WP_URL and only fall back to GSC_SITE_URL for a URL-prefix setup.
+    site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
     if not site_url:
-        raise SeoAuditError("Missing GSC_SITE_URL in .env")
+        raise SeoAuditError("Missing WP_URL (or GSC_SITE_URL) in .env")
 
     urls = fetch_urls_to_audit(site_url)
     if not urls:

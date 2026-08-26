@@ -154,9 +154,11 @@ def main() -> int:
     dashboard_app.init_db()
 
     api_key = env.get("PAGESPEED_API_KEY")
-    site_url = env.get("GSC_SITE_URL")
+    # urls_to_test() builds real https:// URLs via urljoin() - GSC_SITE_URL
+    # is `sc-domain:...` for a Domain property (not a URL), so prefer WP_URL.
+    site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
     if not api_key or not site_url:
-        raise PageSpeedError("Missing PAGESPEED_API_KEY or GSC_SITE_URL in .env")
+        raise PageSpeedError("Missing PAGESPEED_API_KEY or WP_URL (or GSC_SITE_URL) in .env")
 
     urls = urls_to_test(site_url)
     results = []

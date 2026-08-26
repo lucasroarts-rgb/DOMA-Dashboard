@@ -371,7 +371,9 @@ def main() -> int:
         f"{len(top_pages)} top pages, {len(countries)} countries, {len(demographics)} demographic rows."
     )
 
-    site_url = env.get("GSC_SITE_URL")
+    # fetch_recent_post_metrics() fetches the sitemap over plain HTTP -
+    # GSC_SITE_URL is `sc-domain:...` for a Domain property (not a URL).
+    site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
     if site_url:
         try:
             recent_posts = fetch_recent_post_metrics(client, property_id, site_url)

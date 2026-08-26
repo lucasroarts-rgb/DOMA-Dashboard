@@ -101,9 +101,12 @@ def main() -> int:
     env = load_env_file()
     dashboard_app.init_db()
 
-    site_url = env.get("GSC_SITE_URL")
+    # self_domain needs to be a real hostname for the domain-vs-domain SERP
+    # comparison below - GSC_SITE_URL is `sc-domain:...` for a Domain
+    # property, which urlparse() can't turn into a hostname at all.
+    site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
     if not site_url:
-        raise SerpError("Missing GSC_SITE_URL in .env")
+        raise SerpError("Missing WP_URL (or GSC_SITE_URL) in .env")
     self_domain = urlparse(site_url).netloc or site_url.strip("/")
 
     queries = top_doma_queries()
