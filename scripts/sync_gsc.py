@@ -50,7 +50,6 @@ class GscSyncError(RuntimeError):
 
 def _client(env: dict[str, str]):
     try:
-        from google.oauth2 import service_account
         from googleapiclient.discovery import build
     except ImportError as error:
         raise GscSyncError(
@@ -58,17 +57,45 @@ def _client(env: dict[str, str]):
         ) from error
 
     site_url = env.get("GSC_SITE_URL")
-    key_file = env.get("GA4_SERVICE_ACCOUNT_FILE")
-    if not site_url or not key_file:
-        raise GscSyncError("Missing GSC_SITE_URL or GA4_SERVICE_ACCOUNT_FILE in .env")
+    if not site_url:
+        raise GscSyncError("Missing GSC_SITE_URL in .env")
 
-    key_path = ROOT / key_file
-    if not key_path.exists():
-        raise GscSyncError(f"Service account file not found: {key_path}")
+    # Prefer OAuth (a regular Google account added as a user on the property)
+    # over the service account when GSC_OAUTH_REFRESH_TOKEN is set. This is
+    # required for Domain properties (sc-domain:...) specifically - Search
+    # Console's "Add user" rejects service-account emails there with a real,
+    # documented Google bug ("email not found"), even though the same
+    # account works fine on URL-prefix properties and on GA4. See
+    # scripts/gsc_oauth_setup.py for the one-time setup that produces these.
+    refresh_token = env.get("GSC_OAUTH_REFRESH_TOKEN")
+    if refresh_token:
+        from google.oauth2.credentials import Credentials
 
-    creds = service_account.Credentials.from_service_account_file(
-        str(key_path), scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
-    )
+        client_id = env.get("GSC_OAUTH_CLIENT_ID")
+        client_secret = env.get("GSC_OAUTH_CLIENT_SECRET")
+        if not client_id or not client_secret:
+            raise GscSyncError("GSC_OAUTH_REFRESH_TOKEN is set but GSC_OAUTH_CLIENT_ID/SECRET is missing in .env")
+        creds = Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            client_id=client_id,
+            client_secret=client_secret,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+        )
+    else:
+        from google.oauth2 import service_account
+
+        key_file = env.get("GA4_SERVICE_ACCOUNT_FILE")
+        if not key_file:
+            raise GscSyncError("Missing GA4_SERVICE_ACCOUNT_FILE in .env (or set GSC_OAUTH_REFRESH_TOKEN instead)")
+        key_path = ROOT / key_file
+        if not key_path.exists():
+            raise GscSyncError(f"Service account file not found: {key_path}")
+        creds = service_account.Credentials.from_service_account_file(
+            str(key_path), scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+        )
+
     service = build("searchconsole", "v1", credentials=creds)
     return service, site_url
 
@@ -174,13 +201,14 @@ def store_top_countries(rows: list[tuple[str, int, int, float, float]]) -> None:
         )
 
 
-def fetch_urls_to_inspect(site_url: str) -> list[str]:
+def fetch_urls_to_inspect(real_site_url: str) -> list[str]:
     """Discover URLs from the WordPress/Yoast XML sitemap: every static page,
     plus the most recently published posts (most likely to have fresh
     indexing problems - a brand-new post not indexed yet, a redirect from a
-    slug change, etc)."""
-    urls = list(sitemap_utils.fetch_pages(site_url, limit=MAX_PAGES_TO_INSPECT))
-    urls += [loc for loc, _ in sitemap_utils.fetch_recent_posts(site_url, limit=MAX_POSTS_TO_INSPECT)]
+    slug change, etc). Takes the real https:// site URL, not GSC's siteUrl
+    (which is `sc-domain:...` for Domain properties and not a fetchable URL)."""
+    urls = list(sitemap_utils.fetch_pages(real_site_url, limit=MAX_PAGES_TO_INSPECT))
+    urls += [loc for loc, _ in sitemap_utils.fetch_recent_posts(real_site_url, limit=MAX_POSTS_TO_INSPECT)]
 
     seen = set()
     deduped = []
@@ -227,12 +255,15 @@ def fetch_content_gaps(service, site_url: str) -> list[tuple[str, str, float, in
     return gaps[:30]
 
 
-def fetch_recent_post_performance(service, site_url: str) -> list[tuple[str, str, int, int, float, float]]:
+def fetch_recent_post_performance(service, site_url: str, real_site_url: str) -> list[tuple[str, str, int, int, float, float]]:
     """Search performance for the most recently published posts specifically
     (not just whatever happens to be in the global top-clicks list) - a
     3-week-old post can have real impressions/clicks that never show up in
-    fetch_top_queries because it's not a top-50 query yet."""
-    recent_posts = sitemap_utils.fetch_recent_posts(site_url, limit=MAX_RECENT_POSTS)
+    fetch_top_queries because it's not a top-50 query yet. `site_url` is
+    GSC's siteUrl (used for the search query); `real_site_url` is the actual
+    https:// site (used to fetch the sitemap) - not the same value when the
+    GSC property is a Domain property (`sc-domain:...`)."""
+    recent_posts = sitemap_utils.fetch_recent_posts(real_site_url, limit=MAX_RECENT_POSTS)
     if not recent_posts:
         return []
 
@@ -360,6 +391,10 @@ def main() -> int:
 
     try:
         service, site_url = _client(env)
+        # A Domain property's siteUrl (`sc-domain:...`) isn't a fetchable
+        # URL, so sitemap discovery always needs the real https:// site -
+        # WP_URL when set, otherwise site_url itself (URL-prefix property).
+        real_site_url = env.get("WP_URL") or site_url
         daily = fetch_daily(service, site_url)
         top_queries = fetch_top_queries(service, site_url)
         countries = fetch_top_countries(service, site_url)
@@ -376,7 +411,7 @@ def main() -> int:
     print(f"Search Console sync complete: {len(daily)} daily rows, {len(top_queries)} top queries, {len(countries)} countries, {len(devices)} devices.")
 
     try:
-        urls = fetch_urls_to_inspect(site_url)
+        urls = fetch_urls_to_inspect(real_site_url)
         inspections = fetch_url_inspections(service, site_url, urls)
         store_url_inspections(inspections)
         log_sync(dashboard_app, "gsc_indexing", "ok", f"{len(inspections)} URLs inspected")
@@ -395,7 +430,7 @@ def main() -> int:
         print(f"WARNING: content gap analysis skipped ({error})", file=sys.stderr)
 
     try:
-        recent_posts = fetch_recent_post_performance(service, site_url)
+        recent_posts = fetch_recent_post_performance(service, site_url, real_site_url)
         store_recent_post_performance(recent_posts)
         log_sync(dashboard_app, "gsc_recent_posts", "ok", f"{len(recent_posts)} posts")
         print(f"Recent-post search performance complete: {len(recent_posts)} posts.")
