@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -403,19 +403,28 @@
         <button type="button" class="btn-add-ticket" id="calendarAddToggle">+ Add to calendar</button>
         <form class="team-add-form hidden" id="calendarAddForm">
           <div class="team-add-row">
-            <input type="date" name="date" required />
-            <select name="type">
-              <option>Blog post</option>
-              <option>Ebook</option>
-              <option>Social post</option>
-              <option>Sponsor highlight</option>
-              <option>Podcast</option>
-              <option>Other</option>
-            </select>
-            <input type="text" name="owner" placeholder="Owner (e.g. Mariannel)" list="calendarOwnerOptions" />
+            <label class="team-add-field"><span>Date</span><input type="date" name="date" required /></label>
+            <label class="team-add-field"><span>Content type</span>
+              <select name="type">
+                <option>Engagement Question</option>
+                <option>Teach It Tuesday</option>
+                <option>Sponsor</option>
+                <option>Blog/Ebook</option>
+                <option>Community Reshare</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label class="team-add-field"><span>Owner</span><input type="text" name="owner" placeholder="e.g. Mariannel" list="calendarOwnerOptions" /></label>
           </div>
-          <input type="text" name="title" placeholder="Title / topic" required />
-          <input type="text" name="notes" placeholder="Notes (optional)" />
+          <label class="team-add-field"><span>Topic</span><input type="text" name="title" placeholder="What's this piece of content about?" required /></label>
+          <label class="team-add-field"><span>Headline / Hook</span><input type="text" name="headline" placeholder="The actual headline or opening hook" /></label>
+          <label class="team-add-field"><span>Content direction</span><input type="text" name="direction" placeholder="Angle, key points, what it should cover" /></label>
+          <div class="team-add-row">
+            <label class="team-add-field"><span>Graphic idea</span><input type="text" name="graphic" placeholder="Visual/background/format idea" /></label>
+            <label class="team-add-field"><span>Resource</span><input type="text" name="resource" placeholder="Video/blog/sponsor asset to pull from" /></label>
+          </div>
+          <label class="team-add-field"><span>Link (optional)</span><input type="url" name="link" placeholder="e.g. GHL Community, Coaches, Speakers page" /></label>
+          <label class="team-add-field"><span>Notes</span><input type="text" name="notes" placeholder="Anything else" /></label>
           <div class="team-add-actions">
             <button type="submit" class="btn-primary">Add to calendar</button>
             <button type="button" id="calendarAddCancel">Cancel</button>
@@ -616,6 +625,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js"></script>
-<script src="dashboard.js?v=16"></script>
+<script src="dashboard.js?v=17"></script>
 </body>
 </html>

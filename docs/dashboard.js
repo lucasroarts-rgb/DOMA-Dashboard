@@ -1369,7 +1369,11 @@ function renderTeam() {
 /* ---------- content calendar ---------- */
 
 const CALENDAR_STATUS_LABELS = { open: "Planned", in_progress: "In progress", done: "Published" };
-const CALENDAR_TYPES = ["Blog post", "Ebook", "Social post", "Sponsor highlight", "Podcast", "Other"];
+// Matches the real weekly content cadence Juli confirmed (2026-08-26):
+// Mon = Engagement Question, Tue = Teach It Tuesday, Wed = Sponsor,
+// Thu = Blog/Ebook, Fri = Community Reshare. "Other" covers anything
+// outside that cadence (podcast promo, one-off announcements, etc).
+const CALENDAR_TYPES = ["Engagement Question", "Teach It Tuesday", "Sponsor", "Blog/Ebook", "Community Reshare", "Other"];
 
 let calendarItems = [];
 let calendarLiveStatuses = new Map();
@@ -1506,12 +1510,22 @@ function ensureCalendarAddForm(allOwners) {
       const type = String(fd.get("type") || "Blog post");
       const owner = String(fd.get("owner") || "").trim();
       const notes = String(fd.get("notes") || "").trim();
+      const headline = String(fd.get("headline") || "").trim();
+      const direction = String(fd.get("direction") || "").trim();
+      const graphic = String(fd.get("graphic") || "").trim();
+      const resource = String(fd.get("resource") || "").trim();
+      const link = String(fd.get("link") || "").trim();
       await window.domaContentCalendar.addItem({
         date,
         type,
         title,
         owner: owner || null,
         notes: notes || null,
+        headline: headline || null,
+        direction: direction || null,
+        graphic: graphic || null,
+        resource: resource || null,
+        link: link || null,
       });
       // Every calendar item also gets a matching Team & Meetings ticket, so
       // "what's scheduled" and "what everyone's working on" don't live in
@@ -1559,10 +1573,25 @@ function shiftMonth(monthStr, delta) {
 }
 
 function calItemHtml(item) {
+  // The compact per-day row can't show all the content-planning fields Juli
+  // asked for (headline, direction, graphic idea, resource, link, notes) -
+  // they all go into the native title tooltip instead, so hovering a row
+  // surfaces the full brief without needing a separate detail view.
+  const tooltipLines = [item.title];
+  if (item.owner) tooltipLines.push(`Owner: ${item.owner}`);
+  if (item.headline) tooltipLines.push(`Headline/Hook: ${item.headline}`);
+  if (item.direction) tooltipLines.push(`Direction: ${item.direction}`);
+  if (item.graphic) tooltipLines.push(`Graphic idea: ${item.graphic}`);
+  if (item.resource) tooltipLines.push(`Resource: ${item.resource}`);
+  if (item.notes) tooltipLines.push(`Notes: ${item.notes}`);
+  if (item.link) tooltipLines.push(`Link: ${item.link}`);
+  const tooltip = tooltipLines.join("\n");
+
   return `
-    <div class="cal-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}" title="${item.title}">
+    <div class="cal-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}" title="${tooltip}">
       <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
       <span class="cal-item-title">${item.title}</span>
+      ${item.link ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Open link">&#128279;</a>` : ""}
       <button type="button" class="cal-item-delete" title="Remove">&times;</button>
     </div>`;
 }

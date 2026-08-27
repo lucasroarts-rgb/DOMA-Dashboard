@@ -83,13 +83,21 @@ window.domaTeamSync = {
 // ebooks, social, sponsor highlights, etc. Same shared-live-state pattern
 // as team tickets, own collections so the two never collide on ids.
 window.domaContentCalendar = {
-  async addItem({ date, type, title, owner, notes }) {
+  async addItem({ date, type, title, owner, notes, headline, direction, graphic, resource, link }) {
     const ref = await addDoc(collection(db, CALENDAR_ITEMS_COLLECTION), {
       date,
       type: type || "Blog post",
       title,
       owner: owner || null,
       notes: notes || null,
+      // The weekly-cadence content-planning fields Juli asked for - all
+      // optional, filled in as much or as little as the person adding the
+      // item wants at that moment.
+      headline: headline || null,
+      direction: direction || null,
+      graphic: graphic || null,
+      resource: resource || null,
+      link: link || null,
       // Internal status values stay "open"/"in_progress"/"done" - same enum
       // as team tickets, so the click-to-cycle logic (TEAM_STATUS_ORDER)
       // works unmodified. CALENDAR_STATUS_LABELS maps "open" to "Planned"
