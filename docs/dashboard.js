@@ -1871,7 +1871,12 @@ let linksAddFormAttached = false;
 // category is manually toggled, its state persists across re-renders here
 // too (same pattern as teamCollapsed).
 let linksCollapsedCategories = {
-  "Partner Offers": true,
+  "Partner Offers: Practice & Patient Management Software": true,
+  "Partner Offers: Dental AI Tools": true,
+  "Partner Offers: Billing & Payments": true,
+  "Partner Offers: Patient Communication & Engagement": true,
+  "Partner Offers: Marketing & Growth": true,
+  "Partner Offers: Staffing, Supplies & IT": true,
   "Ebooks: Leadership": true,
   "Ebooks: Career": true,
   "Ebooks: Case Acceptance & Patient Communication": true,
@@ -2003,6 +2008,7 @@ function renderLinks() {
               <div class="link-card" data-id="${link.id}">
                 <div class="link-card-main">
                   <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+                  ${link.discount ? `<span class="link-discount">${link.discount}</span>` : ""}
                   ${contact ? `<span class="link-contact">${contact}</span>` : ""}
                 </div>
                 <button type="button" class="link-copy" data-url="${link.url}" title="Copy link">⧉</button>

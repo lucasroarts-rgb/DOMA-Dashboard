@@ -332,12 +332,14 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-category-header h3{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-2);margin:0}
 .links-category.collapsed .links-category-header{padding-bottom:0}
 .links-category.collapsed .links-grid{display:none}
-.links-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
-.link-card{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:12px 14px}
-.link-card-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.links-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}
+.link-card{display:flex;align-items:flex-start;gap:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:12px 14px}
+.link-card-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px}
 .link-card a{color:var(--ink);font-weight:700;font-size:13.5px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .link-card a:hover{color:var(--teal-2)}
-.link-contact{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link-discount{font-size:11.5px;color:var(--teal);font-weight:700}
+.link-contact{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
+.link-card .link-copy,.link-card .checklist-delete{margin-top:1px}
 .link-copy{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;padding:2px 4px}
 .link-copy:hover{color:var(--teal-2)}
 .link-copy.copied{color:var(--green)}
