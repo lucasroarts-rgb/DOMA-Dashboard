@@ -334,8 +334,10 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-category.collapsed .links-grid{display:none}
 .links-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
 .link-card{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:12px 14px}
-.link-card a{color:var(--ink);font-weight:700;font-size:13.5px;text-decoration:none;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link-card-main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.link-card a{color:var(--ink);font-weight:700;font-size:13.5px;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .link-card a:hover{color:var(--teal-2)}
+.link-contact{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .link-copy{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;padding:2px 4px}
 .link-copy:hover{color:var(--teal-2)}
 .link-copy.copied{color:var(--green)}

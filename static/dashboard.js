@@ -1997,12 +1997,18 @@ function renderLinks() {
           <div class="links-grid">
             ${links
               .map(
-                (link) => `
+                (link) => {
+                  const contact = [link.phone, link.email].filter(Boolean).join(" · ");
+                  return `
               <div class="link-card" data-id="${link.id}">
-                <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+                <div class="link-card-main">
+                  <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+                  ${contact ? `<span class="link-contact">${contact}</span>` : ""}
+                </div>
                 <button type="button" class="link-copy" data-url="${link.url}" title="Copy link">⧉</button>
                 <button type="button" class="checklist-delete" title="Remove">&times;</button>
-              </div>`
+              </div>`;
+                }
               )
               .join("")}
           </div>
