@@ -46,13 +46,34 @@ function watch(collectionName, onChange, mapEntry) {
 
 window.domaTeamSync = {
   async setStatus(itemId, status) {
-    await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { status, updated_at: Date.now() });
+    // merge:true - this doc may already hold field overrides from
+    // updateActionItem() below; a plain (non-merge) setDoc would wipe them.
+    await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { status, updated_at: Date.now() }, { merge: true });
   },
   subscribeAll(callback) {
     return watch(STATUS_COLLECTION, (snapshot) => {
       const statuses = new Map();
       snapshot.forEach((docSnap) => statuses.set(docSnap.id, docSnap.data().status));
       callback(statuses);
+    });
+  },
+  // Meeting-derived tickets have no Firestore doc of their own (their text
+  // is baked from SQLite/data.js at publish time) - editing one writes a
+  // field override into the same per-item status doc, merged on top of the
+  // baked text at render time. Deliberately reuses STATUS_COLLECTION rather
+  // than a new collection: one doc per item id either way, and it's already
+  // covered by the open Firestore rules.
+  async updateActionItem(itemId, fields) {
+    await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { ...fields, updated_at: Date.now() }, { merge: true });
+  },
+  subscribeOverrides(callback) {
+    return watch(STATUS_COLLECTION, (snapshot) => {
+      const overrides = new Map();
+      snapshot.forEach((docSnap) => {
+        const { status, updated_at, ...rest } = docSnap.data();
+        if (Object.keys(rest).length) overrides.set(docSnap.id, rest);
+      });
+      callback(overrides);
     });
   },
   // Manually-added tickets (no real meeting/transcript behind them) - kept
@@ -76,6 +97,9 @@ window.domaTeamSync = {
       snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
       callback(items);
     });
+  },
+  async updateManualItem(itemId, fields) {
+    await setDoc(doc(db, MANUAL_ITEMS_COLLECTION, itemId), fields, { merge: true });
   },
 };
 
@@ -127,6 +151,9 @@ window.domaContentCalendar = {
   async deleteItem(itemId) {
     await deleteDoc(doc(db, CALENDAR_ITEMS_COLLECTION, itemId));
     await deleteDoc(doc(db, CALENDAR_STATUS_COLLECTION, itemId)).catch(() => {});
+  },
+  async updateItem(itemId, fields) {
+    await setDoc(doc(db, CALENDAR_ITEMS_COLLECTION, itemId), fields, { merge: true });
   },
 };
 

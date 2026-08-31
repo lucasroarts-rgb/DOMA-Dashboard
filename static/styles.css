@@ -269,6 +269,8 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .checklist-date{display:inline-block;background:var(--panel);border:1px solid var(--line-strong);color:var(--muted);font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:999px;margin-right:5px;vertical-align:middle}
 .checklist-delete{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;margin-left:auto;align-self:flex-start}
 .checklist-delete:hover{color:var(--red)}
+.checklist-edit{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:13px;line-height:1;cursor:pointer;padding:2px 4px;margin-left:auto;align-self:flex-start}
+.checklist-edit:hover{color:var(--teal-2)}
 .meeting-panel .panel-meta{color:var(--muted);font-size:12.5px;margin:-6px 0 14px}
 .meeting-panel .panel-summary{font-size:13.5px;line-height:1.6;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
 
@@ -306,9 +308,13 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .cal-item.status-done .cal-item-mark{background:var(--green-soft);color:var(--green);border-color:transparent}
 .cal-item.status-in_progress .cal-item-mark{background:var(--teal-soft);color:var(--teal-2);border-color:transparent}
 .cal-item.status-done .cal-item-title{color:var(--muted);text-decoration:line-through}
-.cal-item-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
-.cal-item-delete{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:12px;line-height:1;cursor:pointer;padding:0 2px;display:none}
-.cal-item:hover .cal-item-delete{display:block}
+.cal-item-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);cursor:pointer}
+/* Always visible (not hover-only) - a hover-reveal control is invisible and
+   unreachable on touch devices, which is why editing/deleting from the
+   calendar wasn't discoverable there. */
+.cal-item-edit{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:10px;line-height:1;cursor:pointer;padding:0 2px}
+.cal-item-edit:hover{color:var(--teal-2)}
+.cal-item-delete{flex:0 0 auto;border:0;background:transparent;color:var(--muted);font-size:12px;line-height:1;cursor:pointer;padding:0 2px}
 .cal-item-delete:hover{color:var(--red)}
 .cal-item-link{flex:0 0 auto;font-size:9px;text-decoration:none;color:var(--teal-2);opacity:.8}
 .cal-item-link:hover{opacity:1}

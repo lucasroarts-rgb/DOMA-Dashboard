@@ -1063,6 +1063,14 @@ let teamAddFormAttached = false;
 // accumulate duplicates across repeated onSnapshot-triggered re-renders.
 let teamLiveStatuses = new Map();
 let teamManualItems = [];
+// itemId -> {owner, topic, description, context} field overrides for
+// meeting-derived tickets, saved via updateActionItem() and merged onto the
+// baked item at render time - same live-merge pattern as status.
+let teamLiveOverrides = new Map();
+// Populated fresh every renderTeam() call from the current merged item set,
+// so the edit-button click handler can look up either a manual or a
+// meeting-derived item by id without keeping two separate lookups in sync.
+let teamAllItemsById = new Map();
 
 const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
 // Always offered as owner options (filter pills + the add-ticket datalist)
@@ -1084,11 +1092,30 @@ function teamMergedMeetings(team) {
   const manualByDate = new Map();
   teamManualItems.forEach((mi) => {
     const list = manualByDate.get(mi.meeting_date) || [];
-    list.push({ id: mi.id, owner: mi.owner, topic: mi.topic || "General", description: mi.description, context: mi.context || null, status: mi.status || "open" });
+    list.push({
+      id: mi.id,
+      owner: mi.owner,
+      topic: mi.topic || "General",
+      description: mi.description,
+      context: mi.context || null,
+      status: mi.status || "open",
+      is_manual: true,
+      meeting_date: mi.meeting_date,
+    });
     manualByDate.set(mi.meeting_date, list);
   });
 
-  const meetings = team.meetings.map((m) => ({ ...m }));
+  const meetings = team.meetings.map((m) => ({
+    ...m,
+    // Merge any saved field overrides onto the baked action items, and
+    // stamp the parent meeting's date onto each one - meeting-derived items
+    // don't carry their own meeting_date, but the edit form needs it to
+    // show (read-only) which real meeting a ticket belongs to.
+    action_items: (m.action_items || []).map((item) => {
+      const override = teamLiveOverrides.get(String(item.id));
+      return { ...item, ...(override || {}), meeting_date: m.meeting_date };
+    }),
+  }));
   const seenDates = new Set(meetings.map((m) => m.meeting_date));
   manualByDate.forEach((_items, mdate) => {
     if (!seenDates.has(mdate)) {
@@ -1183,6 +1210,14 @@ function ensureTeamListeners() {
       return;
     }
 
+    const editBtn = event.target.closest(".checklist-edit");
+    if (editBtn) {
+      const itemEl = editBtn.closest(".checklist-item");
+      const item = teamAllItemsById.get(itemEl.dataset.id);
+      if (item) openTeamEditForm(item);
+      return;
+    }
+
     const mark = event.target.closest(".checklist-mark");
     if (!mark || mark.disabled) return;
     const itemEl = mark.closest(".checklist-item");
@@ -1209,7 +1244,53 @@ function ensureTeamListeners() {
       teamManualItems = items;
       renderTeam();
     });
+    window.domaTeamSync.subscribeOverrides((overrides) => {
+      teamLiveOverrides = overrides;
+      renderTeam();
+    });
   });
+}
+
+// Firestore doc id of the manual ticket currently being edited, or null
+// when the form is in "add new" mode. The same form/fields are reused for
+// both - only the submit handler's behavior (create vs. merge-update) and
+// button label change.
+let editingTeamItemId = null;
+// Manual tickets live in their own Firestore doc (meeting_date is a real,
+// changeable field on it). Meeting-derived tickets don't have that doc -
+// their meeting_date comes from the real logged meeting they belong to, so
+// it's shown for context but disabled: moving it wouldn't actually move the
+// ticket, since which meeting-panel it renders under is fixed by the baked
+// data, not by anything in the override doc.
+let editingTeamIsManual = false;
+
+function openTeamEditForm(item) {
+  const form = document.getElementById("teamAddForm");
+  if (!form) return;
+  editingTeamItemId = item.id;
+  editingTeamIsManual = !!item.is_manual;
+  const dateField = form.querySelector('[name="meeting_date"]');
+  form.querySelector('[name="owner"]').value = item.owner || "";
+  form.querySelector('[name="topic"]').value = item.topic || "";
+  dateField.value = item.meeting_date || "";
+  dateField.disabled = !editingTeamIsManual;
+  dateField.title = editingTeamIsManual ? "" : "This ticket is tied to a real logged meeting date and can't be moved.";
+  form.querySelector('[name="description"]').value = item.description || "";
+  form.querySelector('[name="context"]').value = item.context || "";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function resetTeamAddForm(form, dateInput) {
+  editingTeamItemId = null;
+  editingTeamIsManual = false;
+  form.reset();
+  dateInput.value = new Date().toISOString().slice(0, 10);
+  dateInput.disabled = false;
+  dateInput.title = "";
+  form.classList.add("hidden");
+  form.querySelector('button[type="submit"]').textContent = "Add ticket";
 }
 
 function ensureTeamAddForm(allOwners, allTopics) {
@@ -1227,34 +1308,42 @@ function ensureTeamAddForm(allOwners, allTopics) {
   if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
 
   toggle.addEventListener("click", () => form.classList.toggle("hidden"));
-  document.getElementById("teamAddCancel")?.addEventListener("click", () => {
-    form.reset();
-    form.classList.add("hidden");
-  });
+  document.getElementById("teamAddCancel")?.addEventListener("click", () => resetTeamAddForm(form, dateInput));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fd = new FormData(form);
     const owner = String(fd.get("owner") || "").trim();
     const description = String(fd.get("description") || "").trim();
+    // The date field is disabled (and so excluded from FormData) while
+    // editing a meeting-derived ticket - only required for a new ticket or
+    // an edit to a manual one, both of which own a real meeting_date field.
     const meetingDate = String(fd.get("meeting_date") || "").trim();
-    if (!owner || !description || !meetingDate) return;
+    const dateRequired = !editingTeamItemId || editingTeamIsManual;
+    if (!owner || !description || (dateRequired && !meetingDate)) return;
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
       if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
-      await window.domaTeamSync.addManualItem({
-        meeting_date: meetingDate,
+      const fields = {
         owner,
         topic: String(fd.get("topic") || "").trim() || "General",
         description,
         context: String(fd.get("context") || "").trim() || null,
-      });
-      form.reset();
-      dateInput.value = new Date().toISOString().slice(0, 10);
-      form.classList.add("hidden");
+      };
+      if (dateRequired) fields.meeting_date = meetingDate;
+      if (editingTeamItemId) {
+        if (editingTeamIsManual) {
+          await window.domaTeamSync.updateManualItem(editingTeamItemId, fields);
+        } else {
+          await window.domaTeamSync.updateActionItem(editingTeamItemId, fields);
+        }
+      } else {
+        await window.domaTeamSync.addManualItem(fields);
+      }
+      resetTeamAddForm(form, dateInput);
     } catch (error) {
-      console.error("Failed to add ticket:", error);
-      alert("Could not add the ticket - check the browser console for details.");
+      console.error("Failed to save ticket:", error);
+      alert("Could not save the ticket - check the browser console for details.");
     } finally {
       submitBtn.disabled = false;
     }
@@ -1269,12 +1358,14 @@ function teamStatusIcon(status) {
 
 function teamChecklistItemHtml(item) {
   const status = teamEffectiveStatus(item);
+  const editBtn = `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>`;
   return `
     <div class="checklist-item status-${status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${status}">
       <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(status)}</button>
       <span class="checklist-text">
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
       </span>
+      ${editBtn}
     </div>`;
 }
 
@@ -1285,6 +1376,7 @@ function renderTeam() {
 
   const mergedMeetings = teamMergedMeetings(team);
   const allItems = mergedMeetings.flatMap((m) => m.action_items || []);
+  teamAllItemsById = new Map(allItems.map((i) => [String(i.id), i]));
 
   // Derived live from the items themselves (not the backend's total_* fields)
   // so a status click or a new manual ticket updates these cards instantly,
@@ -1406,6 +1498,14 @@ function ensureCalendarListeners() {
   calendarListenersAttached = true;
 
   const handleGridClick = async (event) => {
+    const editBtn = event.target.closest(".cal-item-edit");
+    if (editBtn) {
+      const itemEl = editBtn.closest(".cal-item");
+      const item = calendarItems.find((i) => String(i.id) === itemEl.dataset.id);
+      if (item) openCalendarEditForm(item);
+      return;
+    }
+
     const del = event.target.closest(".cal-item-delete");
     if (del) {
       const itemEl = del.closest(".cal-item");
@@ -1417,6 +1517,18 @@ function ensureCalendarListeners() {
         console.error("Failed to delete calendar item:", error);
         del.disabled = false;
       }
+      return;
+    }
+
+    // The pencil icon only reveals on hover (easy to miss, and unusable on
+    // touch), so clicking the title text itself - the main visible part of
+    // the item - opens the same edit form. This is the primary way to open
+    // an item; the pencil stays as a smaller, always-labeled alternative.
+    const titleClick = event.target.closest(".cal-item-title");
+    if (titleClick) {
+      const itemEl = titleClick.closest(".cal-item");
+      const item = calendarItems.find((i) => String(i.id) === itemEl.dataset.id);
+      if (item) openCalendarEditForm(item);
       return;
     }
 
@@ -1480,6 +1592,37 @@ function renderCalendarSuggestions() {
   container.innerHTML = [...gapChips, ...ebookChips].join("") || `<div class="empty">No suggestions yet - sync Search Console/GA4 data first.</div>`;
 }
 
+// Same reuse pattern as the Team ticket form: null means "add new", a
+// Firestore doc id means the form is editing that item in place.
+let editingCalendarItemId = null;
+
+function openCalendarEditForm(item) {
+  const form = document.getElementById("calendarAddForm");
+  if (!form) return;
+  editingCalendarItemId = item.id;
+  form.querySelector('[name="date"]').value = item.date || "";
+  form.querySelector('[name="type"]').value = item.type || "Blog/Ebook";
+  form.querySelector('[name="owner"]').value = item.owner || "";
+  form.querySelector('[name="title"]').value = item.title || "";
+  form.querySelector('[name="headline"]').value = item.headline || "";
+  form.querySelector('[name="direction"]').value = item.direction || "";
+  form.querySelector('[name="graphic"]').value = item.graphic || "";
+  form.querySelector('[name="resource"]').value = item.resource || "";
+  form.querySelector('[name="link"]').value = item.link || "";
+  form.querySelector('[name="notes"]').value = item.notes || "";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function resetCalendarAddForm(form, dateInput) {
+  editingCalendarItemId = null;
+  form.reset();
+  dateInput.value = new Date().toISOString().slice(0, 10);
+  form.classList.add("hidden");
+  form.querySelector('button[type="submit"]').textContent = "Add to calendar";
+}
+
 function ensureCalendarAddForm(allOwners) {
   const ownerOptions = document.getElementById("calendarOwnerOptions");
   if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
@@ -1493,10 +1636,7 @@ function ensureCalendarAddForm(allOwners) {
   if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
 
   toggle.addEventListener("click", () => form.classList.toggle("hidden"));
-  document.getElementById("calendarAddCancel")?.addEventListener("click", () => {
-    form.reset();
-    form.classList.add("hidden");
-  });
+  document.getElementById("calendarAddCancel")?.addEventListener("click", () => resetCalendarAddForm(form, dateInput));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fd = new FormData(form);
@@ -1515,7 +1655,7 @@ function ensureCalendarAddForm(allOwners) {
       const graphic = String(fd.get("graphic") || "").trim();
       const resource = String(fd.get("resource") || "").trim();
       const link = String(fd.get("link") || "").trim();
-      await window.domaContentCalendar.addItem({
+      const fields = {
         date,
         type,
         title,
@@ -1526,39 +1666,49 @@ function ensureCalendarAddForm(allOwners) {
         graphic: graphic || null,
         resource: resource || null,
         link: link || null,
-      });
-      // Every calendar item also gets a matching Team & Meetings ticket, so
-      // "what's scheduled" and "what everyone's working on" don't live in
-      // two places that can drift apart.
-      if (owner && window.domaTeamSync) {
-        try {
-          await window.domaTeamSync.addManualItem({
-            meeting_date: date,
-            owner,
-            topic: type,
-            description: title,
-            context: notes || "Added via Content Calendar",
-          });
-        } catch (ticketError) {
-          console.error("Calendar item saved, but failed to create the matching Team & Meetings ticket:", ticketError);
+      };
+      if (editingCalendarItemId) {
+        await window.domaContentCalendar.updateItem(editingCalendarItemId, fields);
+      } else {
+        await window.domaContentCalendar.addItem(fields);
+        // Every NEW calendar item also gets a matching Team & Meetings
+        // ticket, so "what's scheduled" and "what everyone's working on"
+        // don't live in two places that can drift apart. Edits don't
+        // re-mirror - that would create a duplicate ticket per edit.
+        if (owner && window.domaTeamSync) {
+          try {
+            await window.domaTeamSync.addManualItem({
+              meeting_date: date,
+              owner,
+              topic: type,
+              description: title,
+              context: notes || "Added via Content Calendar",
+            });
+          } catch (ticketError) {
+            console.error("Calendar item saved, but failed to create the matching Team & Meetings ticket:", ticketError);
+          }
         }
       }
-      form.reset();
-      dateInput.value = new Date().toISOString().slice(0, 10);
-      form.classList.add("hidden");
+      resetCalendarAddForm(form, dateInput);
     } catch (error) {
-      console.error("Failed to add calendar item:", error);
-      alert("Could not add the calendar item - check the browser console for details.");
+      console.error("Failed to save calendar item:", error);
+      alert("Could not save the calendar item - check the browser console for details.");
     } finally {
       submitBtn.disabled = false;
     }
   });
 
   // Suggestion chips prefill the form instead of submitting directly, so
-  // date/owner/notes can still be adjusted before saving.
+  // date/owner/notes can still be adjusted before saving. Always starts from
+  // a clean "add new" state first - otherwise clicking a suggestion while
+  // the form still held a previously-opened edit (fields + editingCalendarItemId
+  // left over from clicking a pencil icon without hitting Cancel) would only
+  // overwrite the title/type, silently turning the suggestion into an edit
+  // of that other, unrelated item instead of creating a new one.
   document.getElementById("calendarSuggestions")?.addEventListener("click", (event) => {
     const chip = event.target.closest(".calendar-suggestion-chip");
     if (!chip) return;
+    resetCalendarAddForm(form, dateInput);
     form.classList.remove("hidden");
     form.querySelector('[name="title"]').value = chip.dataset.title || "";
     form.querySelector('[name="type"]').value = chip.dataset.type || "Blog post";
@@ -1592,6 +1742,7 @@ function calItemHtml(item) {
       <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
       <span class="cal-item-title">${item.title}</span>
       ${item.link ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Open link">&#128279;</a>` : ""}
+      <button type="button" class="cal-item-edit" title="Edit">&#9998;</button>
       <button type="button" class="cal-item-delete" title="Remove">&times;</button>
     </div>`;
 }
