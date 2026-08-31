@@ -34,6 +34,7 @@ from scripts.sync_serp_competitors import main as sync_serp_competitors  # noqa:
 from scripts.sync_competitor_intel import main as sync_competitor_intel  # noqa: E402
 from scripts.send_seo_digest import main as send_seo_digest  # noqa: E402
 from scripts.send_task_digest import main as send_task_digest  # noqa: E402
+from scripts.sync_ebook_links import main as sync_ebook_links  # noqa: E402
 
 LOGS_DIR = ROOT / "logs"
 
@@ -123,6 +124,7 @@ def main() -> int:
         "competitors_content": run_source("Competitor content (sitemaps)", sync_competitors_content),
         "serp_competitors": run_source("SERP competitor ranking", sync_serp_competitors),
         "competitor_intel": run_source("Competitor tech stack + Wayback history", sync_competitor_intel),
+        "ebook_links": run_source("New ebook links (Useful Links)", sync_ebook_links),
     }
 
     statuses["seo_digest_email"] = run_source("SEO email digest", send_seo_digest)
