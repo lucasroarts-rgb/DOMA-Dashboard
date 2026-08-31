@@ -1870,7 +1870,7 @@ let linksAddFormAttached = false;
 // otherwise dominate the tab; anything not listed here starts open. Once a
 // category is manually toggled, its state persists across re-renders here
 // too (same pattern as teamCollapsed).
-let linksCollapsedCategories = { Ebooks: true };
+let linksCollapsedCategories = { Ebooks: true, "Partner Offers": true };
 
 function ensureLinksListeners() {
   if (linksListenersAttached) return;
