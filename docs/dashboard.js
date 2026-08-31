@@ -1054,6 +1054,10 @@ let teamFilters = { owner: "all", topic: "all", date: "all", status: "all" };
 // whole tab) so opening/closing a status section doesn't reset on every
 // click - keyed by "meetingDate|status", collapsed = true.
 let teamCollapsed = {};
+// Same idea, one level up: collapses a whole meeting panel (keyed by
+// meeting_date) so scrolling past old meetings to reach a recent one isn't
+// necessary. Starts empty - every panel begins expanded, same as before.
+let teamPanelCollapsed = {};
 let teamListenersAttached = false;
 let teamAddFormAttached = false;
 // Firestore is authoritative for status once a doc exists (itemId -> status);
@@ -1201,6 +1205,15 @@ function ensureTeamListeners() {
   if (teamListenersAttached) return;
   teamListenersAttached = true;
   document.getElementById("teamMeetings").addEventListener("click", async (event) => {
+    const panelHeader = event.target.closest(".meeting-panel-header");
+    if (panelHeader) {
+      const panel = panelHeader.closest(".meeting-panel");
+      const key = panel.dataset.date;
+      teamPanelCollapsed[key] = !teamPanelCollapsed[key];
+      panel.classList.toggle("collapsed", teamPanelCollapsed[key]);
+      return;
+    }
+
     const header = event.target.closest(".status-header");
     if (header) {
       const section = header.closest(".status-section");
@@ -1445,12 +1458,18 @@ function renderTeam() {
         })
         .join("");
 
+      const panelCollapsed = !!teamPanelCollapsed[m.meeting_date];
       return `
-        <div class="panel meeting-panel" data-date="${m.meeting_date}">
-          <h2>${m.title}</h2>
-          <div class="panel-meta">${fullDate(m.meeting_date)}</div>
-          ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
-          <div class="status-grid">${sections}</div>
+        <div class="panel meeting-panel${panelCollapsed ? " collapsed" : ""}" data-date="${m.meeting_date}">
+          <button type="button" class="meeting-panel-header">
+            <span class="status-chevron">${panelCollapsed ? "▸" : "▾"}</span>
+            <h2>${m.title}</h2>
+            <span class="panel-meta">${fullDate(m.meeting_date)}</span>
+          </button>
+          <div class="meeting-panel-body">
+            ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
+            <div class="status-grid">${sections}</div>
+          </div>
         </div>`;
     })
     .join("");
