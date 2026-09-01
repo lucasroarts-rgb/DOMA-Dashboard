@@ -9,7 +9,7 @@
 // not real security" posture - see README.md. Don't add a secret key here
 // expecting it to gate access; only Firestore Rules can actually do that.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import { getFirestore, doc, setDoc, addDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { getFirestore, doc, setDoc, addDoc, deleteDoc, onSnapshot, collection, arrayUnion } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAend14H6sI98DrjZvNfw-sfNYfEykaI6o",
@@ -66,6 +66,12 @@ window.domaTeamSync = {
   async updateActionItem(itemId, fields) {
     await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { ...fields, updated_at: Date.now() }, { merge: true });
   },
+  // Comments ("what was done") live as an array on the same override doc -
+  // arrayUnion appends atomically, so two people commenting at the same
+  // moment can't clobber each other the way a read-then-write would.
+  async addActionItemComment(itemId, comment) {
+    await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { comments: arrayUnion(comment) }, { merge: true });
+  },
   subscribeOverrides(callback) {
     return watch(STATUS_COLLECTION, (snapshot) => {
       const overrides = new Map();
@@ -100,6 +106,9 @@ window.domaTeamSync = {
   },
   async updateManualItem(itemId, fields) {
     await setDoc(doc(db, MANUAL_ITEMS_COLLECTION, itemId), fields, { merge: true });
+  },
+  async addManualItemComment(itemId, comment) {
+    await setDoc(doc(db, MANUAL_ITEMS_COLLECTION, itemId), { comments: arrayUnion(comment) }, { merge: true });
   },
   // The To Do board (2026-08-31) is the first place manual tickets actually
   // need a delete affordance in the UI - also clears any status override so

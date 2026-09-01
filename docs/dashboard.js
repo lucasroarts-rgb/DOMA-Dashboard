@@ -1184,6 +1184,8 @@ function ensureTeamListeners() {
   if (teamListenersAttached) return;
   teamListenersAttached = true;
   document.getElementById("teamMeetings").addEventListener("click", async (event) => {
+    if (handleCommentsToggle(event)) return;
+
     const panelHeader = event.target.closest(".meeting-panel-header");
     if (panelHeader) {
       const panel = panelHeader.closest(".meeting-panel");
@@ -1222,6 +1224,26 @@ function ensureTeamListeners() {
     // click while the write is in flight.
     const ok = await setTeamActionItemStatus(itemId, next);
     if (!ok) mark.disabled = false;
+  });
+
+  document.getElementById("teamMeetings").addEventListener("submit", async (event) => {
+    const form = event.target.closest(".ticket-comment-form");
+    if (!form) return;
+    event.preventDefault();
+    const comment = readCommentForm(form);
+    if (!comment) return;
+    const itemId = form.closest(".ticket-comments").dataset.id;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
+      await window.domaTeamSync.addActionItemComment(itemId, comment);
+    } catch (error) {
+      console.error("Failed to post comment:", error);
+      alert("Could not post the comment - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
   });
 
   // Live sync: any click or added ticket (from this tab, another tab, or a
@@ -1313,16 +1335,68 @@ function teamStatusIcon(status) {
   return "";
 }
 
+// Shared by Team & Meetings tickets and To Do cards - a "what was done"
+// comment thread. Comments live as a plain array field on the item's own
+// Firestore doc (see addActionItemComment / addManualItemComment), appended
+// with arrayUnion so concurrent commenters can't clobber each other.
+function commentsHtml(item) {
+  const comments = item.comments || [];
+  const list =
+    comments
+      .map(
+        (c) =>
+          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${c.text}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+      )
+      .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
+  return `
+    <div class="ticket-comments" data-id="${item.id}">
+      <button type="button" class="ticket-comments-toggle">&#128172; ${comments.length ? comments.length : "Comment"}</button>
+      <div class="ticket-comments-body hidden">
+        <div class="ticket-comments-list">${list}</div>
+        <form class="ticket-comment-form">
+          <input type="text" name="author" placeholder="Your name" value="${(localStorage.getItem("domaCommenterName") || "").replace(/"/g, "&quot;")}" />
+          <input type="text" name="text" placeholder="What did you do?" required />
+          <button type="submit">Post</button>
+        </form>
+      </div>
+    </div>`;
+}
+
+// Toggling a comment thread open, and remembering the commenter's name in
+// localStorage so it doesn't need retyping every time, are identical for
+// both Team tickets and To Do cards - shared here, wired into each tab's
+// own click/submit handler since where the comment gets SAVED differs
+// (STATUS_COLLECTION for meeting tickets, MANUAL_ITEMS_COLLECTION for
+// manual ones).
+function handleCommentsToggle(event) {
+  const toggle = event.target.closest(".ticket-comments-toggle");
+  if (!toggle) return false;
+  toggle.closest(".ticket-comments").querySelector(".ticket-comments-body").classList.toggle("hidden");
+  return true;
+}
+
+function readCommentForm(form) {
+  const fd = new FormData(form);
+  const author = String(fd.get("author") || "").trim();
+  const text = String(fd.get("text") || "").trim();
+  if (!text) return null;
+  if (author) localStorage.setItem("domaCommenterName", author);
+  return { author: author || null, text, created_at: Date.now() };
+}
+
 function teamChecklistItemHtml(item) {
   const status = teamEffectiveStatus(item);
   const editBtn = `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>`;
   return `
     <div class="checklist-item status-${status}" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-status="${status}">
-      <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(status)}</button>
-      <span class="checklist-text">
-        <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
-      </span>
-      ${editBtn}
+      <div class="checklist-row">
+        <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(status)}</button>
+        <span class="checklist-text">
+          <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
+        </span>
+        ${editBtn}
+      </div>
+      ${commentsHtml(item)}
     </div>`;
 }
 
@@ -1441,6 +1515,7 @@ function todoCardHtml(item) {
         <button type="button" class="checklist-edit" title="Edit">&#9998;</button>
         <button type="button" class="checklist-delete" title="Remove">&times;</button>
       </div>
+      ${commentsHtml(item)}
     </div>`;
 }
 
@@ -1529,6 +1604,8 @@ function ensureTodoListeners() {
   if (todoListenersAttached) return;
   todoListenersAttached = true;
   document.getElementById("todoBoard").addEventListener("click", async (event) => {
+    if (handleCommentsToggle(event)) return;
+
     const editBtn = event.target.closest(".checklist-edit");
     if (editBtn) {
       const cardEl = editBtn.closest(".todo-card");
@@ -1564,6 +1641,26 @@ function ensureTodoListeners() {
       const ok = await setTeamActionItemStatus(itemId, next);
       if (!ok) advance.disabled = false;
       return;
+    }
+  });
+
+  document.getElementById("todoBoard").addEventListener("submit", async (event) => {
+    const form = event.target.closest(".ticket-comment-form");
+    if (!form) return;
+    event.preventDefault();
+    const comment = readCommentForm(form);
+    if (!comment) return;
+    const itemId = form.closest(".ticket-comments").dataset.id;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
+      await window.domaTeamSync.addManualItemComment(itemId, comment);
+    } catch (error) {
+      console.error("Failed to post comment:", error);
+      alert("Could not post the comment - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
     }
   });
 }
