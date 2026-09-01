@@ -313,6 +313,18 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .meeting-panel .panel-meta{color:var(--muted);font-size:12.5px}
 .meeting-panel .panel-summary{font-size:13.5px;line-height:1.6;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
 
+/* weekly recap */
+.weekly-recap-week{padding:16px 20px}
+.weekly-recap-header{width:100%;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border:0;background:transparent;padding:0;cursor:pointer;text-align:left}
+.weekly-recap-header h3{margin:0;font-size:14px}
+.weekly-recap-week.collapsed .weekly-recap-body{display:none}
+.weekly-recap-week.collapsed .status-chevron{transform:rotate(-90deg)}
+.weekly-recap-body{margin-top:14px;display:flex;flex-direction:column;gap:14px}
+.weekly-recap-meeting{padding-top:12px;border-top:1px solid var(--line)}
+.weekly-recap-meeting:first-child{padding-top:0;border-top:0}
+.weekly-recap-meeting-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px}
+.weekly-recap-summary{margin-top:6px;font-size:13px;line-height:1.6;color:var(--muted)}
+
 /* to do board */
 .todo-board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
 .todo-column{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:14px;border-top:3px solid var(--line-strong)}
@@ -383,8 +395,17 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-category-header h3{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--teal-2);margin:0}
 .links-category.collapsed .links-category-header{padding-bottom:0}
 .links-category.collapsed .links-grid{display:none}
-.links-category.search-expanded .links-grid{display:grid !important}
+.links-category.search-expanded>.links-category-body>.links-grid{display:grid !important}
 .links-category.hidden{display:none}
+.links-category-body{display:flex;flex-direction:column;gap:14px}
+/* nested "Parent: Child" sections (e.g. Ebooks -> AI) - indented, smaller
+   header than the top-level category it lives inside */
+.links-subcategory{margin-left:4px;padding-left:14px;border-left:2px solid var(--line)}
+.links-subcategory-header h4{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:0}
+.links-subcategory.collapsed .links-subcategory-header{padding-bottom:0}
+.links-subcategory.collapsed .links-grid{display:none}
+.links-subcategory.search-expanded .links-grid{display:grid !important}
+.links-subcategory.hidden{display:none}
 .link-card.hidden{display:none}
 .links-search{width:100%;box-sizing:border-box;border:1px solid var(--line-strong);background:var(--panel-2);color:var(--ink);border-radius:10px;padding:11px 14px;font-size:13.5px;margin-bottom:16px}
 .links-search:focus{outline:none;border-color:var(--teal-2)}

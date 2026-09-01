@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=26">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -66,6 +66,7 @@
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
+    <button class="tab" data-view="weekly-recap">Weekly Recap</button>
     <button class="tab" data-view="todo">To Do</button>
     <button class="tab" data-view="links">Useful Links</button>
   </nav>
@@ -588,6 +589,15 @@
       <div id="teamMeetings"></div>
     </section>
 
+    <section class="view" id="view-weekly-recap">
+      <div class="panel">
+        <h2>Weekly Recap</h2>
+        <p class="panel-intro">Every logged meeting (see Team &amp; Meetings), grouped by the Monday-Sunday week it fell in - most recent week first.</p>
+      </div>
+      <div id="weeklyRecapEmpty" class="empty" style="display:none">No meetings logged yet.</div>
+      <div id="weeklyRecapList"></div>
+    </section>
+
     <section class="view" id="view-todo">
       <div class="cards" id="todoCards"></div>
       <div id="todoEmpty" class="empty" style="display:none">No tasks yet - add one below.</div>
@@ -671,6 +681,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js?v=4"></script>
-<script src="dashboard.js?v=31"></script>
+<script src="dashboard.js?v=32"></script>
 </body>
 </html>

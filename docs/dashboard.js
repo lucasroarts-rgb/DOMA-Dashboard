@@ -1250,23 +1250,25 @@ function ensureTeamListeners() {
   // different person entirely - local dashboard or the published site, same
   // Firestore project either way) shows up here within a second or two.
   whenFirestoreReady(() => {
-    // One shared set of Firestore listeners drives both Team & Meetings and
-    // the To Do board - status/manual-items/overrides all affect at least
-    // one of the two.
+    // One shared set of Firestore listeners drives Team & Meetings, the To
+    // Do board, and Weekly Recap - status/manual-items/overrides all affect
+    // at least one of the three.
     window.domaTeamSync.subscribeAll((liveStatuses) => {
       teamLiveStatuses = liveStatuses;
-      renderTeam();
-      renderTodoBoard();
+      safeRender("Team & Meetings", renderTeam);
+      safeRender("To Do", renderTodoBoard);
+      safeRender("Weekly Recap", renderWeeklyRecap);
     });
     window.domaTeamSync.subscribeManualItems((items) => {
       teamManualItems = items;
-      renderTeam();
-      renderTodoBoard();
+      safeRender("Team & Meetings", renderTeam);
+      safeRender("To Do", renderTodoBoard);
     });
     window.domaTeamSync.subscribeOverrides((overrides) => {
       teamLiveOverrides = overrides;
-      renderTeam();
-      renderTodoBoard();
+      safeRender("Team & Meetings", renderTeam);
+      safeRender("To Do", renderTodoBoard);
+      safeRender("Weekly Recap", renderWeeklyRecap);
     });
   });
 }
@@ -1665,6 +1667,93 @@ function ensureTodoListeners() {
       submitBtn.disabled = false;
     }
   });
+}
+
+/* ---------- weekly recap (meetings grouped Monday-Sunday) ---------- */
+
+let weeklyRecapCollapsed = {};
+let weeklyRecapListenersAttached = false;
+
+function isoWeekStart(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  const day = d.getUTCDay(); // 0 = Sunday
+  const diff = day === 0 ? -6 : 1 - day; // days back to that week's Monday
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function isoWeekEnd(weekStart) {
+  const d = new Date(`${weekStart}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
+function ensureWeeklyRecapListeners() {
+  if (weeklyRecapListenersAttached) return;
+  weeklyRecapListenersAttached = true;
+  document.getElementById("weeklyRecapList").addEventListener("click", (event) => {
+    const header = event.target.closest(".weekly-recap-header");
+    if (!header) return;
+    const week = header.closest(".weekly-recap-week");
+    const key = week.dataset.week;
+    weeklyRecapCollapsed[key] = !weeklyRecapCollapsed[key];
+    week.classList.toggle("collapsed", weeklyRecapCollapsed[key]);
+  });
+}
+
+function renderWeeklyRecap() {
+  ensureWeeklyRecapListeners();
+  const team = dashboard.team_meetings || { available: false, meetings: [] };
+  // Reuses the same status/override-aware merge Team & Meetings uses, so a
+  // completed item shows as done here too without a second data pipeline.
+  const mergedMeetings = teamMergedMeetings(team);
+  document.getElementById("weeklyRecapEmpty").style.display = mergedMeetings.length ? "none" : "block";
+
+  const byWeek = new Map();
+  mergedMeetings.forEach((m) => {
+    const weekStart = isoWeekStart(m.meeting_date);
+    if (!byWeek.has(weekStart)) byWeek.set(weekStart, []);
+    byWeek.get(weekStart).push(m);
+  });
+
+  const container = document.getElementById("weeklyRecapList");
+  container.innerHTML = [...byWeek.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .map(([weekStart, meetings]) => {
+      const weekEnd = isoWeekEnd(weekStart);
+      const collapsed = !!weeklyRecapCollapsed[weekStart];
+      const totalItems = meetings.reduce((sum, m) => sum + (m.action_items || []).length, 0);
+      const doneItems = meetings.reduce(
+        (sum, m) => sum + (m.action_items || []).filter((i) => teamEffectiveStatus(i) === "done").length,
+        0
+      );
+      const meetingsHtml = [...meetings]
+        .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : -1))
+        .map((m) => {
+          const items = m.action_items || [];
+          const doneCount = items.filter((i) => teamEffectiveStatus(i) === "done").length;
+          return `
+            <div class="weekly-recap-meeting">
+              <div class="weekly-recap-meeting-header">
+                <strong>${m.title}</strong>
+                <span class="panel-meta">${fullDate(m.meeting_date)}</span>
+                <span class="status-count">${doneCount}/${items.length} done</span>
+              </div>
+              ${m.summary ? `<p class="weekly-recap-summary">${m.summary}</p>` : ""}
+            </div>`;
+        })
+        .join("");
+      return `
+        <div class="panel weekly-recap-week${collapsed ? " collapsed" : ""}" data-week="${weekStart}">
+          <button type="button" class="weekly-recap-header">
+            <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
+            <h3>Week of ${fullDate(weekStart)} &ndash; ${fullDate(weekEnd)}</h3>
+            <span class="status-count">${meetings.length} meeting${meetings.length === 1 ? "" : "s"} &middot; ${doneItems}/${totalItems} items done</span>
+          </button>
+          <div class="weekly-recap-body">${meetingsHtml}</div>
+        </div>`;
+    })
+    .join("");
 }
 
 function renderTodoBoard() {
@@ -2090,29 +2179,32 @@ function renderContentCalendar() {
 let linksItems = [];
 let linksListenersAttached = false;
 let linksAddFormAttached = false;
-// Which category sections start closed - "Ebooks" has ~20 links and would
-// otherwise dominate the tab; anything not listed here starts open. Once a
-// category is manually toggled, its state persists across re-renders here
-// too (same pattern as teamCollapsed).
-let linksCollapsedCategories = {
-  "Partner Offers: Practice & Patient Management Software": true,
-  "Partner Offers: Dental AI Tools": true,
-  "Partner Offers: Billing & Payments": true,
-  "Partner Offers: Patient Communication & Engagement": true,
-  "Partner Offers: Marketing & Growth": true,
-  "Partner Offers: Staffing, Supplies & IT": true,
-  "Ebooks: Leadership": true,
-  "Ebooks: Career": true,
-  "Ebooks: Case Acceptance & Patient Communication": true,
-  "Ebooks: Insurance & Billing": true,
-  "Ebooks: Practice Operations": true,
-  "Ebooks: AI": true,
-};
+// Which sections start closed, keyed by "Parent" for a top-level category
+// or "Parent: Child" for a sub-category nested inside one (see renderLinks -
+// any category containing ": " nests under its "Parent" prefix). Ebooks and
+// Partner Offers each have ~20 links across many topics and would otherwise
+// dominate the tab; anything not listed here starts open. Once a section is
+// manually toggled, its state persists across re-renders here too (same
+// pattern as teamCollapsed).
+let linksCollapsedCategories = { "Partner Offers": true, Ebooks: true };
 
 function ensureLinksListeners() {
   if (linksListenersAttached) return;
   linksListenersAttached = true;
   document.getElementById("linksList").addEventListener("click", async (event) => {
+    // Checked before the generic .links-category-header case below - a
+    // sub-category header carries BOTH classes, and .closest(".links-category")
+    // from it would find the outer parent (e.g. "Ebooks") instead of the
+    // sub-section (e.g. "Ebooks: AI") that was actually clicked.
+    const subHeader = event.target.closest(".links-subcategory-header");
+    if (subHeader) {
+      const section = subHeader.closest(".links-subcategory");
+      const category = section.dataset.category;
+      linksCollapsedCategories[category] = !linksCollapsedCategories[category];
+      section.classList.toggle("collapsed", linksCollapsedCategories[category]);
+      return;
+    }
+
     const header = event.target.closest(".links-category-header");
     if (header) {
       const section = header.closest(".links-category");
@@ -2172,20 +2264,30 @@ function ensureLinksListeners() {
 function applyLinksSearch() {
   const query = (document.getElementById("linksSearch")?.value || "").trim().toLowerCase();
   const emptyEl = document.getElementById("linksSearchEmpty");
-  let anyVisible = false;
 
+  // Pass 1: every card gets matched against the query, regardless of
+  // nesting depth (flat under a top-level category, or inside a sub-category).
+  let anyVisible = false;
+  document.querySelectorAll(".link-card").forEach((card) => {
+    const match = !query || (card.dataset.search || "").includes(query);
+    card.classList.toggle("hidden", !match);
+    if (match) anyVisible = true;
+  });
+
+  // Pass 2: a sub-category is visible if any of its own cards matched.
+  document.querySelectorAll(".links-subcategory").forEach((sub) => {
+    const hasMatch = !!sub.querySelector(".link-card:not(.hidden)");
+    sub.classList.toggle("hidden", Boolean(query) && !hasMatch);
+    sub.classList.toggle("search-expanded", Boolean(query) && hasMatch);
+  });
+
+  // Pass 3: a top-level category is visible if any direct card OR any
+  // sub-category (already resolved in pass 2) matched - querySelector finds
+  // cards at any depth, so this covers both flat and nested categories.
   document.querySelectorAll(".links-category").forEach((section) => {
-    let sectionHasMatch = false;
-    section.querySelectorAll(".link-card").forEach((card) => {
-      const match = !query || (card.dataset.search || "").includes(query);
-      card.classList.toggle("hidden", !match);
-      if (match) {
-        sectionHasMatch = true;
-        anyVisible = true;
-      }
-    });
-    section.classList.toggle("hidden", Boolean(query) && !sectionHasMatch);
-    section.classList.toggle("search-expanded", Boolean(query) && sectionHasMatch);
+    const hasMatch = !!section.querySelector(".link-card:not(.hidden)");
+    section.classList.toggle("hidden", Boolean(query) && !hasMatch);
+    section.classList.toggle("search-expanded", Boolean(query) && hasMatch);
   });
 
   if (emptyEl) emptyEl.style.display = query && !anyVisible ? "block" : "none";
@@ -2228,6 +2330,27 @@ function ensureLinksAddForm(allCategories) {
   });
 }
 
+function linkCardHtml(link, category) {
+  const contact = [link.phone, link.email].filter(Boolean).join(" · ");
+  // Everything a search should be able to match, even fields never shown on
+  // the card itself (tag/description) - e.g. typing "phone service" should
+  // find Mango Voice even though the card only displays its name and discount.
+  const searchBlob = [category, link.title, link.tag, link.discount, link.description, contact]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return `
+    <div class="link-card" data-id="${link.id}" data-search="${searchBlob.replace(/"/g, "&quot;")}">
+      <div class="link-card-main">
+        <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
+        ${link.discount ? `<span class="link-discount">${link.discount}</span>` : ""}
+        ${contact ? `<span class="link-contact">${contact}</span>` : ""}
+      </div>
+      <button type="button" class="link-copy" data-url="${link.url}" title="Copy link">⧉</button>
+      <button type="button" class="checklist-delete" title="Remove">&times;</button>
+    </div>`;
+}
+
 function renderLinks() {
   ensureLinksListeners();
   document.getElementById("linksEmpty").style.display = linksItems.length ? "none" : "block";
@@ -2235,52 +2358,60 @@ function renderLinks() {
   const allCategories = [...new Set(linksItems.map((l) => l.category || "General"))];
   ensureLinksAddForm(allCategories);
 
-  const byCategory = new Map();
+  // Categories named "Parent: Child" (e.g. "Ebooks: AI") nest under a single
+  // top-level "Parent" section with each "Child" as its own collapsible
+  // sub-section inside - keeps a flat list of 15+ near-identical top-level
+  // rows (every ebook/sponsor topic) from burying the handful of real
+  // top-level categories (DOMA Site, SEO & Analytics, ...).
+  const groups = new Map();
   linksItems.forEach((link) => {
     const cat = link.category || "General";
-    if (!byCategory.has(cat)) byCategory.set(cat, []);
-    byCategory.get(cat).push(link);
+    const sepIdx = cat.indexOf(": ");
+    const parent = sepIdx === -1 ? cat : cat.slice(0, sepIdx);
+    const child = sepIdx === -1 ? null : cat.slice(sepIdx + 2);
+    if (!groups.has(parent)) groups.set(parent, { flat: [], subgroups: new Map() });
+    const group = groups.get(parent);
+    if (child === null) {
+      group.flat.push(link);
+    } else {
+      if (!group.subgroups.has(child)) group.subgroups.set(child, []);
+      group.subgroups.get(child).push(link);
+    }
   });
 
   const container = document.getElementById("linksList");
-  container.innerHTML = [...byCategory.entries()]
+  container.innerHTML = [...groups.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([category, links]) => {
-      const collapsed = !!linksCollapsedCategories[category];
+    .map(([parentName, group]) => {
+      const totalCount = group.flat.length + [...group.subgroups.values()].reduce((sum, links) => sum + links.length, 0);
+      const collapsed = !!linksCollapsedCategories[parentName];
+      const flatHtml = group.flat.length
+        ? `<div class="links-grid">${group.flat.map((link) => linkCardHtml(link, parentName)).join("")}</div>`
+        : "";
+      const subgroupsHtml = [...group.subgroups.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([childName, links]) => {
+          const subKey = `${parentName}: ${childName}`;
+          const subCollapsed = !!linksCollapsedCategories[subKey];
+          return `
+            <div class="links-subcategory${subCollapsed ? " collapsed" : ""}" data-category="${subKey}">
+              <button type="button" class="links-category-header links-subcategory-header">
+                <span class="status-chevron">${subCollapsed ? "▸" : "▾"}</span>
+                <h4>${childName}</h4>
+                <span class="status-count">${links.length}</span>
+              </button>
+              <div class="links-grid">${links.map((link) => linkCardHtml(link, subKey)).join("")}</div>
+            </div>`;
+        })
+        .join("");
       return `
-        <div class="links-category${collapsed ? " collapsed" : ""}" data-category="${category}">
+        <div class="links-category${collapsed ? " collapsed" : ""}" data-category="${parentName}">
           <button type="button" class="links-category-header">
             <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
-            <h3>${category}</h3>
-            <span class="status-count">${links.length}</span>
+            <h3>${parentName}</h3>
+            <span class="status-count">${totalCount}</span>
           </button>
-          <div class="links-grid">
-            ${links
-              .map(
-                (link) => {
-                  const contact = [link.phone, link.email].filter(Boolean).join(" · ");
-                  // Everything a search should be able to match, even fields
-                  // never shown on the card itself (tag/description) - e.g.
-                  // typing "phone service" should find Mango Voice even
-                  // though the card only displays its name and discount.
-                  const searchBlob = [category, link.title, link.tag, link.discount, link.description, contact]
-                    .filter(Boolean)
-                    .join(" ")
-                    .toLowerCase();
-                  return `
-              <div class="link-card" data-id="${link.id}" data-search="${searchBlob.replace(/"/g, "&quot;")}">
-                <div class="link-card-main">
-                  <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
-                  ${link.discount ? `<span class="link-discount">${link.discount}</span>` : ""}
-                  ${contact ? `<span class="link-contact">${contact}</span>` : ""}
-                </div>
-                <button type="button" class="link-copy" data-url="${link.url}" title="Copy link">⧉</button>
-                <button type="button" class="checklist-delete" title="Remove">&times;</button>
-              </div>`;
-                }
-              )
-              .join("")}
-          </div>
+          <div class="links-category-body">${flatHtml}${subgroupsHtml}</div>
         </div>`;
     })
     .join("");
@@ -2325,22 +2456,34 @@ function renderContentIdeas() {
   );
 }
 
+// Each tab's render is independent - one throwing (a bad reference, a null
+// element lookup) shouldn't blank out every tab that happens to run after
+// it in the list below, the way an uncaught error did once already.
+function safeRender(name, fn) {
+  try {
+    fn();
+  } catch (error) {
+    console.error(`Failed to render ${name}:`, error);
+  }
+}
+
 function renderAll() {
   if (!dashboard) {
     document.getElementById("app").innerHTML = `<div class="panel"><div class="empty">Could not load the dashboard. Make sure the local server is running (RUN_DASHBOARD.bat) and data has been synced.</div></div>`;
     return;
   }
-  renderOverview();
-  renderSeo();
-  renderCompetitors();
-  renderBlog();
-  renderContentIdeas();
-  renderContentCalendar();
-  renderLeads();
-  renderSocial();
-  renderTeam();
-  renderTodoBoard();
-  renderLinks();
+  safeRender("Overview", renderOverview);
+  safeRender("SEO", renderSeo);
+  safeRender("Competitors", renderCompetitors);
+  safeRender("Blog", renderBlog);
+  safeRender("Content Suggestions", renderContentIdeas);
+  safeRender("Content Calendar", renderContentCalendar);
+  safeRender("Leads", renderLeads);
+  safeRender("Social", renderSocial);
+  safeRender("Team & Meetings", renderTeam);
+  safeRender("Weekly Recap", renderWeeklyRecap);
+  safeRender("To Do", renderTodoBoard);
+  safeRender("Useful Links", renderLinks);
 
   const synced = [
     dashboard.search_console.last_synced_at,
