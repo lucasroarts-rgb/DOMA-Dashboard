@@ -850,11 +850,11 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
     pattern as the Ad Spy panel."""
     cutoff = (date.today() - timedelta(weeks=weeks)).isoformat()
     meetings_rows = con.execute(
-        "SELECT id, meeting_date, title, summary FROM team_meetings WHERE meeting_date >= ? ORDER BY meeting_date DESC",
+        "SELECT id, meeting_date, title, summary, raw_notes FROM team_meetings WHERE meeting_date >= ? ORDER BY meeting_date DESC",
         (cutoff,),
     ).fetchall()
     meetings = []
-    for m_id, m_date, title, summary in meetings_rows:
+    for m_id, m_date, title, summary, raw_notes in meetings_rows:
         items = con.execute(
             "SELECT id, owner, description, status, context, completed_at, topic FROM team_action_items "
             "WHERE meeting_id = ? ORDER BY owner, id",
@@ -866,6 +866,7 @@ def team_meetings_summary(con: sqlite3.Connection, weeks: int = 6) -> dict[str, 
                 "meeting_date": m_date,
                 "title": title,
                 "summary": summary,
+                "raw_notes": raw_notes,
                 "action_items": [
                     {
                         "id": row[0],

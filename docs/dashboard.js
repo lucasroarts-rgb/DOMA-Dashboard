@@ -85,6 +85,16 @@ function fullDate(isoDate) {
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// Only used for long free-text fields pasted in verbatim (meeting minutes) -
+// most of this dashboard's text fields are short and already trusted as-is,
+// but a full pasted recap is exactly the kind of text likely to contain a
+// stray "<" or "&" that would otherwise break the markup around it.
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function titleFromUrl(url) {
   try {
     const path = new URL(url).pathname.replace(/\/$/, "");
@@ -1489,6 +1499,14 @@ function renderTeam() {
           <div class="meeting-panel-body">
             ${m.summary ? `<div class="panel-summary">${m.summary}</div>` : ""}
             <div class="status-grid">${sections}</div>
+            ${
+              m.raw_notes
+                ? `<details class="meeting-minutes">
+              <summary>&#128196; View meeting minutes</summary>
+              <pre class="meeting-minutes-text">${escapeHtml(m.raw_notes)}</pre>
+            </details>`
+                : ""
+            }
           </div>
         </div>`;
     })

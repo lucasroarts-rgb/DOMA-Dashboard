@@ -312,6 +312,11 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .meeting-panel.collapsed .meeting-panel-body{display:none}
 .meeting-panel .panel-meta{color:var(--muted);font-size:12.5px}
 .meeting-panel .panel-summary{font-size:13.5px;line-height:1.6;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.meeting-minutes{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.meeting-minutes summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--muted);list-style:none}
+.meeting-minutes summary::-webkit-details-marker{display:none}
+.meeting-minutes summary:hover{color:var(--teal-2)}
+.meeting-minutes-text{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.65;color:var(--muted);margin-top:10px;padding:14px;background:var(--panel);border-radius:8px;border:1px solid var(--line)}
 
 /* weekly recap */
 .weekly-recap-week{padding:16px 20px}
