@@ -1443,6 +1443,8 @@ function renderTeam() {
     return;
   }
 
+  const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...allItems.map((i) => i.owner)])];
+  const allTopics = [...new Set(allItems.map((i) => i.topic || "General"))];
   const allDates = [...new Set(mergedMeetings.map((m) => m.meeting_date))];
   buildTeamFilterPills("teamOwnerFilter", "owner", allOwners);
   buildTeamFilterPills("teamTopicFilter", "topic", allTopics);
