@@ -1690,23 +1690,9 @@ function ensureCalendarAddForm(allOwners) {
         await window.domaContentCalendar.updateItem(editingCalendarItemId, fields);
       } else {
         await window.domaContentCalendar.addItem(fields);
-        // Every NEW calendar item also gets a matching Team & Meetings
-        // ticket, so "what's scheduled" and "what everyone's working on"
-        // don't live in two places that can drift apart. Edits don't
-        // re-mirror - that would create a duplicate ticket per edit.
-        if (owner && window.domaTeamSync) {
-          try {
-            await window.domaTeamSync.addManualItem({
-              meeting_date: date,
-              owner,
-              topic: type,
-              description: title,
-              context: notes || "Added via Content Calendar",
-            });
-          } catch (ticketError) {
-            console.error("Calendar item saved, but failed to create the matching Team & Meetings ticket:", ticketError);
-          }
-        }
+        // No longer auto-creates a matching Team & Meetings ticket - Lucas
+        // asked to keep the two lists from crossing over (2026-08-31
+        // meeting). Content Calendar and Team tickets are independent now.
       }
       resetCalendarAddForm(form, dateInput);
     } catch (error) {
@@ -1928,12 +1914,43 @@ function ensureLinksListeners() {
     }
   });
 
+  document.getElementById("linksSearch")?.addEventListener("input", applyLinksSearch);
+
   whenFirestoreReady(() => {
     window.domaUsefulLinks.subscribeLinks((links) => {
       linksItems = links;
       renderLinks();
     });
   });
+}
+
+// Filters every link-card by the search box's value against each card's
+// data-search blob (built in renderLinks - covers fields the card doesn't
+// even display, like an offer's original site badge/description, so
+// "phone service" finds Mango Voice by what it does, not just its name).
+// Matching categories auto-expand for the duration of the search via a CSS
+// class rather than touching linksCollapsedCategories, so clearing the
+// search box restores whatever collapse state the user had manually set.
+function applyLinksSearch() {
+  const query = (document.getElementById("linksSearch")?.value || "").trim().toLowerCase();
+  const emptyEl = document.getElementById("linksSearchEmpty");
+  let anyVisible = false;
+
+  document.querySelectorAll(".links-category").forEach((section) => {
+    let sectionHasMatch = false;
+    section.querySelectorAll(".link-card").forEach((card) => {
+      const match = !query || (card.dataset.search || "").includes(query);
+      card.classList.toggle("hidden", !match);
+      if (match) {
+        sectionHasMatch = true;
+        anyVisible = true;
+      }
+    });
+    section.classList.toggle("hidden", Boolean(query) && !sectionHasMatch);
+    section.classList.toggle("search-expanded", Boolean(query) && sectionHasMatch);
+  });
+
+  if (emptyEl) emptyEl.style.display = query && !anyVisible ? "block" : "none";
 }
 
 function ensureLinksAddForm(allCategories) {
@@ -2004,8 +2021,16 @@ function renderLinks() {
               .map(
                 (link) => {
                   const contact = [link.phone, link.email].filter(Boolean).join(" · ");
+                  // Everything a search should be able to match, even fields
+                  // never shown on the card itself (tag/description) - e.g.
+                  // typing "phone service" should find Mango Voice even
+                  // though the card only displays its name and discount.
+                  const searchBlob = [category, link.title, link.tag, link.discount, link.description, contact]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
                   return `
-              <div class="link-card" data-id="${link.id}">
+              <div class="link-card" data-id="${link.id}" data-search="${searchBlob.replace(/"/g, "&quot;")}">
                 <div class="link-card-main">
                   <a href="${link.url}" target="_blank" rel="noopener noreferrer" title="${link.url}">${link.title}</a>
                   ${link.discount ? `<span class="link-discount">${link.discount}</span>` : ""}
@@ -2021,6 +2046,8 @@ function renderLinks() {
         </div>`;
     })
     .join("");
+
+  applyLinksSearch();
 }
 
 function renderContentIdeas() {

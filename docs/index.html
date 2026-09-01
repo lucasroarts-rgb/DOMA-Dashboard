@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -596,6 +596,9 @@
       </div>
       <div id="linksEmpty" class="empty" style="display:none">No links added yet.</div>
 
+      <input type="search" id="linksSearch" class="links-search" placeholder="Search ebooks, sponsors, blog topics... (e.g. &quot;phone service&quot;, &quot;insurance&quot;, &quot;delegation&quot;)" />
+      <div id="linksSearchEmpty" class="empty" style="display:none">No links match that search.</div>
+
       <div class="team-add" id="linksAdd">
         <button type="button" class="btn-add-ticket" id="linksAddToggle">+ Add link</button>
         <form class="team-add-form hidden" id="linksAddForm">
@@ -625,6 +628,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js?v=2"></script>
-<script src="dashboard.js?v=26"></script>
+<script src="dashboard.js?v=27"></script>
 </body>
 </html>
