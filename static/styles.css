@@ -280,6 +280,24 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .meeting-panel .panel-meta{color:var(--muted);font-size:12.5px}
 .meeting-panel .panel-summary{font-size:13.5px;line-height:1.6;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--line)}
 
+/* to do board */
+.todo-board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.todo-column{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:14px;border-top:3px solid var(--line-strong)}
+.todo-column[data-status="in_progress"]{border-top-color:var(--teal-2)}
+.todo-column[data-status="done"]{border-top-color:var(--green)}
+.todo-column h3{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.todo-column-list{display:flex;flex-direction:column;gap:10px}
+.todo-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px}
+.todo-card.hidden{display:none}
+.todo-card-top{margin-bottom:6px}
+.todo-card-desc{font-size:13.5px;line-height:1.5;color:var(--ink)}
+.todo-card-actions{display:flex;align-items:center;gap:4px;margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
+.todo-card-advance{flex:1 1 auto;border:1px solid var(--line-strong);background:transparent;color:var(--muted);font-size:11.5px;font-weight:700;padding:5px 8px;border-radius:7px;cursor:pointer;text-align:center}
+.todo-card-advance:hover{border-color:var(--teal-2);color:var(--teal-2)}
+.todo-card .checklist-edit,.todo-card .checklist-delete{margin-left:0;align-self:center}
+.todo-empty-col{color:var(--muted);font-size:12px;font-style:italic;padding:6px 0}
+@media(max-width:900px){.todo-board{grid-template-columns:1fr}}
+
 /* content calendar */
 .calendar-suggestions{display:flex;flex-wrap:wrap;gap:8px}
 .calendar-suggestion-chip{border:1px dashed var(--line-strong);background:var(--panel-2);color:var(--muted);font-size:12.5px;padding:6px 12px;border-radius:10px;cursor:pointer;text-align:left}

@@ -101,6 +101,13 @@ window.domaTeamSync = {
   async updateManualItem(itemId, fields) {
     await setDoc(doc(db, MANUAL_ITEMS_COLLECTION, itemId), fields, { merge: true });
   },
+  // The To Do board (2026-08-31) is the first place manual tickets actually
+  // need a delete affordance in the UI - also clears any status override so
+  // a deleted item's old doc can't resurface if its id is ever reused.
+  async deleteManualItem(itemId) {
+    await deleteDoc(doc(db, MANUAL_ITEMS_COLLECTION, itemId));
+    await deleteDoc(doc(db, STATUS_COLLECTION, itemId)).catch(() => {});
+  },
 };
 
 // Content calendar - planned/in-progress/published content across blog,

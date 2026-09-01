@@ -1088,48 +1088,19 @@ function teamEffectiveStatus(item) {
   return teamLiveStatuses.get(String(item.id)) || item.status || "open";
 }
 
-// Combines the baked meetings (from SQLite/data.js) with any manually-added
-// tickets from Firestore, grouping ad-hoc tickets into the matching meeting
-// by date, or a synthetic "Manually added" panel for a date with no real
-// meeting. Recomputed fresh every render, so nothing is ever double-added.
+// Team & Meetings shows meeting-derived tickets ONLY - manually-added ones
+// live entirely on the To Do board now (2026-08-31: Lucas asked for the two
+// to stop crossing over). Field overrides (from editing a meeting ticket's
+// text) still merge onto the baked action items here, same as before.
 function teamMergedMeetings(team) {
-  const manualByDate = new Map();
-  teamManualItems.forEach((mi) => {
-    const list = manualByDate.get(mi.meeting_date) || [];
-    list.push({
-      id: mi.id,
-      owner: mi.owner,
-      topic: mi.topic || "General",
-      description: mi.description,
-      context: mi.context || null,
-      status: mi.status || "open",
-      is_manual: true,
-      meeting_date: mi.meeting_date,
-    });
-    manualByDate.set(mi.meeting_date, list);
-  });
-
-  const meetings = team.meetings.map((m) => ({
-    ...m,
-    // Merge any saved field overrides onto the baked action items, and
-    // stamp the parent meeting's date onto each one - meeting-derived items
-    // don't carry their own meeting_date, but the edit form needs it to
-    // show (read-only) which real meeting a ticket belongs to.
-    action_items: (m.action_items || []).map((item) => {
-      const override = teamLiveOverrides.get(String(item.id));
-      return { ...item, ...(override || {}), meeting_date: m.meeting_date };
-    }),
-  }));
-  const seenDates = new Set(meetings.map((m) => m.meeting_date));
-  manualByDate.forEach((_items, mdate) => {
-    if (!seenDates.has(mdate)) {
-      meetings.push({ id: `manual-${mdate}`, meeting_date: mdate, title: "Manually added tickets", summary: null, action_items: [] });
-      seenDates.add(mdate);
-    }
-  });
-
-  return meetings
-    .map((m) => ({ ...m, action_items: [...(m.action_items || []), ...(manualByDate.get(m.meeting_date) || [])] }))
+  return team.meetings
+    .map((m) => ({
+      ...m,
+      action_items: (m.action_items || []).map((item) => {
+        const override = teamLiveOverrides.get(String(item.id));
+        return { ...item, ...(override || {}) };
+      }),
+    }))
     .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : a.meeting_date > b.meeting_date ? -1 : 0));
 }
 
@@ -1249,111 +1220,76 @@ function ensureTeamListeners() {
   // different person entirely - local dashboard or the published site, same
   // Firestore project either way) shows up here within a second or two.
   whenFirestoreReady(() => {
+    // One shared set of Firestore listeners drives both Team & Meetings and
+    // the To Do board - status/manual-items/overrides all affect at least
+    // one of the two.
     window.domaTeamSync.subscribeAll((liveStatuses) => {
       teamLiveStatuses = liveStatuses;
       renderTeam();
+      renderTodoBoard();
     });
     window.domaTeamSync.subscribeManualItems((items) => {
       teamManualItems = items;
       renderTeam();
+      renderTodoBoard();
     });
     window.domaTeamSync.subscribeOverrides((overrides) => {
       teamLiveOverrides = overrides;
       renderTeam();
+      renderTodoBoard();
     });
   });
 }
 
-// Firestore doc id of the manual ticket currently being edited, or null
-// when the form is in "add new" mode. The same form/fields are reused for
-// both - only the submit handler's behavior (create vs. merge-update) and
-// button label change.
+// Firestore doc id of the meeting-derived ticket currently being edited (a
+// field override on its status doc), or null when the form is closed.
+// Team & Meetings has no "add new" flow any more - all new tasks go on the
+// To Do board - so this form only ever edits.
 let editingTeamItemId = null;
-// Manual tickets live in their own Firestore doc (meeting_date is a real,
-// changeable field on it). Meeting-derived tickets don't have that doc -
-// their meeting_date comes from the real logged meeting they belong to, so
-// it's shown for context but disabled: moving it wouldn't actually move the
-// ticket, since which meeting-panel it renders under is fixed by the baked
-// data, not by anything in the override doc.
-let editingTeamIsManual = false;
 
 function openTeamEditForm(item) {
-  const form = document.getElementById("teamAddForm");
+  const form = document.getElementById("teamEditForm");
   if (!form) return;
   editingTeamItemId = item.id;
-  editingTeamIsManual = !!item.is_manual;
-  const dateField = form.querySelector('[name="meeting_date"]');
   form.querySelector('[name="owner"]').value = item.owner || "";
   form.querySelector('[name="topic"]').value = item.topic || "";
-  dateField.value = item.meeting_date || "";
-  dateField.disabled = !editingTeamIsManual;
-  dateField.title = editingTeamIsManual ? "" : "This ticket is tied to a real logged meeting date and can't be moved.";
   form.querySelector('[name="description"]').value = item.description || "";
   form.querySelector('[name="context"]').value = item.context || "";
-  form.querySelector('button[type="submit"]').textContent = "Save changes";
   form.classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function resetTeamAddForm(form, dateInput) {
+function closeTeamEditForm(form) {
   editingTeamItemId = null;
-  editingTeamIsManual = false;
   form.reset();
-  dateInput.value = new Date().toISOString().slice(0, 10);
-  dateInput.disabled = false;
-  dateInput.title = "";
   form.classList.add("hidden");
-  form.querySelector('button[type="submit"]').textContent = "Add ticket";
 }
 
-function ensureTeamAddForm(allOwners, allTopics) {
-  const ownerOptions = document.getElementById("teamOwnerOptions");
-  const topicOptions = document.getElementById("teamTopicOptions");
-  if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
-  if (topicOptions) topicOptions.innerHTML = allTopics.map((t) => `<option value="${t}">`).join("");
-
+function ensureTeamEditForm() {
   if (teamAddFormAttached) return;
   teamAddFormAttached = true;
-  const toggle = document.getElementById("teamAddToggle");
-  const form = document.getElementById("teamAddForm");
-  if (!toggle || !form) return;
-  const dateInput = form.querySelector('[name="meeting_date"]');
-  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+  const form = document.getElementById("teamEditForm");
+  if (!form) return;
 
-  toggle.addEventListener("click", () => form.classList.toggle("hidden"));
-  document.getElementById("teamAddCancel")?.addEventListener("click", () => resetTeamAddForm(form, dateInput));
+  document.getElementById("teamEditCancel")?.addEventListener("click", () => closeTeamEditForm(form));
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!editingTeamItemId) return;
     const fd = new FormData(form);
     const owner = String(fd.get("owner") || "").trim();
     const description = String(fd.get("description") || "").trim();
-    // The date field is disabled (and so excluded from FormData) while
-    // editing a meeting-derived ticket - only required for a new ticket or
-    // an edit to a manual one, both of which own a real meeting_date field.
-    const meetingDate = String(fd.get("meeting_date") || "").trim();
-    const dateRequired = !editingTeamItemId || editingTeamIsManual;
-    if (!owner || !description || (dateRequired && !meetingDate)) return;
+    if (!owner || !description) return;
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
       if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
-      const fields = {
+      await window.domaTeamSync.updateActionItem(editingTeamItemId, {
         owner,
         topic: String(fd.get("topic") || "").trim() || "General",
         description,
         context: String(fd.get("context") || "").trim() || null,
-      };
-      if (dateRequired) fields.meeting_date = meetingDate;
-      if (editingTeamItemId) {
-        if (editingTeamIsManual) {
-          await window.domaTeamSync.updateManualItem(editingTeamItemId, fields);
-        } else {
-          await window.domaTeamSync.updateActionItem(editingTeamItemId, fields);
-        }
-      } else {
-        await window.domaTeamSync.addManualItem(fields);
-      }
-      resetTeamAddForm(form, dateInput);
+      });
+      closeTeamEditForm(form);
     } catch (error) {
       console.error("Failed to save ticket:", error);
       alert("Could not save the ticket - check the browser console for details.");
@@ -1385,15 +1321,15 @@ function teamChecklistItemHtml(item) {
 function renderTeam() {
   ensureTeamListeners();
   const team = dashboard.team_meetings || { available: false, meetings: [], open_by_owner: [], total_open: 0, total_in_progress: 0, total_done: 0, total_all: 0 };
-  document.getElementById("teamEmpty").style.display = team.available || teamManualItems.length ? "none" : "block";
+  document.getElementById("teamEmpty").style.display = team.available ? "none" : "block";
 
   const mergedMeetings = teamMergedMeetings(team);
   const allItems = mergedMeetings.flatMap((m) => m.action_items || []);
   teamAllItemsById = new Map(allItems.map((i) => [String(i.id), i]));
 
   // Derived live from the items themselves (not the backend's total_* fields)
-  // so a status click or a new manual ticket updates these cards instantly,
-  // without waiting for the next full /api/dashboard reload.
+  // so a status click updates these cards instantly, without waiting for
+  // the next full /api/dashboard reload.
   const countByStatus = { open: 0, in_progress: 0, done: 0 };
   const openByOwner = new Map();
   allItems.forEach((item) => {
@@ -1409,9 +1345,7 @@ function renderTeam() {
     ...ownerCards,
   ]);
 
-  const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...allItems.map((i) => i.owner)])];
-  const allTopics = [...new Set(allItems.map((i) => i.topic || "General"))];
-  ensureTeamAddForm(allOwners, allTopics);
+  ensureTeamEditForm();
 
   const container = document.getElementById("teamMeetings");
   const ownerFilterEl = document.getElementById("teamOwnerFilter");
@@ -1475,6 +1409,203 @@ function renderTeam() {
     .join("");
 
   applyTeamFilters();
+}
+
+/* ---------- to do board (manually-added tasks, split off from Team &
+   Meetings 2026-08-31 so ad-hoc tasks stop mixing with meeting recaps) ---------- */
+
+let todoFilters = { owner: "all", topic: "all" };
+let todoListenersAttached = false;
+let todoAddFormAttached = false;
+let editingTodoItemId = null;
+
+function todoCardHtml(item) {
+  const status = teamEffectiveStatus(item);
+  return `
+    <div class="todo-card" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}">
+      <div class="todo-card-top">
+        <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>
+      </div>
+      <div class="todo-card-desc">${item.description}</div>
+      ${item.context ? `<div class="checklist-context">${item.context}</div>` : ""}
+      <div class="todo-card-actions">
+        ${status !== "done" ? `<button type="button" class="todo-card-advance" title="Move to ${status === "open" ? "In Progress" : "Completed"}">${status === "open" ? "Start →" : "Complete →"}</button>` : `<button type="button" class="todo-card-advance" title="Move back to To Do">↺ Reopen</button>`}
+        <button type="button" class="checklist-edit" title="Edit">&#9998;</button>
+        <button type="button" class="checklist-delete" title="Remove">&times;</button>
+      </div>
+    </div>`;
+}
+
+function applyTodoFilters() {
+  document.querySelectorAll(".todo-card").forEach((card) => {
+    const ownerMatch = todoFilters.owner === "all" || card.dataset.owner === todoFilters.owner;
+    const topicMatch = todoFilters.topic === "all" || card.dataset.topic === todoFilters.topic;
+    card.classList.toggle("hidden", !(ownerMatch && topicMatch));
+  });
+  document.querySelectorAll("#todoOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === todoFilters.owner));
+  document.querySelectorAll("#todoTopicFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === todoFilters.topic));
+}
+
+function openTodoEditForm(item) {
+  const form = document.getElementById("todoAddForm");
+  if (!form) return;
+  editingTodoItemId = item.id;
+  form.querySelector('[name="owner"]').value = item.owner || "";
+  form.querySelector('[name="topic"]').value = item.topic || "";
+  form.querySelector('[name="meeting_date"]').value = item.meeting_date || "";
+  form.querySelector('[name="description"]').value = item.description || "";
+  form.querySelector('[name="context"]').value = item.context || "";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function resetTodoAddForm(form, dateInput) {
+  editingTodoItemId = null;
+  form.reset();
+  dateInput.value = new Date().toISOString().slice(0, 10);
+  form.classList.add("hidden");
+  form.querySelector('button[type="submit"]').textContent = "Add task";
+}
+
+function ensureTodoAddForm(allOwners, allTopics) {
+  const ownerOptions = document.getElementById("todoOwnerOptions");
+  const topicOptions = document.getElementById("todoTopicOptions");
+  if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
+  if (topicOptions) topicOptions.innerHTML = allTopics.map((t) => `<option value="${t}">`).join("");
+
+  if (todoAddFormAttached) return;
+  todoAddFormAttached = true;
+  const toggle = document.getElementById("todoAddToggle");
+  const form = document.getElementById("todoAddForm");
+  if (!toggle || !form) return;
+  const dateInput = form.querySelector('[name="meeting_date"]');
+  if (dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0, 10);
+
+  toggle.addEventListener("click", () => form.classList.toggle("hidden"));
+  document.getElementById("todoAddCancel")?.addEventListener("click", () => resetTodoAddForm(form, dateInput));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const owner = String(fd.get("owner") || "").trim();
+    const description = String(fd.get("description") || "").trim();
+    const meetingDate = String(fd.get("meeting_date") || "").trim();
+    if (!owner || !description || !meetingDate) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
+      const fields = {
+        meeting_date: meetingDate,
+        owner,
+        topic: String(fd.get("topic") || "").trim() || "General",
+        description,
+        context: String(fd.get("context") || "").trim() || null,
+      };
+      if (editingTodoItemId) {
+        await window.domaTeamSync.updateManualItem(editingTodoItemId, fields);
+      } else {
+        await window.domaTeamSync.addManualItem(fields);
+      }
+      resetTodoAddForm(form, dateInput);
+    } catch (error) {
+      console.error("Failed to save task:", error);
+      alert("Could not save the task - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+}
+
+function ensureTodoListeners() {
+  if (todoListenersAttached) return;
+  todoListenersAttached = true;
+  document.getElementById("todoBoard").addEventListener("click", async (event) => {
+    const editBtn = event.target.closest(".checklist-edit");
+    if (editBtn) {
+      const cardEl = editBtn.closest(".todo-card");
+      const item = teamManualItems.find((i) => String(i.id) === cardEl.dataset.id);
+      if (item) openTodoEditForm(item);
+      return;
+    }
+
+    const del = event.target.closest(".checklist-delete");
+    if (del) {
+      const cardEl = del.closest(".todo-card");
+      if (!confirm("Remove this task?")) return;
+      del.disabled = true;
+      try {
+        if (!window.domaTeamSync?.deleteManualItem) throw new Error("Delete not available");
+        await window.domaTeamSync.deleteManualItem(cardEl.dataset.id);
+      } catch (error) {
+        console.error("Failed to delete task:", error);
+        del.disabled = false;
+      }
+      return;
+    }
+
+    const advance = event.target.closest(".todo-card-advance");
+    if (advance) {
+      const cardEl = advance.closest(".todo-card");
+      const itemId = cardEl.dataset.id;
+      const item = teamManualItems.find((i) => String(i.id) === itemId);
+      const currentStatus = teamEffectiveStatus(item || { id: itemId, status: "open" });
+      const isReopen = currentStatus === "done";
+      const next = isReopen ? "open" : TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(currentStatus) + 1) % TEAM_STATUS_ORDER.length];
+      advance.disabled = true;
+      const ok = await setTeamActionItemStatus(itemId, next);
+      if (!ok) advance.disabled = false;
+      return;
+    }
+  });
+}
+
+function renderTodoBoard() {
+  ensureTodoListeners();
+  const items = teamManualItems.map((mi) => ({
+    id: mi.id,
+    owner: mi.owner,
+    topic: mi.topic || "General",
+    description: mi.description,
+    context: mi.context || null,
+    meeting_date: mi.meeting_date,
+    status: mi.status || "open",
+  }));
+
+  document.getElementById("todoEmpty").style.display = items.length ? "none" : "block";
+
+  const byStatus = { open: [], in_progress: [], done: [] };
+  items.forEach((item) => {
+    const status = teamEffectiveStatus(item);
+    (byStatus[status] || byStatus.open).push(item);
+  });
+
+  renderCards("todoCards", [
+    { label: "To do", value: number(byStatus.open.length) },
+    { label: "In progress", value: number(byStatus.in_progress.length) },
+    { label: "Completed", value: number(byStatus.done.length) },
+  ]);
+
+  const allOwners = [...new Set([...TEAM_KNOWN_OWNERS, ...items.map((i) => i.owner)])];
+  const allTopics = [...new Set(items.map((i) => i.topic || "General"))];
+  ensureTodoAddForm(allOwners, allTopics);
+
+  TEAM_STATUS_ORDER.forEach((status) => {
+    const listEl = document.getElementById(`todoList${status}`);
+    const countEl = document.getElementById(`todoCount${status}`);
+    if (countEl) countEl.textContent = byStatus[status].length;
+    if (listEl) listEl.innerHTML = byStatus[status].map(todoCardHtml).join("") || `<div class="todo-empty-col">Nothing here</div>`;
+  });
+
+  buildFilterPills("todoOwnerFilter", allOwners, null, (value) => {
+    todoFilters.owner = value;
+    applyTodoFilters();
+  });
+  buildFilterPills("todoTopicFilter", allTopics, null, (value) => {
+    todoFilters.topic = value;
+    applyTodoFilters();
+  });
+  applyTodoFilters();
 }
 
 /* ---------- content calendar ---------- */
@@ -2101,6 +2232,7 @@ function renderAll() {
   renderLeads();
   renderSocial();
   renderTeam();
+  renderTodoBoard();
   renderLinks();
 
   const synced = [

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -66,6 +66,7 @@
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
+    <button class="tab" data-view="todo">To Do</button>
     <button class="tab" data-view="links">Useful Links</button>
   </nav>
 
@@ -559,26 +560,20 @@
 
     <section class="view" id="view-team">
       <div class="cards" id="teamCards"></div>
-      <div id="teamEmpty" class="empty" style="display:none">No meetings logged yet - see README.md "Team &amp; Meetings" for how to add one via scripts/add_meeting.py, or add a ticket manually below.</div>
+      <div id="teamEmpty" class="empty" style="display:none">No meetings logged yet - see README.md "Team &amp; Meetings" for how to add one via scripts/add_meeting.py.</div>
 
-      <div class="team-add" id="teamAdd">
-        <button type="button" class="btn-add-ticket" id="teamAddToggle">+ Add ticket</button>
-        <form class="team-add-form hidden" id="teamAddForm">
-          <div class="team-add-row">
-            <input type="text" name="owner" placeholder="Owner (e.g. Lucas)" required list="teamOwnerOptions" />
-            <input type="text" name="topic" placeholder="Subject (e.g. SEO)" list="teamTopicOptions" />
-            <input type="date" name="meeting_date" required />
-          </div>
-          <textarea name="description" placeholder="What needs to be done?" required></textarea>
-          <input type="text" name="context" placeholder="Extra context (optional)" />
-          <div class="team-add-actions">
-            <button type="submit" class="btn-primary">Add ticket</button>
-            <button type="button" id="teamAddCancel">Cancel</button>
-          </div>
-        </form>
-        <datalist id="teamOwnerOptions"></datalist>
-        <datalist id="teamTopicOptions"></datalist>
-      </div>
+      <form class="team-add-form hidden" id="teamEditForm">
+        <div class="team-add-row">
+          <input type="text" name="owner" placeholder="Owner" required />
+          <input type="text" name="topic" placeholder="Subject" />
+        </div>
+        <textarea name="description" placeholder="What needs to be done?" required></textarea>
+        <input type="text" name="context" placeholder="Extra context (optional)" />
+        <div class="team-add-actions">
+          <button type="submit" class="btn-primary">Save changes</button>
+          <button type="button" id="teamEditCancel">Cancel</button>
+        </div>
+      </form>
 
       <div class="team-filters">
         <div class="team-filter-row"><span class="team-filter-label">Person</span><div class="owner-filter" id="teamOwnerFilter"></div></div>
@@ -587,6 +582,50 @@
         <div class="team-filter-row"><span class="team-filter-label">Date</span><div class="owner-filter" id="teamDateFilter"></div></div>
       </div>
       <div id="teamMeetings"></div>
+    </section>
+
+    <section class="view" id="view-todo">
+      <div class="cards" id="todoCards"></div>
+      <div id="todoEmpty" class="empty" style="display:none">No tasks yet - add one below.</div>
+
+      <div class="team-add" id="todoAdd">
+        <button type="button" class="btn-add-ticket" id="todoAddToggle">+ Add task</button>
+        <form class="team-add-form hidden" id="todoAddForm">
+          <div class="team-add-row">
+            <input type="text" name="owner" placeholder="Owner (e.g. Lucas)" required list="todoOwnerOptions" />
+            <input type="text" name="topic" placeholder="Subject (e.g. SEO)" list="todoTopicOptions" />
+            <input type="date" name="meeting_date" required />
+          </div>
+          <textarea name="description" placeholder="What needs to be done?" required></textarea>
+          <input type="text" name="context" placeholder="Extra context (optional)" />
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add task</button>
+            <button type="button" id="todoAddCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="todoOwnerOptions"></datalist>
+        <datalist id="todoTopicOptions"></datalist>
+      </div>
+
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Person</span><div class="owner-filter" id="todoOwnerFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Subject</span><div class="owner-filter" id="todoTopicFilter"></div></div>
+      </div>
+
+      <div class="todo-board" id="todoBoard">
+        <div class="todo-column" data-status="open">
+          <h3>To Do <span class="status-count" id="todoCountopen">0</span></h3>
+          <div class="todo-column-list" id="todoListopen"></div>
+        </div>
+        <div class="todo-column" data-status="in_progress">
+          <h3>In Progress <span class="status-count" id="todoCountin_progress">0</span></h3>
+          <div class="todo-column-list" id="todoListin_progress"></div>
+        </div>
+        <div class="todo-column" data-status="done">
+          <h3>Completed <span class="status-count" id="todoCountdone">0</span></h3>
+          <div class="todo-column-list" id="todoListdone"></div>
+        </div>
+      </div>
     </section>
 
     <section class="view" id="view-links">
@@ -627,7 +666,7 @@
 </div>
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
-<script type="module" src="firebase-team-sync.js?v=2"></script>
-<script src="dashboard.js?v=27"></script>
+<script type="module" src="firebase-team-sync.js?v=3"></script>
+<script src="dashboard.js?v=28"></script>
 </body>
 </html>
