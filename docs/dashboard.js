@@ -851,7 +851,8 @@ function renderBlog() {
   renderTable(
     "blogPagesTable",
     ga4.top_pages,
-    (p) => `<tr><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td><td>${duration(p.avg_engagement_seconds)}</td><td>${percent(p.bounce_rate)}</td></tr>`
+    (p) =>
+      `<tr title="${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time on page"><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td><td>${percent(p.bounce_rate)}</td></tr>`
   );
   renderTable(
     "blogCountriesTable",
@@ -887,7 +888,14 @@ function renderBlog() {
   renderTable(
     "recentPostsTable",
     content?.posts || [],
-    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td><td>${duration(p.avg_engagement_seconds)}</td><td>${number(p.clicks)}</td><td>${number(p.impressions)}</td><td>${p.position || "—"}</td></tr>`
+    // Post title (falls back to a readable version of the URL slug) instead
+    // of the raw URL path, and down to the 4 numbers that actually answer
+    // "is this post doing anything" - views/time/impressions/position moved
+    // into the row's title tooltip instead of taking up 4 more columns.
+    (p) => {
+      const detail = `${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time, ${number(p.impressions)} impressions, position ${p.position || "—"}`;
+      return `<tr title="${detail}"><td><a href="${p.url}" target="_blank" rel="noopener">${p.title || titleFromUrl(p.url)}</a></td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${number(p.sessions)}</td><td>${number(p.clicks)}</td></tr>`;
+    }
   );
 }
 

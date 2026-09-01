@@ -132,6 +132,20 @@ a{color:inherit}
 .delta-flat{background:rgba(128,128,128,.14);color:var(--muted)}
 
 .panel{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--glow);margin-bottom:16px}
+
+/* a <details class="panel panel-details"> tucks secondary tables/charts
+   behind a click, so a data-dense tab (e.g. Blog) leads with the few things
+   worth glancing at every time, not everything at once - the inner panels
+   keep their own padding, so this one's is dropped to avoid doubling up */
+.panel-details{padding:0;overflow:hidden}
+.panel-details summary{padding:16px 20px;cursor:pointer;list-style:none}
+.panel-details summary::-webkit-details-marker{display:none}
+.panel-details summary h2{display:inline;margin:0}
+.panel-details summary::before{content:"▸";display:inline-block;width:14px;color:var(--muted);font-size:12px;transition:transform .15s ease}
+.panel-details[open] summary::before{transform:rotate(90deg)}
+.panel-details[open] summary{border-bottom:1px solid var(--line)}
+.panel-details .panel{margin:16px 20px;box-shadow:none}
+.panel-details .panel:last-child{margin-bottom:20px}
 .panel h2{font-size:15px;margin:0 0 14px;font-weight:800;color:var(--ink)}
 .h2-note{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:none;letter-spacing:0}
 .panel-intro{color:var(--muted);font-size:13.5px;line-height:1.6;margin:0}

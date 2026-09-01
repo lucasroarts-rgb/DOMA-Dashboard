@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=23">
+<link rel="stylesheet" href="/static/styles.css?v=24">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -268,11 +268,11 @@
         <div id="blogChart" class="chart-box"></div>
       </div>
       <div class="panel">
-        <h2>Recent posts <span class="h2-note">(latest published, independent of the range above)</span></h2>
+        <h2>Recent posts <span class="h2-note">(latest published - hover a row for more detail)</span></h2>
         <div id="recentPostsEmpty" class="empty" style="display:none">No recent-post data yet. Run scripts/sync_gsc.py and scripts/sync_ga4.py.</div>
         <div class="table-wrap">
           <table id="recentPostsTable">
-            <thead><tr><th>Post</th><th>Published</th><th>Sessions</th><th>Views</th><th>Avg. time</th><th>Clicks</th><th>Impressions</th><th>Position</th></tr></thead>
+            <thead><tr><th>Post</th><th>Published</th><th>Sessions</th><th>Clicks</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -289,51 +289,55 @@
           </div>
         </div>
         <div class="panel">
-          <h2>Top pages <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
+          <h2>Top pages <span class="h2-note">(hover a row for more detail)</span></h2>
           <div class="table-wrap">
             <table id="blogPagesTable">
-              <thead><tr><th>Page</th><th>Sessions</th><th>Views</th><th>Avg. time on page</th><th>Bounce rate</th></tr></thead>
+              <thead><tr><th>Page</th><th>Sessions</th><th>Bounce rate</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
       </div>
-      <div class="panel">
-        <h2>Visitors by country <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
-        <div class="table-wrap">
-          <table id="blogCountriesTable">
-            <thead><tr><th>Country</th><th>Active users</th><th>Sessions</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Sessions by device <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
-        <div class="table-wrap">
-          <table id="blogDeviceTable">
-            <thead><tr><th>Device</th><th>Active users</th><th>Sessions</th><th>Share</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-      <div class="panel">
-        <h2>Audience &middot; gender &amp; age <span class="h2-note">(requires Google Signals - not retroactive, may take a day to populate)</span></h2>
-        <div id="blogDemographicsEmpty" class="empty" style="display:none">No demographics yet - Google Signals was just enabled, check back in a day.</div>
-        <div class="grid-2">
+
+      <details class="panel panel-details">
+        <summary><h2>Audience details <span class="h2-note">(country, device, gender &amp; age)</span></h2></summary>
+        <div class="panel">
+          <h2>Visitors by country <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
           <div class="table-wrap">
-            <table id="blogGenderTable">
-              <thead><tr><th>Gender</th><th>Active users</th><th>Share</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-          <div class="table-wrap">
-            <table id="blogAgeTable">
-              <thead><tr><th>Age</th><th>Active users</th><th>Share</th></tr></thead>
+            <table id="blogCountriesTable">
+              <thead><tr><th>Country</th><th>Active users</th><th>Sessions</th></tr></thead>
               <tbody></tbody>
             </table>
           </div>
         </div>
-      </div>
+        <div class="panel">
+          <h2>Sessions by device <span class="h2-note">(last 180 days, independent of the range above)</span></h2>
+          <div class="table-wrap">
+            <table id="blogDeviceTable">
+              <thead><tr><th>Device</th><th>Active users</th><th>Sessions</th><th>Share</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Audience &middot; gender &amp; age <span class="h2-note">(requires Google Signals - not retroactive, may take a day to populate)</span></h2>
+          <div id="blogDemographicsEmpty" class="empty" style="display:none">No demographics yet - Google Signals was just enabled, check back in a day.</div>
+          <div class="grid-2">
+            <div class="table-wrap">
+              <table id="blogGenderTable">
+                <thead><tr><th>Gender</th><th>Active users</th><th>Share</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="table-wrap">
+              <table id="blogAgeTable">
+                <thead><tr><th>Age</th><th>Active users</th><th>Share</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <section class="view" id="view-content-ideas">
@@ -667,6 +671,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js?v=3"></script>
-<script src="/static/dashboard.js?v=28"></script>
+<script src="/static/dashboard.js?v=29"></script>
 </body>
 </html>
