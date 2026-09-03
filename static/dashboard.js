@@ -1051,7 +1051,7 @@ function renderEmailCampaigns() {
 
   renderCards("emailCampaignsCards", [
     { label: "Campaigns", value: number(campaigns.length) },
-    { label: "Total recipients", value: number(totalSent) },
+    { label: "Total sends", value: number(totalSent), hint: "Sum across sends, not unique people - the resend and the parallel GHL/AC send largely overlap." },
     { label: "Avg open rate", value: totalSent ? percent((totalOpens / totalSent) * 100) : "—" },
     { label: "Avg click rate", value: totalSent ? percent((totalClicks / totalSent) * 100) : "—" },
     { label: "Unsubscribes", value: number(totalUnsubs) },
