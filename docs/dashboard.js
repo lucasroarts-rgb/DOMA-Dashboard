@@ -950,7 +950,6 @@ function renderLeads() {
   renderCards("leadsCards", [
     { label: "New leads", value: number(ghl.total_leads), delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "" },
     { label: "Active sources", value: number(ghl.by_source.length) },
-    { label: "Email campaigns", value: ghl.email_available ? number(ghl.email_campaigns.length) : "—" },
     {
       label: "Top source share",
       value: ghl.by_source.length ? percent((ghl.by_source[0].lead_count / ghl.total_leads) * 100) : "—",
@@ -972,13 +971,94 @@ function renderLeads() {
     ghl.by_source,
     (s) => `<tr><td>${s.source}</td><td>${number(s.lead_count)}</td><td>${percent((s.lead_count / ghl.total_leads) * 100)}</td></tr>`
   );
+}
 
-  document.getElementById("emailUnavailable").style.display = ghl.email_available ? "none" : "block";
-  renderTable(
-    "leadsEmailTable",
-    ghl.email_campaigns,
-    (c) => `<tr><td>${c.campaign_name}</td><td>${number(c.recipients)}</td><td>${percent(c.open_rate)}</td><td>${percent(c.click_rate)}</td></tr>`
-  );
+/* ---------- email campaigns (ActiveCampaign + GoHighLevel, entered by
+   hand from each platform's own reporting screen - split off from Leads
+   2026-09-03 into its own tab so the two source platforms don't blur
+   together) ---------- */
+
+function emailCampaignSentLabel(c) {
+  if (!c.sent_at) return "Not sent yet";
+  const date = fullDate(c.sent_at);
+  return c.sent_time ? `${date} at ${c.sent_time}` : date;
+}
+
+function emailCampaignCardHtml(c) {
+  const stats = [
+    { label: "Sent to", value: number(c.recipients) },
+    { label: "Delivered", value: c.delivered !== null ? `${number(c.delivered)} (${percent(c.delivered_rate)})` : "—" },
+    { label: "Unique opens", value: `${number(c.opens)} (${percent(c.open_rate)})` },
+    { label: "Unique clicks", value: `${number(c.clicks)} (${percent(c.click_rate)})` },
+    { label: "Click-to-open", value: c.ctor !== null ? percent(c.ctor) : "—" },
+    { label: "Unsubscribes", value: c.unsubscribes !== null ? `${number(c.unsubscribes)} (${percent(c.unsubscribe_rate)})` : "—" },
+    {
+      label: "Bounces",
+      value:
+        c.hard_bounces !== null || c.soft_bounces !== null
+          ? `${number((c.hard_bounces || 0) + (c.soft_bounces || 0))} (${percent(c.bounce_rate)})`
+          : c.bounce_rate !== null
+          ? percent(c.bounce_rate)
+          : "—",
+    },
+    { label: "Skipped", value: c.skipped !== null ? `${number(c.skipped)} (${percent(c.skipped_rate)})` : "—" },
+  ];
+
+  return `
+    <div class="panel email-campaign-card">
+      <div class="email-campaign-header">
+        <div>
+          <h3>${c.campaign_name}</h3>
+          <div class="panel-meta">Sent ${emailCampaignSentLabel(c)}${c.scheduled_at ? ` &middot; scheduled for ${c.scheduled_at}` : ""}</div>
+        </div>
+      </div>
+      <div class="email-campaign-stats">
+        ${stats.map((s) => `<div class="email-campaign-stat"><span class="email-campaign-stat-label">${s.label}</span><span class="email-campaign-stat-value">${s.value}</span></div>`).join("")}
+      </div>
+      ${c.notes ? `<div class="email-campaign-notes">${c.notes}</div>` : ""}
+      ${
+        c.top_links && c.top_links.length
+          ? `<details class="email-campaign-links">
+        <summary>&#128279; Click performance (${c.top_links.length} link${c.top_links.length === 1 ? "" : "s"}${c.total_clicks ? `, ${number(c.total_clicks)} total clicks` : ""})</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Link</th><th>Unique clicks</th><th>Total clicks</th></tr></thead>
+            <tbody>
+              ${c.top_links.map((l) => `<tr><td class="email-campaign-link-url">${l.url}</td><td>${number(l.unique_clicks)}</td><td>${number(l.total_clicks)}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
+      </details>`
+          : ""
+      }
+    </div>`;
+}
+
+function renderEmailCampaigns() {
+  const ghl = dashboard.ghl;
+  const campaigns = ghl.email_campaigns || [];
+  const acCampaigns = campaigns.filter((c) => c.source === "activecampaign");
+  const ghlCampaigns = campaigns.filter((c) => c.source !== "activecampaign");
+
+  document.getElementById("emailCampaignsEmpty").style.display = campaigns.length ? "none" : "block";
+  document.getElementById("emailCampaignsActiveCampaignPanel").style.display = acCampaigns.length ? "block" : "none";
+  document.getElementById("emailCampaignsGhlPanel").style.display = ghlCampaigns.length ? "block" : "none";
+
+  const totalSent = campaigns.reduce((sum, c) => sum + (c.recipients || 0), 0);
+  const totalOpens = campaigns.reduce((sum, c) => sum + (c.opens || 0), 0);
+  const totalClicks = campaigns.reduce((sum, c) => sum + (c.clicks || 0), 0);
+  const totalUnsubs = campaigns.reduce((sum, c) => sum + (c.unsubscribes || 0), 0);
+
+  renderCards("emailCampaignsCards", [
+    { label: "Campaigns", value: number(campaigns.length) },
+    { label: "Total recipients", value: number(totalSent) },
+    { label: "Avg open rate", value: totalSent ? percent((totalOpens / totalSent) * 100) : "—" },
+    { label: "Avg click rate", value: totalSent ? percent((totalClicks / totalSent) * 100) : "—" },
+    { label: "Unsubscribes", value: number(totalUnsubs) },
+  ]);
+
+  document.getElementById("emailCampaignsActiveCampaignList").innerHTML = acCampaigns.map(emailCampaignCardHtml).join("");
+  document.getElementById("emailCampaignsGhlList").innerHTML = ghlCampaigns.map(emailCampaignCardHtml).join("");
 }
 
 function renderSocial() {
@@ -2497,6 +2577,7 @@ function renderAll() {
   safeRender("Content Suggestions", renderContentIdeas);
   safeRender("Content Calendar", renderContentCalendar);
   safeRender("Leads", renderLeads);
+  safeRender("Email Campaigns", renderEmailCampaigns);
   safeRender("Social", renderSocial);
   safeRender("Team & Meetings", renderTeam);
   safeRender("Weekly Recap", renderWeeklyRecap);

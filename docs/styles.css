@@ -318,6 +318,22 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .meeting-minutes summary:hover{color:var(--teal-2)}
 .meeting-minutes-text{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.65;color:var(--muted);margin-top:10px;padding:14px;background:var(--panel);border-radius:8px;border:1px solid var(--line)}
 
+/* email campaigns */
+.email-campaign-card{margin-bottom:14px}
+.email-campaign-card:last-child{margin-bottom:0}
+.email-campaign-header h3{margin:0;font-size:15px}
+.email-campaign-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-top:14px}
+.email-campaign-stat{display:flex;flex-direction:column;gap:2px}
+.email-campaign-stat-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--muted)}
+.email-campaign-stat-value{font-size:14.5px;font-weight:750;color:var(--ink)}
+.email-campaign-notes{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted);line-height:1.55}
+.email-campaign-links{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.email-campaign-links summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--muted);list-style:none}
+.email-campaign-links summary::-webkit-details-marker{display:none}
+.email-campaign-links summary:hover{color:var(--teal-2)}
+.email-campaign-links .table-wrap{margin-top:10px}
+.email-campaign-link-url{font-size:12px;color:var(--muted);word-break:break-all}
+
 /* weekly recap */
 .weekly-recap-week{padding:16px 20px}
 .weekly-recap-header{width:100%;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border:0;background:transparent;padding:0;cursor:pointer;text-align:left}

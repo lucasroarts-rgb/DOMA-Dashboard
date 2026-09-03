@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=27">
+<link rel="stylesheet" href="/static/styles.css?v=28">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -64,6 +64,7 @@
     <button class="tab" data-view="content-ideas">Content Suggestions</button>
     <button class="tab" data-view="content-calendar">Content Calendar</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
+    <button class="tab" data-view="email-campaigns">Email Campaigns</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
     <button class="tab" data-view="weekly-recap">Weekly Recap</button>
@@ -479,29 +480,30 @@
         <h2>New leads per day</h2>
         <div id="leadsChart" class="chart-box"></div>
       </div>
-      <div class="grid-2">
-        <div class="panel">
-          <h2>Leads by source</h2>
-          <div id="leadsSourceBars" class="hbar-list"></div>
-          <div class="table-wrap">
-            <table id="leadsSourceTable">
-              <thead><tr><th>Source</th><th>Leads</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
+      <div class="panel">
+        <h2>Leads by source</h2>
+        <div id="leadsSourceBars" class="hbar-list"></div>
+        <div class="table-wrap">
+          <table id="leadsSourceTable">
+            <thead><tr><th>Source</th><th>Leads</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <div class="panel">
-          <h2>Email campaigns</h2>
-          <div id="emailUnavailable" class="empty" style="display:none">
-            GoHighLevel doesn't expose email campaign stats to this integration (confirmed platform limitation). Import numbers manually: scripts/import_email_stats.py.
-          </div>
-          <div class="table-wrap">
-            <table id="leadsEmailTable">
-              <thead><tr><th>Campaign</th><th>Recipients</th><th>Open rate</th><th>Click rate</th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-email-campaigns">
+      <div class="cards" id="emailCampaignsCards"></div>
+      <div id="emailCampaignsEmpty" class="empty" style="display:none">
+        No email campaigns recorded yet. Import numbers manually: scripts/import_email_stats.py.
+      </div>
+      <div class="panel" id="emailCampaignsActiveCampaignPanel">
+        <h2>ActiveCampaign <span class="h2-note">newsletter sends</span></h2>
+        <div id="emailCampaignsActiveCampaignList"></div>
+      </div>
+      <div class="panel" id="emailCampaignsGhlPanel">
+        <h2>GoHighLevel <span class="h2-note">(numbers copied by hand from the GHL Reporting screen - no public API for this)</span></h2>
+        <div id="emailCampaignsGhlList"></div>
       </div>
     </section>
 
@@ -681,6 +683,6 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js?v=4"></script>
-<script src="/static/dashboard.js?v=33"></script>
+<script src="/static/dashboard.js?v=34"></script>
 </body>
 </html>

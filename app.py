@@ -427,10 +427,26 @@ def init_db() -> None:
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         campaign_id TEXT NOT NULL,
         campaign_name TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'ghl',
         sent_at TEXT,
+        sent_time TEXT,
+        scheduled_at TEXT,
         recipients INTEGER NOT NULL DEFAULT 0,
         opens INTEGER NOT NULL DEFAULT 0,
         clicks INTEGER NOT NULL DEFAULT 0,
+        delivered INTEGER,
+        delivered_rate REAL,
+        unsubscribes INTEGER,
+        unsubscribe_rate REAL,
+        hard_bounces INTEGER,
+        soft_bounces INTEGER,
+        bounce_rate REAL,
+        skipped INTEGER,
+        skipped_rate REAL,
+        total_clicks INTEGER,
+        ctor REAL,
+        top_links TEXT,
+        notes TEXT,
         synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(campaign_id)
     );
@@ -508,6 +524,27 @@ def init_db() -> None:
         action_item_columns = {row["name"] for row in con.execute("PRAGMA table_info(team_action_items)").fetchall()}
         if "topic" not in action_item_columns:
             con.execute("ALTER TABLE team_action_items ADD COLUMN topic TEXT")
+        email_columns = {row["name"] for row in con.execute("PRAGMA table_info(ghl_email_campaigns)").fetchall()}
+        for col, coltype in [
+            ("source", "TEXT NOT NULL DEFAULT 'ghl'"),
+            ("sent_time", "TEXT"),
+            ("scheduled_at", "TEXT"),
+            ("delivered", "INTEGER"),
+            ("delivered_rate", "REAL"),
+            ("unsubscribes", "INTEGER"),
+            ("unsubscribe_rate", "REAL"),
+            ("hard_bounces", "INTEGER"),
+            ("soft_bounces", "INTEGER"),
+            ("bounce_rate", "REAL"),
+            ("skipped", "INTEGER"),
+            ("skipped_rate", "REAL"),
+            ("total_clicks", "INTEGER"),
+            ("ctor", "REAL"),
+            ("top_links", "TEXT"),
+            ("notes", "TEXT"),
+        ]:
+            if col not in email_columns:
+                con.execute(f"ALTER TABLE ghl_email_campaigns ADD COLUMN {col} {coltype}")
 
 
 def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
@@ -1231,6 +1268,7 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
 
 
 def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
+    import json
     total_row = con.execute(
         "SELECT COALESCE(SUM(lead_count),0), MAX(synced_at) FROM ghl_leads_daily "
         "WHERE report_date BETWEEN ? AND ?",
@@ -1253,23 +1291,60 @@ def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
     by_source = [{"source": row[0], "lead_count": int(row[1] or 0)} for row in source_rows]
 
     email_rows = con.execute(
-        "SELECT campaign_id, campaign_name, sent_at, recipients, opens, clicks FROM ghl_email_campaigns "
-        "WHERE sent_at IS NULL OR sent_at BETWEEN ? AND ? ORDER BY sent_at DESC LIMIT 25",
+        """
+        SELECT campaign_id, campaign_name, source, sent_at, sent_time, scheduled_at,
+               recipients, opens, clicks, delivered, delivered_rate,
+               unsubscribes, unsubscribe_rate, hard_bounces, soft_bounces, bounce_rate,
+               skipped, skipped_rate, total_clicks, ctor, top_links, notes
+        FROM ghl_email_campaigns
+        WHERE sent_at IS NULL OR sent_at BETWEEN ? AND ?
+        ORDER BY sent_at DESC LIMIT 25
+        """,
         (start_date, end_date),
     ).fetchall()
-    email_campaigns = [
-        {
-            "campaign_id": row[0],
-            "campaign_name": row[1],
-            "sent_at": row[2],
-            "recipients": int(row[3] or 0),
-            "opens": int(row[4] or 0),
-            "clicks": int(row[5] or 0),
-            "open_rate": round((row[4] / row[3]) * 100, 1) if row[3] else None,
-            "click_rate": round((row[5] / row[3]) * 100, 1) if row[3] else None,
-        }
-        for row in email_rows
-    ]
+    email_campaigns = []
+    for row in email_rows:
+        (
+            campaign_id, campaign_name, source, sent_at, sent_time, scheduled_at,
+            recipients, opens, clicks, delivered, delivered_rate,
+            unsubscribes, unsubscribe_rate, hard_bounces, soft_bounces, bounce_rate,
+            skipped, skipped_rate, total_clicks, ctor, top_links, notes,
+        ) = row
+        recipients = int(recipients or 0)
+        opens = int(opens or 0)
+        clicks = int(clicks or 0)
+        try:
+            parsed_links = json.loads(top_links) if top_links else []
+        except (TypeError, ValueError):
+            parsed_links = []
+        email_campaigns.append(
+            {
+                "campaign_id": campaign_id,
+                "campaign_name": campaign_name,
+                "source": source or "ghl",
+                "sent_at": sent_at,
+                "sent_time": sent_time,
+                "scheduled_at": scheduled_at,
+                "recipients": recipients,
+                "opens": opens,
+                "clicks": clicks,
+                "delivered": int(delivered) if delivered is not None else None,
+                "delivered_rate": round(delivered_rate, 2) if delivered_rate is not None else None,
+                "open_rate": round((opens / recipients) * 100, 1) if recipients else None,
+                "click_rate": round((clicks / recipients) * 100, 1) if recipients else None,
+                "unsubscribes": int(unsubscribes) if unsubscribes is not None else None,
+                "unsubscribe_rate": round(unsubscribe_rate, 2) if unsubscribe_rate is not None else None,
+                "hard_bounces": int(hard_bounces) if hard_bounces is not None else None,
+                "soft_bounces": int(soft_bounces) if soft_bounces is not None else None,
+                "bounce_rate": round(bounce_rate, 2) if bounce_rate is not None else None,
+                "skipped": int(skipped) if skipped is not None else None,
+                "skipped_rate": round(skipped_rate, 2) if skipped_rate is not None else None,
+                "total_clicks": int(total_clicks) if total_clicks is not None else None,
+                "ctor": round(ctor, 2) if ctor is not None else None,
+                "top_links": parsed_links,
+                "notes": notes,
+            }
+        )
 
     return {
         "available": total_leads > 0,
