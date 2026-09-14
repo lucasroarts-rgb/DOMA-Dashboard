@@ -1173,6 +1173,11 @@ let teamLiveOverrides = new Map();
 // so the edit-button click handler can look up either a manual or a
 // meeting-derived item by id without keeping two separate lookups in sync.
 let teamAllItemsById = new Map();
+// Same pattern for the To Do board (2026-09-14: Lucas asked for meeting
+// tickets to show up here too, not just on Team & Meetings) - populated
+// fresh every renderTodoBoard() call, covers both manual and meeting-
+// derived items so the click handlers can look either up by id.
+let todoAllItemsById = new Map();
 
 const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
 // Always offered as owner options (filter pills + the add-ticket datalist)
@@ -1605,17 +1610,23 @@ let editingTodoItemId = null;
 
 function todoCardHtml(item) {
   const status = teamEffectiveStatus(item);
+  const isMeeting = item.source === "meeting";
   return `
-    <div class="todo-card" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}">
+    <div class="todo-card" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-source="${item.source || "manual"}">
       <div class="todo-card-top">
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>
+        ${isMeeting ? `<span class="todo-card-meeting-badge" title="${item.meeting_title || "Team meeting"}${item.meeting_date ? " · " + fullDate(item.meeting_date) : ""}">&#128197; From meeting</span>` : ""}
       </div>
       <div class="todo-card-desc">${item.description}</div>
       ${item.context ? `<div class="checklist-context">${item.context}</div>` : ""}
       <div class="todo-card-actions">
         ${status !== "done" ? `<button type="button" class="todo-card-advance" title="Move to ${status === "open" ? "In Progress" : "Completed"}">${status === "open" ? "Start →" : "Complete →"}</button>` : `<button type="button" class="todo-card-advance" title="Move back to To Do">↺ Reopen</button>`}
-        <button type="button" class="checklist-edit" title="Edit">&#9998;</button>
-        <button type="button" class="checklist-delete" title="Remove">&times;</button>
+        ${
+          isMeeting
+            ? ""
+            : `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>
+        <button type="button" class="checklist-delete" title="Remove">&times;</button>`
+        }
       </div>
       ${commentsHtml(item)}
     </div>`;
@@ -1711,7 +1722,7 @@ function ensureTodoListeners() {
     const editBtn = event.target.closest(".checklist-edit");
     if (editBtn) {
       const cardEl = editBtn.closest(".todo-card");
-      const item = teamManualItems.find((i) => String(i.id) === cardEl.dataset.id);
+      const item = todoAllItemsById.get(cardEl.dataset.id);
       if (item) openTodoEditForm(item);
       return;
     }
@@ -1735,7 +1746,7 @@ function ensureTodoListeners() {
     if (advance) {
       const cardEl = advance.closest(".todo-card");
       const itemId = cardEl.dataset.id;
-      const item = teamManualItems.find((i) => String(i.id) === itemId);
+      const item = todoAllItemsById.get(itemId);
       const currentStatus = teamEffectiveStatus(item || { id: itemId, status: "open" });
       const isReopen = currentStatus === "done";
       const next = isReopen ? "open" : TEAM_STATUS_ORDER[(TEAM_STATUS_ORDER.indexOf(currentStatus) + 1) % TEAM_STATUS_ORDER.length];
@@ -1753,11 +1764,16 @@ function ensureTodoListeners() {
     const comment = readCommentForm(form);
     if (!comment) return;
     const itemId = form.closest(".ticket-comments").dataset.id;
+    const item = todoAllItemsById.get(itemId);
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
       if (!window.domaTeamSync) throw new Error("Firestore sync not ready yet");
-      await window.domaTeamSync.addManualItemComment(itemId, comment);
+      if (item?.source === "meeting") {
+        await window.domaTeamSync.addActionItemComment(itemId, comment);
+      } else {
+        await window.domaTeamSync.addManualItemComment(itemId, comment);
+      }
     } catch (error) {
       console.error("Failed to post comment:", error);
       alert("Could not post the comment - check the browser console for details.");
@@ -1864,7 +1880,7 @@ function renderWeeklyRecap() {
 
 function renderTodoBoard() {
   ensureTodoListeners();
-  const items = teamManualItems.map((mi) => ({
+  const manualItems = teamManualItems.map((mi) => ({
     id: mi.id,
     owner: mi.owner,
     topic: mi.topic || "General",
@@ -1872,7 +1888,25 @@ function renderTodoBoard() {
     context: mi.context || null,
     meeting_date: mi.meeting_date,
     status: mi.status || "open",
+    source: "manual",
   }));
+
+  // Meeting tickets now show here too (2026-09-14, per Lucas) - reuses the
+  // same merged/override-aware item set Team & Meetings builds, so status,
+  // edits, and comments made on either tab stay in sync automatically.
+  const team = dashboard.team_meetings || { meetings: [] };
+  const meetingItems = teamMergedMeetings(team).flatMap((m) =>
+    (m.action_items || []).map((item) => ({
+      ...item,
+      topic: item.topic || "General",
+      source: "meeting",
+      meeting_title: m.title,
+      meeting_date: item.meeting_date || m.meeting_date,
+    }))
+  );
+
+  const items = [...manualItems, ...meetingItems];
+  todoAllItemsById = new Map(items.map((i) => [String(i.id), i]));
 
   document.getElementById("todoEmpty").style.display = items.length ? "none" : "block";
 
