@@ -1838,6 +1838,14 @@ function renderWeeklyRecap() {
                 <span class="status-count">${doneCount}/${items.length} done</span>
               </div>
               ${m.summary ? `<p class="weekly-recap-summary">${m.summary}</p>` : ""}
+              ${
+                m.raw_notes
+                  ? `<details class="meeting-minutes">
+                <summary>&#128196; View full recap</summary>
+                <pre class="meeting-minutes-text">${escapeHtml(m.raw_notes)}</pre>
+              </details>`
+                  : ""
+              }
             </div>`;
         })
         .join("");
