@@ -429,6 +429,10 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-subcategory.search-expanded .links-grid{display:grid !important}
 .links-subcategory.hidden{display:none}
 .link-card.hidden{display:none}
+.changelog-week{margin-bottom:18px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.changelog-week:last-child{border-bottom:0}
+.changelog-week.collapsed .links-category-body{display:none}
+.changelog-week .checklist-item .pill{margin-right:6px;vertical-align:middle}
 .links-search{width:100%;box-sizing:border-box;border:1px solid var(--line-strong);background:var(--panel-2);color:var(--ink);border-radius:10px;padding:11px 14px;font-size:13.5px;margin-bottom:16px}
 .links-search:focus{outline:none;border-color:var(--teal-2)}
 .links-search::placeholder{color:var(--muted)}

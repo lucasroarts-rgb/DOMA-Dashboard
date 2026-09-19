@@ -70,6 +70,7 @@
     <button class="tab" data-view="weekly-recap">Weekly Recap</button>
     <button class="tab" data-view="todo">To Do</button>
     <button class="tab" data-view="links">Useful Links</button>
+    <button class="tab" data-view="changelog">Changelog</button>
   </nav>
 
   <main id="app">
@@ -671,6 +672,15 @@
       </div>
 
       <div id="linksList" class="links-list"></div>
+    </section>
+
+    <section class="view" id="view-changelog">
+      <div class="panel">
+        <h2>Changelog</h2>
+        <p class="panel-intro">Every site and dashboard change, grouped by week - comment on any item to ask questions or flag something.</p>
+      </div>
+      <div id="changelogEmpty" class="empty" style="display:none">No changes logged yet.</div>
+      <div id="changelogList"></div>
     </section>
 
   </main>

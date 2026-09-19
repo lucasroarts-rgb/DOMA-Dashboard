@@ -29,6 +29,7 @@ const CALENDAR_STATUS_COLLECTION = "content_calendar_item_status";
 const LINKS_COLLECTION = "useful_links";
 const COMMUNITY_STATS_COLLECTION = "community_stats";
 const COMMUNITY_STATS_DOC_ID = "doma_free_community";
+const CHANGELOG_COLLECTION = "site_changelog";
 
 function watch(collectionName, onChange, mapEntry) {
   return onSnapshot(
@@ -212,6 +213,23 @@ window.domaCommunityStats = {
       (docSnap) => callback(docSnap.exists() ? docSnap.data() : null),
       (error) => console.error("Community stats live-sync stopped:", error.code, error.message)
     );
+  },
+};
+
+// Site & dashboard changelog - written once (seeded from a script), then
+// read-only from the UI except for comments, which reuse the same
+// arrayUnion-append pattern as team tickets.
+window.domaChangelog = {
+  subscribeItems(callback) {
+    return watch(CHANGELOG_COLLECTION, (snapshot) => {
+      const items = [];
+      snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
+      items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      callback(items);
+    });
+  },
+  async addComment(itemId, comment) {
+    await setDoc(doc(db, CHANGELOG_COLLECTION, itemId), { comments: arrayUnion(comment) }, { merge: true });
   },
 };
 

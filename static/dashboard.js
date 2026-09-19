@@ -2559,6 +2559,104 @@ function renderLinks() {
   applyLinksSearch();
 }
 
+/* ---------- changelog ---------- */
+
+let changelogItems = [];
+let changelogListenersAttached = false;
+let changelogCollapsedWeeks = {};
+
+function ensureChangelogListeners() {
+  if (changelogListenersAttached) return;
+  changelogListenersAttached = true;
+
+  document.getElementById("changelogList").addEventListener("click", async (event) => {
+    const header = event.target.closest(".changelog-week-header");
+    if (header) {
+      const section = header.closest(".changelog-week");
+      const week = section.dataset.week;
+      changelogCollapsedWeeks[week] = !changelogCollapsedWeeks[week];
+      section.classList.toggle("collapsed", changelogCollapsedWeeks[week]);
+      return;
+    }
+
+    if (handleCommentsToggle(event)) return;
+  });
+
+  document.getElementById("changelogList").addEventListener("submit", async (event) => {
+    const form = event.target.closest(".ticket-comment-form");
+    if (!form) return;
+    event.preventDefault();
+    const comment = readCommentForm(form);
+    if (!comment) return;
+    const itemId = form.closest(".ticket-comments").dataset.id;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaChangelog) throw new Error("Firestore sync not ready yet");
+      await window.domaChangelog.addComment(itemId, comment);
+      form.reset();
+    } catch (error) {
+      console.error("Failed to add changelog comment:", error);
+      alert("Could not post the comment - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaChangelog.subscribeItems((items) => {
+      changelogItems = items;
+      renderChangelog();
+    });
+  });
+}
+
+function changelogStatusPill(status) {
+  return status === "in_progress" ? `<span class="pill info">In progress</span>` : `<span class="pill muted">Done</span>`;
+}
+
+function changelogItemHtml(item) {
+  return `
+    <div class="checklist-item">
+      <div class="checklist-row">
+        <span class="checklist-text">
+          <span class="checklist-topic">${item.category || "General"}</span>${changelogStatusPill(item.status)}
+          <strong>${item.title}</strong>
+          ${item.detail ? `<span class="checklist-context">${item.detail}</span>` : ""}
+        </span>
+      </div>
+      ${commentsHtml({ id: item.id, comments: item.comments })}
+    </div>`;
+}
+
+function renderChangelog() {
+  ensureChangelogListeners();
+  document.getElementById("changelogEmpty").style.display = changelogItems.length ? "none" : "block";
+
+  const weeks = new Map();
+  changelogItems.forEach((item) => {
+    const week = item.week_label || "Undated";
+    if (!weeks.has(week)) weeks.set(week, []);
+    weeks.get(week).push(item);
+  });
+
+  const container = document.getElementById("changelogList");
+  container.innerHTML = [...weeks.entries()]
+    .map(([week, items]) => {
+      const collapsed = !!changelogCollapsedWeeks[week];
+      return `
+        <div class="links-category changelog-week${collapsed ? " collapsed" : ""}" data-week="${week}">
+          <button type="button" class="links-category-header changelog-week-header">
+            <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
+            <h3>${week}</h3>
+            <span class="status-count">${items.length}</span>
+          </button>
+          <div class="links-category-body">${items.map(changelogItemHtml).join("")}</div>
+        </div>`;
+    })
+    .join("");
+}
+
 function renderContentIdeas() {
   const suggestions = dashboard.content_suggestions || { available: false, content_gaps: [], top_ebooks: [], top_blog_posts: [], best_post_times: { available: false, by_day: [], by_period: [] } };
   document.getElementById("contentIdeasEmpty").style.display = suggestions.available ? "none" : "block";
@@ -2625,6 +2723,7 @@ function renderAll() {
   safeRender("Weekly Recap", renderWeeklyRecap);
   safeRender("To Do", renderTodoBoard);
   safeRender("Useful Links", renderLinks);
+  safeRender("Changelog", renderChangelog);
 
   const synced = [
     dashboard.search_console.last_synced_at,
