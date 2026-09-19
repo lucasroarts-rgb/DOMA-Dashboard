@@ -2579,7 +2579,13 @@ function ensureChangelogListeners() {
       return;
     }
 
-    if (handleCommentsToggle(event)) return;
+    const commentToggle = event.target.closest(".changelog-comment-toggle");
+    if (commentToggle) {
+      const row = commentToggle.closest(".changelog-row");
+      const commentsRow = row.nextElementSibling;
+      commentsRow.classList.toggle("hidden");
+      return;
+    }
   });
 
   document.getElementById("changelogList").addEventListener("submit", async (event) => {
@@ -2588,7 +2594,7 @@ function ensureChangelogListeners() {
     event.preventDefault();
     const comment = readCommentForm(form);
     if (!comment) return;
-    const itemId = form.closest(".ticket-comments").dataset.id;
+    const itemId = form.closest(".ticket-comments-body").dataset.id;
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     try {
@@ -2615,17 +2621,43 @@ function changelogStatusPill(status) {
   return status === "in_progress" ? `<span class="pill info">In progress</span>` : `<span class="pill muted">Done</span>`;
 }
 
-function changelogItemHtml(item) {
+function changelogRowHtml(item) {
+  const linkCell = item.link
+    ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="changelog-link" title="${item.link}">View &#8599;</a>`
+    : `<span class="changelog-link-empty">—</span>`;
+  const commentCount = (item.comments || []).length;
   return `
-    <div class="checklist-item">
-      <div class="checklist-row">
-        <span class="checklist-text">
-          <span class="checklist-topic">${item.category || "General"}</span>${changelogStatusPill(item.status)}
-          <strong>${item.title}</strong>
-          ${item.detail ? `<span class="checklist-context">${item.detail}</span>` : ""}
-        </span>
-      </div>
-      ${commentsHtml({ id: item.id, comments: item.comments })}
+    <tr class="changelog-row" data-id="${item.id}">
+      <td class="changelog-date">${fullDate(item.date)}</td>
+      <td><span class="checklist-topic">${item.category || "General"}</span></td>
+      <td class="changelog-title">${item.title}${item.detail ? `<span class="changelog-detail">${item.detail}</span>` : ""}</td>
+      <td class="changelog-impact">${item.impact || "—"}</td>
+      <td>${changelogStatusPill(item.status)}</td>
+      <td>${linkCell}</td>
+      <td><button type="button" class="changelog-comment-toggle" title="Comment">&#128172;${commentCount ? ` ${commentCount}` : ""}</button></td>
+    </tr>
+    <tr class="changelog-comments-row hidden" data-id="${item.id}">
+      <td colspan="7">${changelogCommentsBodyHtml(item)}</td>
+    </tr>`;
+}
+
+function changelogCommentsBodyHtml(item) {
+  const comments = item.comments || [];
+  const list =
+    comments
+      .map(
+        (c) =>
+          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${c.text}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+      )
+      .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
+  return `
+    <div class="ticket-comments-body" data-id="${item.id}">
+      <div class="ticket-comments-list">${list}</div>
+      <form class="ticket-comment-form">
+        <input type="text" name="author" placeholder="Your name" value="${(localStorage.getItem("domaCommenterName") || "").replace(/"/g, "&quot;")}" />
+        <input type="text" name="text" placeholder="Question or note" required />
+        <button type="submit">Post</button>
+      </form>
     </div>`;
 }
 
@@ -2651,7 +2683,18 @@ function renderChangelog() {
             <h3>${week}</h3>
             <span class="status-count">${items.length}</span>
           </button>
-          <div class="links-category-body">${items.map(changelogItemHtml).join("")}</div>
+          <div class="links-category-body">
+            <div class="changelog-table-wrap">
+              <table class="changelog-table">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Category</th><th>What we did</th><th>Impact</th><th>Status</th><th>Link</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>${items.map(changelogRowHtml).join("")}</tbody>
+              </table>
+            </div>
+          </div>
         </div>`;
     })
     .join("");

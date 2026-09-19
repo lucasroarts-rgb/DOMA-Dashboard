@@ -429,10 +429,26 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-subcategory.search-expanded .links-grid{display:grid !important}
 .links-subcategory.hidden{display:none}
 .link-card.hidden{display:none}
-.changelog-week{margin-bottom:18px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+.changelog-week{margin-bottom:22px;padding-bottom:4px;border-bottom:1px solid var(--line)}
 .changelog-week:last-child{border-bottom:0}
 .changelog-week.collapsed .links-category-body{display:none}
-.changelog-week .checklist-item .pill{margin-right:6px;vertical-align:middle}
+.changelog-table-wrap{overflow-x:auto}
+.changelog-table{width:100%;border-collapse:collapse;font-size:13px}
+.changelog-table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:800;padding:8px 10px;border-bottom:1px solid var(--line-strong);white-space:nowrap}
+.changelog-table td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top;line-height:1.45}
+.changelog-row:hover{background:var(--panel-2)}
+.changelog-date{white-space:nowrap;color:var(--muted);font-size:12.5px}
+.changelog-title{min-width:220px;font-weight:700;color:var(--ink)}
+.changelog-detail{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:3px}
+.changelog-impact{min-width:200px;color:var(--muted);font-size:12.5px}
+.changelog-link{color:var(--teal-2);font-weight:700;text-decoration:none;white-space:nowrap}
+.changelog-link:hover{text-decoration:underline}
+.changelog-link-empty{color:var(--muted)}
+.changelog-comment-toggle{border:0;background:transparent;color:var(--muted);font-size:12.5px;cursor:pointer;padding:2px 4px;white-space:nowrap}
+.changelog-comment-toggle:hover{color:var(--teal-2)}
+.changelog-comments-row.hidden{display:none}
+.changelog-comments-row td{background:var(--panel)}
+.changelog-comments-row .ticket-comments-body{padding:2px 0}
 .links-search{width:100%;box-sizing:border-box;border:1px solid var(--line-strong);background:var(--panel-2);color:var(--ink);border-radius:10px;padding:11px 14px;font-size:13.5px;margin-bottom:16px}
 .links-search:focus{outline:none;border-color:var(--teal-2)}
 .links-search::placeholder{color:var(--muted)}
