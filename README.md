@@ -64,7 +64,7 @@ ar), as outras continuam funcionando. Falhas ficam registradas na tabela
 
 ## Automação de eBooks (Drive -> WordPress + GoHighLevel)
 
-Marianeel manda pra Lucas a imagem de capa + PDF de um novo eBook (sem
+Michelle manda pra Lucas a imagem de capa + PDF de um novo eBook (sem
 horário fixo, normalmente seg/qua/sex). Lucas sobe os 2 arquivos na pasta
 Google Drive compartilhada (`DRIVE_EBOOKS_FOLDER_ID` no `.env`). A partir
 daí, `scripts/sync_ebook_pipeline.py` automatiza o que a API permite:
@@ -82,7 +82,7 @@ scripts/
 
 Já roda sozinho: `AGENDAR_AUTOMACAO_EBOOKS.bat` cria uma tarefa que checa a
 pasta seg/qua/sex, das 10h às 12h, a cada 30 minutos (janela pensada pra
-cobrir o horário que Marianeel costuma mandar, sem ficar rodando o dia
+cobrir o horário que Michelle costuma mandar, sem ficar rodando o dia
 inteiro). Usa `pythonw.exe` - roda sem abrir janela de console.
 `RODAR_EBOOK_AGORA.bat` ainda existe se quiser forçar uma rodada imediata
 fora da janela agendada.

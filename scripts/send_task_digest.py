@@ -34,12 +34,13 @@ from scripts.env_utils import load_env_file, log_sync  # noqa: E402
 FIRESTORE_PROJECT_ID = "doma-dshboard"
 FIRESTORE_BASE = f"https://firestore.googleapis.com/v1/projects/{FIRESTORE_PROJECT_ID}/databases/(default)/documents"
 
-# Only these 3 have a known email today - anyone else (e.g. Mariannel) is
-# skipped rather than guessing an address. Add to this map once known.
+# Owners without a known email are skipped rather than guessing an address.
+# Add to this map once known.
 OWNER_EMAILS = {
     "Lucas": "lucas@joindoma.com",
     "Kyle": "kyle@joindoma.com",
     "Juli": "juli@joindoma.com",
+    "Michelle": "michelle@joindoma.com",
 }
 
 

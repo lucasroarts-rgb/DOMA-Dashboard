@@ -1181,10 +1181,10 @@ let todoAllItemsById = new Map();
 
 const TEAM_STATUS_ORDER = ["open", "in_progress", "done"];
 // Always offered as owner options (filter pills + the add-ticket datalist)
-// even before anyone has a ticket assigned to them yet - e.g. Mariannel
+// even before anyone has a ticket assigned to them yet - e.g. Michelle
 // starting to log tickets shouldn't require her first ticket to exist
 // before her name is selectable.
-const TEAM_KNOWN_OWNERS = ["Kyle", "Juli", "Lucas", "Mariannel"];
+const TEAM_KNOWN_OWNERS = ["Kyle", "Juli", "Lucas", "Michelle"];
 const TEAM_STATUS_LABELS = { open: "To do", in_progress: "In progress", done: "Completed" };
 
 function teamEffectiveStatus(item) {
@@ -1199,10 +1199,12 @@ function teamMergedMeetings(team) {
   return team.meetings
     .map((m) => ({
       ...m,
-      action_items: (m.action_items || []).map((item) => {
-        const override = teamLiveOverrides.get(String(item.id));
-        return { ...item, ...(override || {}) };
-      }),
+      action_items: (m.action_items || [])
+        .map((item) => {
+          const override = teamLiveOverrides.get(String(item.id));
+          return { ...item, ...(override || {}) };
+        })
+        .filter((item) => !item.deleted),
     }))
     .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : a.meeting_date > b.meeting_date ? -1 : 0));
 }
@@ -1621,12 +1623,8 @@ function todoCardHtml(item) {
       ${item.context ? `<div class="checklist-context">${item.context}</div>` : ""}
       <div class="todo-card-actions">
         ${status !== "done" ? `<button type="button" class="todo-card-advance" title="Move to ${status === "open" ? "In Progress" : "Completed"}">${status === "open" ? "Start →" : "Complete →"}</button>` : `<button type="button" class="todo-card-advance" title="Move back to To Do">↺ Reopen</button>`}
-        ${
-          isMeeting
-            ? ""
-            : `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>
-        <button type="button" class="checklist-delete" title="Remove">&times;</button>`
-        }
+        ${isMeeting ? "" : `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>`}
+        <button type="button" class="checklist-delete" title="Remove">&times;</button>
       </div>
       ${commentsHtml(item)}
     </div>`;
@@ -1733,8 +1731,14 @@ function ensureTodoListeners() {
       if (!confirm("Remove this task?")) return;
       del.disabled = true;
       try {
-        if (!window.domaTeamSync?.deleteManualItem) throw new Error("Delete not available");
-        await window.domaTeamSync.deleteManualItem(cardEl.dataset.id);
+        const isMeeting = cardEl.dataset.source === "meeting";
+        if (isMeeting) {
+          if (!window.domaTeamSync?.deleteActionItem) throw new Error("Delete not available");
+          await window.domaTeamSync.deleteActionItem(cardEl.dataset.id);
+        } else {
+          if (!window.domaTeamSync?.deleteManualItem) throw new Error("Delete not available");
+          await window.domaTeamSync.deleteManualItem(cardEl.dataset.id);
+        }
       } catch (error) {
         console.error("Failed to delete task:", error);
         del.disabled = false;
@@ -1949,9 +1953,10 @@ function renderTodoBoard() {
 const CALENDAR_STATUS_LABELS = { open: "Planned", in_progress: "In progress", done: "Published" };
 // Matches the real weekly content cadence Juli confirmed (2026-08-26):
 // Mon = Engagement Question, Tue = Teach It Tuesday, Wed = Sponsor,
-// Thu = Blog/Ebook, Fri = Community Reshare. "Other" covers anything
+// Thu = Blog/Ebook, Fri = Community Reshare (Blog and Ebook split into
+// separate types 2026-09-21 - they were sharing one filter). "Other" covers anything
 // outside that cadence (podcast promo, one-off announcements, etc).
-const CALENDAR_TYPES = ["Engagement Question", "Teach It Tuesday", "Sponsor", "Blog/Ebook", "Community Reshare", "Other"];
+const CALENDAR_TYPES = ["Engagement Question", "Teach It Tuesday", "Sponsor", "Blog", "Ebook", "Community Reshare", "Other"];
 
 let calendarItems = [];
 let calendarLiveStatuses = new Map();
@@ -2067,13 +2072,13 @@ function renderCalendarSuggestions() {
     .slice(0, 6)
     .map(
       (g) =>
-        `<button type="button" class="calendar-suggestion-chip" data-title="${g.query}" data-type="Blog post">${g.query}<span class="cal-suggestion-meta">${number(g.impressions)} impressions, no ranking content yet</span></button>`
+        `<button type="button" class="calendar-suggestion-chip" data-title="${g.query}" data-type="Blog">${g.query}<span class="cal-suggestion-meta">${number(g.impressions)} impressions, no ranking content yet</span></button>`
     );
   const ebookChips = (suggestions.top_ebooks || [])
     .slice(0, 4)
     .map(
       (e) =>
-        `<button type="button" class="calendar-suggestion-chip" data-title="Blog post based on: ${e.page_title || titleFromUrl(e.page_path)}" data-type="Blog post">${e.page_title || titleFromUrl(e.page_path)}<span class="cal-suggestion-meta">${number(e.sessions)} sessions - repurpose into a blog post</span></button>`
+        `<button type="button" class="calendar-suggestion-chip" data-title="Blog post based on: ${e.page_title || titleFromUrl(e.page_path)}" data-type="Blog">${e.page_title || titleFromUrl(e.page_path)}<span class="cal-suggestion-meta">${number(e.sessions)} sessions - repurpose into a blog post</span></button>`
     );
   container.innerHTML = [...gapChips, ...ebookChips].join("") || `<div class="empty">No suggestions yet - sync Search Console/GA4 data first.</div>`;
 }
@@ -2082,20 +2087,52 @@ function renderCalendarSuggestions() {
 // Firestore doc id means the form is editing that item in place.
 let editingCalendarItemId = null;
 
+// Content Calendar links, one per line: "url" or "url - label". Falls back
+// to the old singular `link` string field for items created before
+// 2026-09-21 (Juli asked for multiple links per entry).
+function calendarItemLinks(item) {
+  if (Array.isArray(item.links) && item.links.length) return item.links;
+  if (item.link) return [{ url: item.link, label: null }];
+  return [];
+}
+
+function parseLinksTextarea(raw) {
+  return String(raw || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const sepIdx = line.indexOf(" - ");
+      if (sepIdx === -1) return { url: line, label: null };
+      return { url: line.slice(0, sepIdx).trim(), label: line.slice(sepIdx + 3).trim() || null };
+    });
+}
+
+function linksToTextarea(links) {
+  return links.map((l) => (l.label ? `${l.url} - ${l.label}` : l.url)).join("\n");
+}
+
+// Set on the edit form while an item is open, so submit can fall back to
+// the item's existing pdf_url/image_url when no replacement file is chosen -
+// <input type="file"> can't be prefilled, so those URLs live here instead.
+let editingCalendarItemFiles = { pdf_url: null, image_url: null };
+
 function openCalendarEditForm(item) {
   const form = document.getElementById("calendarAddForm");
   if (!form) return;
   editingCalendarItemId = item.id;
+  editingCalendarItemFiles = { pdf_url: item.pdf_url || null, image_url: item.image_url || null };
   form.querySelector('[name="date"]').value = item.date || "";
-  form.querySelector('[name="type"]').value = item.type || "Blog/Ebook";
+  form.querySelector('[name="type"]').value = item.type || "Blog";
   form.querySelector('[name="owner"]').value = item.owner || "";
   form.querySelector('[name="title"]').value = item.title || "";
   form.querySelector('[name="headline"]').value = item.headline || "";
   form.querySelector('[name="direction"]').value = item.direction || "";
   form.querySelector('[name="graphic"]').value = item.graphic || "";
   form.querySelector('[name="resource"]').value = item.resource || "";
-  form.querySelector('[name="link"]').value = item.link || "";
+  form.querySelector('[name="links"]').value = linksToTextarea(calendarItemLinks(item));
   form.querySelector('[name="notes"]').value = item.notes || "";
+  renderCalendarUploadStatus();
   form.querySelector('button[type="submit"]').textContent = "Save changes";
   form.classList.remove("hidden");
   form.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2103,15 +2140,55 @@ function openCalendarEditForm(item) {
 
 function resetCalendarAddForm(form, dateInput) {
   editingCalendarItemId = null;
+  editingCalendarItemFiles = { pdf_url: null, image_url: null };
   form.reset();
   dateInput.value = new Date().toISOString().slice(0, 10);
   form.classList.add("hidden");
   form.querySelector('button[type="submit"]').textContent = "Add to calendar";
+  renderCalendarUploadStatus();
+}
+
+// Shows what's already uploaded (when editing) below the file pickers, and
+// doubles as the "uploading..." indicator during submit.
+function renderCalendarUploadStatus(message) {
+  const el = document.getElementById("calendarUploadStatus");
+  if (!el) return;
+  if (message) {
+    el.textContent = message;
+    el.hidden = false;
+    return;
+  }
+  const parts = [];
+  if (editingCalendarItemFiles.pdf_url) parts.push(`<a href="${editingCalendarItemFiles.pdf_url}" target="_blank" rel="noopener noreferrer">Current PDF &#8599;</a>`);
+  if (editingCalendarItemFiles.image_url) parts.push(`<a href="${editingCalendarItemFiles.image_url}" target="_blank" rel="noopener noreferrer">Current image &#8599;</a>`);
+  el.innerHTML = parts.join(" · ");
+  el.hidden = parts.length === 0;
+}
+
+// Uploads to the local dashboard's own backend, which relays to the
+// WordPress media library (see /api/content-calendar/upload in app.py) -
+// only reachable when running the local FastAPI dashboard, not the
+// published static site (IS_STATIC true there, no backend to call).
+async function uploadCalendarFile(file) {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await fetch("/api/content-calendar/upload", { method: "POST", body });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Upload failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+  const payload = await response.json();
+  return payload.url;
 }
 
 function ensureCalendarAddForm(allOwners) {
   const ownerOptions = document.getElementById("calendarOwnerOptions");
   if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
+
+  // Uploads need the local FastAPI backend - hide the file pickers on the
+  // published static site instead of offering a control that can only fail.
+  const uploadRow = document.getElementById("calendarUploadRow");
+  if (uploadRow) uploadRow.hidden = IS_STATIC;
 
   if (calendarAddFormAttached) return;
   calendarAddFormAttached = true;
@@ -2133,14 +2210,28 @@ function ensureCalendarAddForm(allOwners) {
     submitBtn.disabled = true;
     try {
       if (!window.domaContentCalendar) throw new Error("Firestore sync not ready yet");
-      const type = String(fd.get("type") || "Blog post");
+
+      let pdf_url = editingCalendarItemFiles.pdf_url;
+      let image_url = editingCalendarItemFiles.image_url;
+      const pdfFile = fd.get("pdf_file");
+      const imageFile = fd.get("image_file");
+      if (pdfFile instanceof File && pdfFile.size > 0) {
+        renderCalendarUploadStatus("Uploading PDF...");
+        pdf_url = await uploadCalendarFile(pdfFile);
+      }
+      if (imageFile instanceof File && imageFile.size > 0) {
+        renderCalendarUploadStatus("Uploading image...");
+        image_url = await uploadCalendarFile(imageFile);
+      }
+
+      const type = String(fd.get("type") || "Blog");
       const owner = String(fd.get("owner") || "").trim();
       const notes = String(fd.get("notes") || "").trim();
       const headline = String(fd.get("headline") || "").trim();
       const direction = String(fd.get("direction") || "").trim();
       const graphic = String(fd.get("graphic") || "").trim();
       const resource = String(fd.get("resource") || "").trim();
-      const link = String(fd.get("link") || "").trim();
+      const links = parseLinksTextarea(fd.get("links"));
       const fields = {
         date,
         type,
@@ -2151,7 +2242,10 @@ function ensureCalendarAddForm(allOwners) {
         direction: direction || null,
         graphic: graphic || null,
         resource: resource || null,
-        link: link || null,
+        links: links.length ? links : null,
+        link: null, // superseded by `links` - clears the legacy single-link field on save
+        pdf_url: pdf_url || null,
+        image_url: image_url || null,
       };
       if (editingCalendarItemId) {
         await window.domaContentCalendar.updateItem(editingCalendarItemId, fields);
@@ -2164,7 +2258,8 @@ function ensureCalendarAddForm(allOwners) {
       resetCalendarAddForm(form, dateInput);
     } catch (error) {
       console.error("Failed to save calendar item:", error);
-      alert("Could not save the calendar item - check the browser console for details.");
+      alert(`Could not save the calendar item: ${error.message || "check the browser console for details."}`);
+      renderCalendarUploadStatus();
     } finally {
       submitBtn.disabled = false;
     }
@@ -2183,7 +2278,7 @@ function ensureCalendarAddForm(allOwners) {
     resetCalendarAddForm(form, dateInput);
     form.classList.remove("hidden");
     form.querySelector('[name="title"]').value = chip.dataset.title || "";
-    form.querySelector('[name="type"]').value = chip.dataset.type || "Blog post";
+    form.querySelector('[name="type"]').value = chip.dataset.type || "Blog";
     form.scrollIntoView({ behavior: "smooth", block: "center" });
   });
 }
@@ -2195,10 +2290,12 @@ function shiftMonth(monthStr, delta) {
 }
 
 function calItemHtml(item) {
-  // The compact per-day row can't show all the content-planning fields Juli
-  // asked for (headline, direction, graphic idea, resource, link, notes) -
-  // they all go into the native title tooltip instead, so hovering a row
-  // surfaces the full brief without needing a separate detail view.
+  // The compact per-day row can't show every content-planning field inline
+  // (headline, direction, graphic idea, resource, notes) - they go into the
+  // native title tooltip on hover, AND clicking the row (or the pencil)
+  // opens the full edit form with everything expanded and editable, which
+  // is the reliable way to see it all without depending on hover.
+  const links = calendarItemLinks(item);
   const tooltipLines = [item.title];
   if (item.owner) tooltipLines.push(`Owner: ${item.owner}`);
   if (item.headline) tooltipLines.push(`Headline/Hook: ${item.headline}`);
@@ -2206,14 +2303,21 @@ function calItemHtml(item) {
   if (item.graphic) tooltipLines.push(`Graphic idea: ${item.graphic}`);
   if (item.resource) tooltipLines.push(`Resource: ${item.resource}`);
   if (item.notes) tooltipLines.push(`Notes: ${item.notes}`);
-  if (item.link) tooltipLines.push(`Link: ${item.link}`);
+  links.forEach((l) => tooltipLines.push(`Link${l.label ? " (" + l.label + ")" : ""}: ${l.url}`));
   const tooltip = tooltipLines.join("\n");
+
+  const linkIcons = links
+    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="${l.label || "Open link"}">&#128279;</a>`)
+    .join("");
 
   return `
     <div class="cal-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}" title="${tooltip}">
       <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
       <span class="cal-item-title">${item.title}</span>
-      ${item.link ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Open link">&#128279;</a>` : ""}
+      ${item.notes ? `<span class="cal-item-link" title="Has notes - click the title to read them">&#128221;</span>` : ""}
+      ${linkIcons}
+      ${item.pdf_url ? `<a href="${item.pdf_url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Ebook PDF">&#128196;</a>` : ""}
+      ${item.image_url ? `<a href="${item.image_url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Cover image">&#128247;</a>` : ""}
       <button type="button" class="cal-item-edit" title="Edit">&#9998;</button>
       <button type="button" class="cal-item-delete" title="Remove">&times;</button>
     </div>`;

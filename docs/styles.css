@@ -429,6 +429,10 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .links-subcategory.search-expanded .links-grid{display:grid !important}
 .links-subcategory.hidden{display:none}
 .link-card.hidden{display:none}
+.calendar-upload-row{flex-wrap:wrap}
+.calendar-upload-row input[type="file"]{font-size:12px;color:var(--muted)}
+.calendar-upload-status{font-size:12px;color:var(--teal-2);display:flex;gap:10px}
+.calendar-upload-status a{color:var(--teal-2)}
 .changelog-week{margin-bottom:22px;padding-bottom:4px;border-bottom:1px solid var(--line)}
 .changelog-week:last-child{border-bottom:0}
 .changelog-week.collapsed .links-category-body{display:none}

@@ -73,6 +73,14 @@ window.domaTeamSync = {
   async addActionItemComment(itemId, comment) {
     await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { comments: arrayUnion(comment) }, { merge: true });
   },
+  // Meeting-derived tickets have no doc of their own to delete (their text
+  // is baked from SQLite at publish time) - a soft-delete override hides it
+  // everywhere the same way a text-override edit already does. Reversible in
+  // principle (a Firestore console edit), which is fine for a "remove from
+  // the board" action.
+  async deleteActionItem(itemId) {
+    await setDoc(doc(db, STATUS_COLLECTION, String(itemId)), { deleted: true, updated_at: Date.now() }, { merge: true });
+  },
   subscribeOverrides(callback) {
     return watch(STATUS_COLLECTION, (snapshot) => {
       const overrides = new Map();
@@ -124,10 +132,10 @@ window.domaTeamSync = {
 // ebooks, social, sponsor highlights, etc. Same shared-live-state pattern
 // as team tickets, own collections so the two never collide on ids.
 window.domaContentCalendar = {
-  async addItem({ date, type, title, owner, notes, headline, direction, graphic, resource, link }) {
+  async addItem({ date, type, title, owner, notes, headline, direction, graphic, resource, links, pdf_url, image_url }) {
     const ref = await addDoc(collection(db, CALENDAR_ITEMS_COLLECTION), {
       date,
-      type: type || "Blog post",
+      type: type || "Blog",
       title,
       owner: owner || null,
       notes: notes || null,
@@ -138,7 +146,15 @@ window.domaContentCalendar = {
       direction: direction || null,
       graphic: graphic || null,
       resource: resource || null,
-      link: link || null,
+      // An array now (2026-09-21, Juli asked for multiple) - old items still
+      // have a single `link` string field, which the renderer falls back to.
+      links: links && links.length ? links : null,
+      // Uploaded via the local dashboard's /api/content-calendar/upload
+      // endpoint (WordPress media library, no Firebase Storage bucket
+      // provisioned on this project) - null on the published static site,
+      // which has no backend to upload through.
+      pdf_url: pdf_url || null,
+      image_url: image_url || null,
       // Internal status values stay "open"/"in_progress"/"done" - same enum
       // as team tickets, so the click-to-cycle logic (TEAM_STATUS_ORDER)
       // works unmodified. CALENDAR_STATUS_LABELS maps "open" to "Planned"

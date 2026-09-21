@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import hmac
+import mimetypes
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -21,14 +22,35 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+import requests
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+from scripts.env_utils import load_env_file
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data" / "doma.db")))
 STATIC_DIR = BASE_DIR / "static"
 CREDENTIALS_PATH = BASE_DIR / "data" / "admin_credentials.txt"
+
+# WordPress media library doubles as file storage for content-calendar
+# uploads (ebook PDFs/images) - reuses the same Application Password already
+# configured for SEO/content work, no separate storage bucket needed. See
+# scripts/ebook_pipeline/wp_client.py for the sibling upload used by the
+# ebook pipeline; this is a plainer inline version since it needs to accept
+# both images and PDFs and app.py has no reason to depend on that module.
+_wp_env = load_env_file(BASE_DIR / ".env")
+WP_URL = (_wp_env.get("WP_URL") or os.getenv("WP_URL") or "").rstrip("/")
+WP_USERNAME = _wp_env.get("WP_USERNAME") or os.getenv("WP_USERNAME")
+WP_APP_PASSWORD = _wp_env.get("WP_APP_PASSWORD") or os.getenv("WP_APP_PASSWORD")
+# Same spoofed UA as wp_client.py - Bluehost's WAF (Mod_Security) 406s the
+# default `requests` UA on some content-types.
+WP_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+UPLOAD_MAX_BYTES = 20 * 1024 * 1024
 
 DEFAULT_LOOKBACK_DAYS = 90
 
@@ -1539,6 +1561,35 @@ def startup() -> None:
 @app.get("/api/health")
 def health():
     return {"status": "ok", "time": datetime.utcnow().isoformat()}
+
+
+@app.post("/api/content-calendar/upload")
+async def upload_content_calendar_file(file: UploadFile = File(...)):
+    """Uploads an ebook PDF/image to the WordPress media library and returns
+    its public URL, for the Content Calendar's upload field to store on a
+    calendar item. Local dashboard only - the published static site has no
+    backend to call this. Protected by the same admin Basic auth as every
+    other /api/* write (see protect_writes middleware)."""
+    if not (WP_URL and WP_USERNAME and WP_APP_PASSWORD):
+        raise HTTPException(503, "WP_URL / WP_USERNAME / WP_APP_PASSWORD not configured in .env")
+
+    content = await file.read()
+    if len(content) > UPLOAD_MAX_BYTES:
+        raise HTTPException(400, "File too large (max 20MB)")
+    filename = file.filename or "upload"
+    content_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+    response = requests.post(
+        f"{WP_URL}/wp-json/wp/v2/media",
+        auth=(WP_USERNAME, WP_APP_PASSWORD),
+        headers={"User-Agent": WP_BROWSER_UA},
+        files={"file": (filename, content, content_type)},
+        timeout=60,
+    )
+    if response.status_code not in (200, 201):
+        raise HTTPException(502, f"WordPress upload failed ({response.status_code}): {response.text[:300]}")
+    payload = response.json()
+    return {"url": payload["source_url"], "id": payload["id"], "filename": filename}
 
 
 @app.get("/")

@@ -417,12 +417,13 @@
                 <option>Engagement Question</option>
                 <option>Teach It Tuesday</option>
                 <option>Sponsor</option>
-                <option>Blog/Ebook</option>
+                <option>Blog</option>
+                <option>Ebook</option>
                 <option>Community Reshare</option>
                 <option>Other</option>
               </select>
             </label>
-            <label class="team-add-field"><span>Owner</span><input type="text" name="owner" placeholder="e.g. Mariannel" list="calendarOwnerOptions" /></label>
+            <label class="team-add-field"><span>Owner</span><input type="text" name="owner" placeholder="e.g. Michelle" list="calendarOwnerOptions" /></label>
           </div>
           <label class="team-add-field"><span>Topic</span><input type="text" name="title" placeholder="What's this piece of content about?" required /></label>
           <label class="team-add-field"><span>Headline / Hook</span><input type="text" name="headline" placeholder="The actual headline or opening hook" /></label>
@@ -431,8 +432,13 @@
             <label class="team-add-field"><span>Graphic idea</span><input type="text" name="graphic" placeholder="Visual/background/format idea" /></label>
             <label class="team-add-field"><span>Resource</span><input type="text" name="resource" placeholder="Video/blog/sponsor asset to pull from" /></label>
           </div>
-          <label class="team-add-field"><span>Link (optional)</span><input type="url" name="link" placeholder="e.g. GHL Community, Coaches, Speakers page" /></label>
-          <label class="team-add-field"><span>Notes</span><input type="text" name="notes" placeholder="Anything else" /></label>
+          <label class="team-add-field"><span>Links (one per line, optional)</span><textarea name="links" rows="2" placeholder="e.g.&#10;https://docs.google.com/... - Article Draft&#10;https://facebook.com/... - FB post"></textarea></label>
+          <div class="team-add-row calendar-upload-row" id="calendarUploadRow">
+            <label class="team-add-field"><span>Ebook PDF</span><input type="file" name="pdf_file" accept="application/pdf" /></label>
+            <label class="team-add-field"><span>Cover image</span><input type="file" name="image_file" accept="image/*" /></label>
+          </div>
+          <div class="calendar-upload-status" id="calendarUploadStatus" hidden></div>
+          <label class="team-add-field"><span>Notes</span><textarea name="notes" rows="2" placeholder="Anything else"></textarea></label>
           <div class="team-add-actions">
             <button type="submit" class="btn-primary">Add to calendar</button>
             <button type="button" id="calendarAddCancel">Cancel</button>
