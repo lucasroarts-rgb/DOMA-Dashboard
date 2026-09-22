@@ -1672,15 +1672,21 @@ async def create_content_calendar_pages(request: Request):
 
     try:
         wp = WpClient(env)
+        # Published straight away (not draft) - Content-Calendar-triggered
+        # pages are reviewed by the person uploading the PDF before they
+        # upload it, so there's no separate draft-review step here unlike
+        # the Drive-based pipeline's create_draft_page default.
         capture_page = wp.create_draft_page(
             f"{package['title']} - Free Guide", package["slug"], package["capture_html"],
             excerpt=package["excerpt"], featured_media=cover_media_id,
             meta_description=package["excerpt"],
+            status="publish",
         )
         ty_page = wp.create_draft_page(
             f"{package['title']} - Thank You", f"{package['slug']}-thank-you", package["thank_you_html"],
             excerpt=package["excerpt"], featured_media=cover_media_id,
             noindex=True,
+            status="publish",
         )
     except WpError as error:
         raise HTTPException(502, f"WordPress page creation failed: {error}") from None
@@ -1696,6 +1702,8 @@ async def create_content_calendar_pages(request: Request):
     return {
         "slug": package["slug"],
         "title": package["title"],
+        "capture_url": capture_page["preview_url"],
+        "thank_you_url": ty_page["preview_url"],
         "capture_edit_url": capture_page["edit_url"],
         "thank_you_edit_url": ty_page["edit_url"],
         "form_attached": bool(matched_form),

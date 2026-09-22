@@ -2194,7 +2194,7 @@ async function createCalendarEbookPages({ title, pdf_url, image_url, image_media
     const text = await response.text().catch(() => "");
     throw new Error(`Page creation failed (${response.status}): ${text.slice(0, 300)}`);
   }
-  return response.json(); // {slug, capture_edit_url, thank_you_edit_url, form_attached}
+  return response.json(); // {slug, capture_url, thank_you_url, capture_edit_url, thank_you_edit_url, form_attached}
 }
 
 function ensureCalendarAddForm(allOwners) {
@@ -2267,33 +2267,43 @@ function ensureCalendarAddForm(allOwners) {
         pdf_url: pdf_url || null,
         image_url: image_url || null,
       };
+      let savedItemId = editingCalendarItemId;
       if (editingCalendarItemId) {
         await window.domaContentCalendar.updateItem(editingCalendarItemId, fields);
       } else {
-        await window.domaContentCalendar.addItem(fields);
+        savedItemId = await window.domaContentCalendar.addItem(fields);
         // No longer auto-creates a matching Team & Meetings ticket - Lucas
         // asked to keep the two lists from crossing over (2026-08-31
         // meeting). Content Calendar and Team tickets are independent now.
       }
 
       // A fresh PDF + cover together, on an Ebook-type entry, is the signal
-      // to build the WordPress draft pages - triggered right here at upload
-      // time rather than polling for it later, since the upload IS the event.
+      // to build the WordPress pages - triggered right here at upload time
+      // rather than polling for it later, since the upload IS the event.
+      // Pages publish live immediately (not draft) - the calendar item IS
+      // the review step, so there's no separate draft-review pass here.
       if (type === "Ebook" && isFreshPdfUpload && image_url && image_media_id) {
-        renderCalendarUploadStatus("Building draft pages...");
+        renderCalendarUploadStatus("Building and publishing pages...");
         try {
           const pages = await createCalendarEbookPages({ title, pdf_url, image_url, image_media_id });
+          const pageLinks = [
+            { url: pages.capture_url, label: "Capture page" },
+            { url: pages.thank_you_url, label: "Thank you page" },
+          ];
+          await window.domaContentCalendar.updateItem(savedItemId, {
+            links: [...links, ...pageLinks],
+          });
           alert(
-            `Draft pages created for "${pages.title}":\n\n` +
-              `Capture page: ${pages.capture_edit_url}\n` +
-              `Thank-you page: ${pages.thank_you_edit_url}\n\n` +
+            `Pages published for "${pages.title}":\n\n` +
+              `Capture page: ${pages.capture_url}\n` +
+              `Thank-you page: ${pages.thank_you_url}\n\n` +
               (pages.form_attached
                 ? "GHL form already matched and embedded."
                 : `GHL form not found yet - duplicate an "Ebook - ..." form, rename it to "Ebook - ${pages.title}", it'll attach automatically on the next scheduled run.`)
           );
         } catch (error) {
           console.error("Failed to build ebook pages:", error);
-          alert(`Calendar item saved, but building the draft pages failed: ${error.message}`);
+          alert(`Calendar item saved, but building the pages failed: ${error.message}`);
         }
       }
 

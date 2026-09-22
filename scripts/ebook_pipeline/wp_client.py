@@ -108,6 +108,7 @@ class WpClient:
         featured_media: int | None = None,
         meta_description: str = "",
         noindex: bool = False,
+        status: str = "draft",
     ) -> dict:
         # Yoast fields, confirmed REST-writable on this install (Code Snippet
         # #9 registers them with show_in_rest - same bridge that already
@@ -126,7 +127,7 @@ class WpClient:
             "slug": slug,
             "content": html,
             "excerpt": excerpt,
-            "status": "draft",
+            "status": status,
             "template": "elementor_canvas",
             "meta": meta,
         }
