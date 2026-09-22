@@ -45,5 +45,9 @@ CHANGELOG = [
     {"id": "2026-09-15_32", "date": "2026-09-18", "week_label": "Week of Sep 15-18, 2026", "category": "Dashboard & task cleanup", "title": "Closed 3 more content-related tasks", "detail": "Article publishing, podcast repurposing, event media collection.", "impact": "Team task backlog reduced by 3 items.", "link": None, "status": "done", "order": 32},
     {"id": "2026-09-15_33", "date": "2026-09-18", "week_label": "Week of Sep 15-18, 2026", "category": "Tooling", "title": "Set up SEO, data, task, marketing, and design tools", "detail": "SearchFit SEO, Data, Productivity, Marketing, ActiveCampaign, and Design skills installed for this project going forward.", "impact": "Sets up faster SEO/design/data work on this project going forward.", "link": None, "status": "done", "order": 33},
 
+    # --- Week of Sep 22, 2026 ---
+    {"id": "2026-09-22_00", "date": "2026-09-22", "week_label": "Week of Sep 22, 2026", "category": "SEO", "title": "Fixed duplicate H1 tags on 13 blog posts", "detail": "Cause: those posts had an H1-level heading inside the body content (author formatting slip), and the site-wide SSR fix carried it along hidden. Now downgraded to H2 before injecting.", "impact": "Confirmed 0 pages with duplicate H1 on a fresh 85-page audit, down from 13.", "link": None, "status": "done", "order": 0},
+    {"id": "2026-09-22_01", "date": "2026-09-22", "week_label": "Week of Sep 22, 2026", "category": "SEO", "title": "Fixed missing SEO title/description on the Hygiene Reappointment Rate ebook pages", "detail": "Capture page had no custom title/meta description (Yoast was falling back to a 103-character auto title). Thank-you page was missing the same, and wasn't noindexed.", "impact": "Both pages now show a real title/description in search results; thank-you page no longer competes in search.", "link": None, "status": "done", "order": 1},
+
     # --- Add next week's items below this line ---
 ]
