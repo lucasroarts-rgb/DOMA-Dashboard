@@ -1,0 +1,279 @@
+<style>
+.doma-ebook-ty,
+.doma-ebook-ty * {
+    box-sizing: border-box;
+}
+
+.doma-ebook-ty {
+    --navy: #071a32;
+    --navy-2: #102d50;
+    --gold: #d7a637;
+    --gold-soft: #f7dc8b;
+    --white: #ffffff;
+    width: 100vw;
+    min-height: 100vh;
+    margin-left: calc(50% - 50vw);
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 15% 15%, rgba(215,166,55,0.14), transparent 28%),
+        radial-gradient(circle at 85% 80%, rgba(16,45,80,0.95), transparent 34%),
+        linear-gradient(135deg, #071a32 0%, #0b2341 58%, #102d50 100%);
+    color: var(--white);
+    font-family: inherit;
+}
+
+.doma-ebook-ty a,
+.doma-ebook-ty button {
+    font-family: inherit;
+}
+
+.doma-ebook-ty img {
+    display: block;
+    max-width: 100%;
+}
+
+.doma-ebook-ty-shell {
+    width: min(1080px, calc(100% - 40px));
+    margin: 0 auto;
+}
+
+.doma-ebook-ty-header {
+    min-height: 86px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.doma-ebook-ty-logo-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--white);
+    text-decoration: none;
+}
+
+.doma-ebook-ty-logo-link img {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: contain;
+}
+
+.doma-ebook-ty-logo-link strong {
+    font-size: 18px;
+    letter-spacing: 0.03em;
+}
+
+.doma-ebook-ty-content {
+    min-height: calc(100vh - 162px);
+    display: grid;
+    grid-template-columns: minmax(260px, 0.72fr) minmax(0, 1.28fr);
+    gap: 70px;
+    align-items: center;
+    padding: 62px 0 70px;
+}
+
+.doma-ebook-ty-cover-wrap {
+    position: relative;
+    max-width: 390px;
+    margin: 0 auto;
+}
+
+.doma-ebook-ty-cover-wrap::before {
+    content: "";
+    position: absolute;
+    inset: 14% -12% -5% 12%;
+    border-radius: 30px;
+    background: rgba(215,166,55,0.18);
+    filter: blur(26px);
+}
+
+.doma-ebook-ty-cover {
+    position: relative;
+    width: 100%;
+    filter: drop-shadow(0 28px 42px rgba(0,0,0,0.35));
+}
+
+.doma-ebook-ty-eyebrow {
+    display: inline-block;
+    margin-bottom: 14px;
+    color: var(--gold-soft);
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+}
+
+.doma-ebook-ty h1 {
+    margin: 0;
+    color: var(--white);
+    font-size: clamp(48px, 6vw, 78px);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+}
+
+.doma-ebook-ty h2 {
+    margin: 18px 0 0;
+    color: #f5f8fb;
+    font-size: clamp(23px, 3vw, 32px);
+    line-height: 1.25;
+}
+
+.doma-ebook-ty-copy {
+    max-width: 690px;
+    margin: 20px 0 0;
+    color: #cbd6e1;
+    font-size: 17px;
+    line-height: 1.75;
+}
+
+.doma-ebook-ty-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 54px;
+    margin-top: 28px;
+    padding: 14px 25px;
+    border: 1px solid var(--gold);
+    border-radius: 10px;
+    background: var(--gold);
+    color: var(--navy);
+    text-decoration: none;
+    font-size: 16px;
+    font-weight: 800;
+    line-height: 1.2;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.doma-ebook-ty-btn:hover {
+    transform: translateY(-1px);
+    background: var(--gold-soft);
+}
+
+.doma-ebook-ty-note {
+    margin: 14px 0 0;
+    color: #91a4b7;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.doma-ebook-ty-home {
+    display: inline-block;
+    margin-top: 18px;
+    color: #e6edf5;
+    font-size: 13px;
+    text-underline-offset: 3px;
+}
+
+.doma-ebook-ty-footer {
+    min-height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: #91a4b7;
+    font-size: 12px;
+}
+
+.doma-ebook-ty-footer-links {
+    display: inline-flex;
+    gap: 18px;
+}
+
+.doma-ebook-ty-footer a {
+    color: #dce5ed;
+    text-decoration: none;
+}
+
+.doma-ebook-ty-footer a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 800px) {
+    .doma-ebook-ty-shell {
+        width: min(100% - 28px, 1080px);
+    }
+
+    .doma-ebook-ty-content {
+        grid-template-columns: 1fr;
+        gap: 38px;
+        text-align: center;
+        padding: 50px 0 58px;
+    }
+
+    .doma-ebook-ty-cover-wrap {
+        width: min(56%, 290px);
+    }
+
+    .doma-ebook-ty-copy {
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .doma-ebook-ty-footer {
+        padding: 20px 0;
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .doma-ebook-ty-header {
+        min-height: 72px;
+    }
+
+    .doma-ebook-ty-logo-link img {
+        width: 44px;
+        height: 44px;
+    }
+
+    .doma-ebook-ty h1 {
+        font-size: 50px;
+    }
+
+    .doma-ebook-ty h2 {
+        font-size: 22px;
+    }
+
+    .doma-ebook-ty-copy {
+        font-size: 16px;
+    }
+
+    .doma-ebook-ty-btn {
+        width: 100%;
+    }
+}
+</style>
+<main class="doma-ebook-ty">
+<header class="doma-ebook-ty-header">
+<div class="doma-ebook-ty-shell">
+<a aria-label="DOMA home" class="doma-ebook-ty-logo-link" href="https://dentalofficemanagers.com/">
+<img alt="DOMA logo" decoding="async" height="52" src="https://dentalofficemanagers.com/wp-content/uploads/2026/04/SM_facebook-dp-1-1.webp" width="52"/>
+<strong>DOMA</strong>
+</a>
+</div>
+</header>
+<section class="doma-ebook-ty-shell doma-ebook-ty-content">
+<div class="doma-ebook-ty-cover-wrap">
+<img alt="{{TITLE}} eBook cover" class="doma-ebook-ty-cover" decoding="async" fetchpriority="high" src="{{COVER_URL}}"/>
+</div>
+<div>
+<span class="doma-ebook-ty-eyebrow">Your guide is ready</span>
+<h1>Thank You!</h1>
+<h2>Your copy of "{{TITLE}}" is ready to download.</h2>
+<p class="doma-ebook-ty-copy">{{TY_COPY}}</p>
+<a class="doma-ebook-ty-btn" href="{{PDF_URL}}" rel="noopener" target="_blank">Download the eBook</a>
+<p class="doma-ebook-ty-note">If the PDF does not open automatically, click the button above to access it directly.</p>
+<a class="doma-ebook-ty-home" href="https://dentalofficemanagers.com/">Explore more DOMA resources</a>
+</div>
+</section>
+<footer class="doma-ebook-ty-shell doma-ebook-ty-footer">
+<span>© 2026 DOMA. All rights reserved.</span>
+<span class="doma-ebook-ty-footer-links">
+<a href="https://dentalofficemanagers.com/privacy-policy/" rel="noopener" target="_blank">Privacy Policy</a>
+<a href="https://dentalofficemanagers.com/terms-of-use/" rel="noopener" target="_blank">Terms of Use</a>
+</span>
+</footer>
+</main>

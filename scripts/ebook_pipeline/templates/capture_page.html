@@ -1,0 +1,197 @@
+<!-- DOMA - {{TITLE}} -->
+<div id="doma-{{SLUG}}-page">
+<style>
+    #doma-{{SLUG}}-page{
+      --navy:#071a32;--navy2:#102d50;--gold:#d7a637;--goldlight:#f7dc8b;
+      --white:#fff;--cream:#fbfaf6;--text:#162033;--muted:#667085;--border:#dfe6ef;
+      width:100%;overflow:hidden;background:var(--cream);color:var(--text);font-family:inherit;
+    }
+    #doma-{{SLUG}}-page *,#doma-{{SLUG}}-page *::before,#doma-{{SLUG}}-page *::after{box-sizing:border-box}
+    #doma-{{SLUG}}-page h1,#doma-{{SLUG}}-page h2,#doma-{{SLUG}}-page h3,
+    #doma-{{SLUG}}-page p,#doma-{{SLUG}}-page a,#doma-{{SLUG}}-page li,
+    #doma-{{SLUG}}-page span,#doma-{{SLUG}}-page strong,#doma-{{SLUG}}-page small{font-family:inherit}
+    #doma-{{SLUG}}-page h1,#doma-{{SLUG}}-page h2,#doma-{{SLUG}}-page h3,
+    #doma-{{SLUG}}-page p,#doma-{{SLUG}}-page figure{margin-top:0}
+    #doma-{{SLUG}}-page .container{width:min(1180px,calc(100% - 40px));margin:0 auto}
+
+    #doma-{{SLUG}}-page .header{padding:15px 0;background:var(--navy);border-bottom:1px solid rgba(255,255,255,.1)}
+    #doma-{{SLUG}}-page .header-inner{display:flex;align-items:center;justify-content:space-between;gap:20px}
+    #doma-{{SLUG}}-page .brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none}
+    #doma-{{SLUG}}-page .brand img{width:58px;height:58px;object-fit:contain}
+    #doma-{{SLUG}}-page .brand strong{display:block;font-size:20px;line-height:1.1}
+    #doma-{{SLUG}}-page .brand small{display:block;margin-top:4px;color:rgba(255,255,255,.68);font-size:11px}
+    #doma-{{SLUG}}-page .header-note{color:rgba(255,255,255,.76);font-size:13px;font-weight:600;text-align:right}
+
+    #doma-{{SLUG}}-page .hero{
+      position:relative;padding:72px 0 86px;
+      background:radial-gradient(circle at 8% 12%,rgba(47,111,237,.23),transparent 31%),
+      radial-gradient(circle at 92% 18%,rgba(215,166,55,.19),transparent 28%),
+      linear-gradient(135deg,#07162b 0%,#0b2442 55%,#12375c 100%);
+    }
+    #doma-{{SLUG}}-page .hero-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(390px,.92fr);gap:54px;align-items:center}
+    #doma-{{SLUG}}-page .eyebrow{display:inline-flex;align-items:center;gap:9px;margin-bottom:20px;padding:9px 13px;border:1px solid rgba(247,220,139,.34);border-radius:999px;background:rgba(215,166,55,.10);color:var(--goldlight);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    #doma-{{SLUG}}-page h1{margin-bottom:22px;color:#fff;font-size:clamp(44px,5.4vw,72px);line-height:1;letter-spacing:-.045em}
+    #doma-{{SLUG}}-page .hero-intro{margin-bottom:26px;color:rgba(255,255,255,.8);font-size:18px;line-height:1.72}
+    #doma-{{SLUG}}-page .cover{margin:0 0 26px;overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:20px;box-shadow:0 22px 54px rgba(0,0,0,.2)}
+    #doma-{{SLUG}}-page .cover img{display:block;width:100%;height:auto}
+    #doma-{{SLUG}}-page .hero-points{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 18px;margin:0;padding:0;list-style:none}
+    #doma-{{SLUG}}-page .hero-points li{color:rgba(255,255,255,.92);font-size:14px;font-weight:600;line-height:1.55}
+
+    #doma-{{SLUG}}-page .form-card{padding:30px;border-radius:26px;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.3)}
+    #doma-{{SLUG}}-page .form-kicker{margin-bottom:7px;color:var(--gold);font-size:12px;font-weight:800;letter-spacing:.11em;text-transform:uppercase}
+    #doma-{{SLUG}}-page .form-card h2{margin-bottom:8px;color:var(--navy);font-size:31px;line-height:1.14}
+    #doma-{{SLUG}}-page .form-card>p{margin-bottom:14px;color:var(--muted);font-size:14px;line-height:1.65}
+    #doma-{{SLUG}}-page .form-frame,#doma-{{SLUG}}-page .form-frame iframe{width:100%;min-height:500px}
+    #doma-{{SLUG}}-page .form-frame iframe{display:block;border:0!important}
+    #doma-{{SLUG}}-page .privacy{margin:10px 0 0!important;color:#7b8494!important;font-size:11px!important;line-height:1.6!important;text-align:center}
+
+    #doma-{{SLUG}}-page .section{padding:88px 0;background:#fff}
+    #doma-{{SLUG}}-page .heading{max-width:820px;margin:0 auto 42px;text-align:center}
+    #doma-{{SLUG}}-page .label{margin-bottom:12px;color:var(--gold);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    #doma-{{SLUG}}-page .heading h2{margin-bottom:16px;color:var(--navy);font-size:clamp(34px,4vw,50px);line-height:1.08}
+    #doma-{{SLUG}}-page .heading p{margin-bottom:0;color:var(--muted);font-size:17px;line-height:1.75}
+    #doma-{{SLUG}}-page .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+    #doma-{{SLUG}}-page .card{padding:28px;border:1px solid var(--border);border-radius:20px;background:#fff;box-shadow:0 16px 42px rgba(7,26,50,.06)}
+    #doma-{{SLUG}}-page .num{width:44px;height:44px;display:grid;place-items:center;margin-bottom:19px;border-radius:13px;background:var(--navy);color:var(--goldlight);font-size:13px;font-weight:800}
+    #doma-{{SLUG}}-page .card h3{margin-bottom:10px;color:var(--navy);font-size:21px;line-height:1.25}
+    #doma-{{SLUG}}-page .card p{margin-bottom:0;color:var(--muted);font-size:14px;line-height:1.72}
+
+    #doma-{{SLUG}}-page .author{padding:88px 0;background:var(--navy)}
+    #doma-{{SLUG}}-page .author-card{display:grid;grid-template-columns:minmax(300px,.78fr) minmax(0,1.22fr);gap:54px;align-items:center;padding:38px;border:1px solid rgba(255,255,255,.12);border-radius:26px;background:rgba(255,255,255,.055)}
+    #doma-{{SLUG}}-page .author-image{overflow:hidden;min-height:480px;border-radius:20px;background:var(--navy2)}
+    #doma-{{SLUG}}-page .author-image img{display:block;width:100%;height:100%;min-height:480px;object-fit:cover;object-position:center top}
+    #doma-{{SLUG}}-page .author-label{margin-bottom:12px;color:var(--goldlight);font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    #doma-{{SLUG}}-page .author h2{margin-bottom:17px;color:#fff;font-size:clamp(36px,4vw,52px);line-height:1.08}
+    #doma-{{SLUG}}-page .author p{margin-bottom:16px;color:rgba(255,255,255,.76);font-size:16px;line-height:1.78}
+
+    #doma-{{SLUG}}-page .final{padding:80px 0;background:linear-gradient(135deg,#07162b,#12375c)}
+    #doma-{{SLUG}}-page .final-card{display:grid;grid-template-columns:1fr auto;gap:30px;align-items:center;padding:38px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:rgba(255,255,255,.07)}
+    #doma-{{SLUG}}-page .final h2{margin-bottom:8px;color:#fff;font-size:clamp(30px,4vw,44px)}
+    #doma-{{SLUG}}-page .final p{margin-bottom:0;color:rgba(255,255,255,.72);line-height:1.7}
+    #doma-{{SLUG}}-page .button{display:inline-flex;align-items:center;justify-content:center;min-height:54px;padding:0 26px;border-radius:12px;background:var(--gold);color:#142033;text-decoration:none;font-weight:800}
+    #doma-{{SLUG}}-page .footer{padding:22px 0;background:#051427;color:rgba(255,255,255,.60);font-size:12px}
+
+    @media(max-width:980px){
+      #doma-{{SLUG}}-page .hero-grid,#doma-{{SLUG}}-page .author-card{grid-template-columns:1fr}
+      #doma-{{SLUG}}-page .form-card{max-width:680px;margin:0 auto}
+      #doma-{{SLUG}}-page .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    @media(max-width:680px){
+      #doma-{{SLUG}}-page .container{width:min(100% - 28px,1180px)}
+      #doma-{{SLUG}}-page .header-note{display:none}
+      #doma-{{SLUG}}-page .hero{padding:54px 0 64px}
+      #doma-{{SLUG}}-page h1{font-size:42px}
+      #doma-{{SLUG}}-page .hero-points,#doma-{{SLUG}}-page .grid{grid-template-columns:1fr}
+      #doma-{{SLUG}}-page .form-card{padding:22px 14px}
+      #doma-{{SLUG}}-page .form-frame,#doma-{{SLUG}}-page .form-frame iframe{min-height:560px}
+      #doma-{{SLUG}}-page .section,#doma-{{SLUG}}-page .author,#doma-{{SLUG}}-page .final{padding:62px 0}
+      #doma-{{SLUG}}-page .final-card{grid-template-columns:1fr;padding:30px 24px}
+      #doma-{{SLUG}}-page .button{width:100%}
+    }
+  </style>
+<header class="header">
+<div class="container header-inner">
+<a class="brand" href="https://dentalofficemanagers.com/">
+<img alt="DOMA logo" src="https://dentalofficemanagers.com/wp-content/uploads/2026/04/SM_facebook-dp-1-1.webp"/>
+<span><strong>DOMA</strong><small>Dental Office Managers Alliance</small></span>
+</a>
+<div class="header-note">{{HEADER_NOTE}}</div>
+</div>
+</header>
+<main>
+<section class="hero">
+<div class="container hero-grid">
+<div>
+<div class="eyebrow">{{EYEBROW}}</div>
+<h1>{{TITLE}}</h1>
+<p class="hero-intro">{{SUBTITLE}}</p>
+<figure class="cover">
+<img alt="{{TITLE}} eBook cover" loading="eager" src="{{COVER_URL}}"/>
+</figure>
+<ul class="hero-points">
+{{HERO_BULLETS}}
+</ul>
+</div>
+<div class="form-card" id="download-form">
+<div class="form-kicker">Instant access</div>
+<h2>Get the free eBook</h2>
+<p>Enter your details below to receive immediate access to the guide.</p>
+<div class="form-frame">
+{{FORM_EMBED}}
+</div>
+<p class="privacy">
+            By submitting, you agree to DOMA's
+            <a href="https://dentalofficemanagers.com/terms-of-use/" rel="noopener" target="_blank">Terms of Use</a>
+            and
+            <a href="https://dentalofficemanagers.com/privacy-policy/" rel="noopener" target="_blank">Privacy Policy</a>.
+          </p>
+</div>
+</div>
+</section>
+<section class="section">
+<div class="container">
+<div class="heading">
+<div class="label">Inside the guide</div>
+<h2>{{SECTION_HEADLINE}}</h2>
+<p>{{SECTION_INTRO}}</p>
+</div>
+<div class="grid">
+{{BENEFIT_CARDS}}
+</div>
+</div>
+</section>
+<section class="author">
+<div class="container">
+<div class="author-card">
+<div class="author-image">
+<img alt="Kyle Summerford, founder of DOMA" loading="lazy" src="https://dentalofficemanagers.com/wp-content/uploads/2026/04/kyle-summerford-doma.webp?w=800&amp;ssl=1"/>
+</div>
+<div>
+<div class="author-label">About the author</div>
+<h2>Meet Kyle Summerford</h2>
+<p>Kyle has spent more than 25 years in dentistry. He started at the front desk, worked his way up to dental office manager, and became one of the most recognized voices in dental practice management.</p>
+<p>As the founder of the Dental Office Managers Alliance, Kyle is focused on helping dental office managers strengthen leadership, systems, communication, team management, and daily operations through practical tools built around the realities of dental practice management.</p>
+<p>This guide was created to help managers {{AUTHOR_CLOSING}}</p>
+</div>
+</div>
+</div>
+</section>
+<section class="final">
+<div class="container">
+<div class="final-card">
+<div>
+<h2>{{FINAL_HEADLINE}}</h2>
+<p>Complete the form to receive the free guide and start putting it to work in your practice.</p>
+</div>
+<a class="button" href="#download-form">Get the Free eBook</a>
+</div>
+</div>
+</section>
+</main>
+<footer class="footer">
+<div class="container">© 2026 DOMA. All rights reserved.</div>
+</footer>
+<script>
+    (function(){
+      var iframe=document.getElementById('inline-{{FORM_ID}}');
+      if(iframe && window.location.search){
+        try{
+          var iframeUrl=new URL(iframe.src);
+          var pageParams=new URLSearchParams(window.location.search);
+          pageParams.forEach(function(value,key){iframeUrl.searchParams.set(key,value);});
+          iframe.src=iframeUrl.toString();
+        }catch(error){console.warn('Unable to pass URL parameters to the embedded form.',error);}
+      }
+
+      var buttons=document.querySelectorAll('#doma-{{SLUG}}-page a[href="#download-form"]');
+      buttons.forEach(function(button){
+        button.addEventListener('click',function(event){
+          event.preventDefault();
+          var form=document.getElementById('download-form');
+          if(form) form.scrollIntoView({behavior:'smooth',block:'start'});
+        });
+      });
+    })();
+  </script>
+<script src="https://{{GHL_DOMAIN}}/js/form_embed.js"></script>
+</div>

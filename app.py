@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import base64
 import hmac
+import io
 import mimetypes
 import os
 import sqlite3
+import tempfile
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -26,8 +28,13 @@ import requests
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 
 from scripts.env_utils import load_env_file
+from scripts.ebook_pipeline import copy_generator, pdf_extract
+from scripts.ebook_pipeline.ghl_client import GhlClient, GhlError
+from scripts.ebook_pipeline.wp_client import WpClient, WpError
+from scripts.sync_ebook_pipeline import write_package
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("DB_PATH", str(BASE_DIR / "data" / "doma.db")))
@@ -68,8 +75,8 @@ def read_local_credentials() -> dict[str, str]:
 
 
 _local_credentials = read_local_credentials()
-ADMIN_USER = os.getenv("ADMIN_USER") or _local_credentials.get("ADMIN_USER") or "doma"
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or _local_credentials.get("ADMIN_PASSWORD") or ""
+ADMIN_USER = os.getenv("ADMIN_USER") or _local_credentials.get("ADMIN_USER") or _wp_env.get("ADMIN_USER") or "doma"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD") or _local_credentials.get("ADMIN_PASSWORD") or _wp_env.get("ADMIN_PASSWORD") or ""
 
 
 def has_valid_admin_credentials(request: Request) -> bool:
@@ -1579,6 +1586,24 @@ async def upload_content_calendar_file(file: UploadFile = File(...)):
     filename = file.filename or "upload"
     content_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
+    # Michelle's cover images come out of her phone/Canva at several MB each -
+    # re-encode to WebP before it ever reaches WordPress, same size reduction
+    # PageSpeed's own fixes relied on all session. PDFs pass through untouched.
+    if content_type.startswith("image/") and content_type != "image/webp":
+        try:
+            with Image.open(io.BytesIO(content)) as img:
+                if img.mode in ("RGBA", "LA", "P"):
+                    img = img.convert("RGBA")
+                else:
+                    img = img.convert("RGB")
+                buffer = io.BytesIO()
+                img.save(buffer, format="WEBP", quality=82, method=6)
+                content = buffer.getvalue()
+            filename = str(Path(filename).with_suffix(".webp"))
+            content_type = "image/webp"
+        except Exception as error:  # noqa: BLE001 - fall back to the original file rather than failing the upload
+            print(f"WebP conversion failed for {filename}, uploading original: {error}")
+
     response = requests.post(
         f"{WP_URL}/wp-json/wp/v2/media",
         auth=(WP_USERNAME, WP_APP_PASSWORD),
@@ -1590,6 +1615,91 @@ async def upload_content_calendar_file(file: UploadFile = File(...)):
         raise HTTPException(502, f"WordPress upload failed ({response.status_code}): {response.text[:300]}")
     payload = response.json()
     return {"url": payload["source_url"], "id": payload["id"], "filename": filename}
+
+
+@app.post("/api/content-calendar/create-pages")
+async def create_content_calendar_pages(request: Request):
+    """Builds the capture + thank-you WordPress draft pages for an ebook
+    uploaded through the Content Calendar, reusing the same pipeline
+    scripts/sync_ebook_pipeline.py uses for the Drive-based flow - the PDF is
+    just downloaded back from its WordPress URL instead of Google Drive.
+    Writes ebook_packages/{slug}/package.json same as that pipeline does, so
+    the existing Mon/Wed/Fri scheduled run (AGENDAR_AUTOMACAO_EBOOKS.bat)
+    picks it up automatically and attaches the real GHL form the moment
+    Lucas duplicates+renames it - no separate polling needed here.
+    """
+    env = load_env_file(BASE_DIR / ".env")
+    if not (WP_URL and WP_USERNAME and WP_APP_PASSWORD):
+        raise HTTPException(503, "WP_URL / WP_USERNAME / WP_APP_PASSWORD not configured in .env")
+
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+    pdf_url = (body.get("pdf_url") or "").strip()
+    cover_url = (body.get("image_url") or "").strip()
+    cover_media_id = body.get("image_media_id")
+    if not (title and pdf_url and cover_url and cover_media_id):
+        raise HTTPException(400, "title, pdf_url, image_url, and image_media_id are all required")
+
+    pdf_response = requests.get(pdf_url, headers={"User-Agent": WP_BROWSER_UA}, timeout=60)
+    if pdf_response.status_code != 200:
+        raise HTTPException(502, f"Could not download the PDF back from {pdf_url}")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_path = Path(tmpdir) / "ebook.pdf"
+        pdf_path.write_bytes(pdf_response.content)
+        try:
+            extracted = pdf_extract.extract(pdf_path)
+        except pdf_extract.PdfExtractError as error:
+            raise HTTPException(422, f"Could not read the PDF: {error}") from None
+
+    if not extracted.get("title"):
+        extracted["title"] = title
+    form_name = f"Ebook - {extracted['title'].strip()}"
+
+    try:
+        ghl = GhlClient(env)
+        matched_form = ghl.find_form_by_title(form_name)
+        matched_workflow = ghl.find_workflow_by_title(form_name)
+    except GhlError as error:
+        # A missing/broken GHL connection shouldn't block the WP pages from
+        # being created - they're still useful as drafts, just without a
+        # live form embedded yet (same placeholder path the Drive pipeline
+        # uses when the form doesn't exist yet).
+        print(f"GHL lookup failed, continuing without a matched form: {error}")
+        matched_form, matched_workflow = None, None
+
+    package = copy_generator.build_package(extracted, cover_url, pdf_url, env.get("GHL_WIDGET_DOMAIN", ""), matched_form)
+
+    try:
+        wp = WpClient(env)
+        capture_page = wp.create_draft_page(
+            f"{package['title']} - Free Guide", package["slug"], package["capture_html"],
+            excerpt=package["excerpt"], featured_media=cover_media_id,
+            meta_description=package["excerpt"],
+        )
+        ty_page = wp.create_draft_page(
+            f"{package['title']} - Thank You", f"{package['slug']}-thank-you", package["thank_you_html"],
+            excerpt=package["excerpt"], featured_media=cover_media_id,
+            noindex=True,
+        )
+    except WpError as error:
+        raise HTTPException(502, f"WordPress page creation failed: {error}") from None
+
+    write_package(
+        env, package, extracted,
+        cover={"url": cover_url, "id": cover_media_id},
+        pdf_upload={"url": pdf_url},
+        capture_page=capture_page, ty_page=ty_page,
+        matched_form=matched_form, matched_workflow=matched_workflow,
+    )
+
+    return {
+        "slug": package["slug"],
+        "title": package["title"],
+        "capture_edit_url": capture_page["edit_url"],
+        "thank_you_edit_url": ty_page["edit_url"],
+        "form_attached": bool(matched_form),
+    }
 
 
 @app.get("/")

@@ -2177,8 +2177,24 @@ async function uploadCalendarFile(file) {
     const text = await response.text().catch(() => "");
     throw new Error(`Upload failed (${response.status}): ${text.slice(0, 200)}`);
   }
-  const payload = await response.json();
-  return payload.url;
+  return response.json(); // {url, id, filename}
+}
+
+// Builds the capture + thank-you WordPress draft pages for a freshly
+// uploaded ebook (see /api/content-calendar/create-pages in app.py) - only
+// called right after a NEW pdf upload, never on a plain edit/save, so
+// re-saving an existing ebook item doesn't recreate its pages.
+async function createCalendarEbookPages({ title, pdf_url, image_url, image_media_id }) {
+  const response = await fetch("/api/content-calendar/create-pages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, pdf_url, image_url, image_media_id }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Page creation failed (${response.status}): ${text.slice(0, 300)}`);
+  }
+  return response.json(); // {slug, capture_edit_url, thank_you_edit_url, form_attached}
 }
 
 function ensureCalendarAddForm(allOwners) {
@@ -2213,15 +2229,19 @@ function ensureCalendarAddForm(allOwners) {
 
       let pdf_url = editingCalendarItemFiles.pdf_url;
       let image_url = editingCalendarItemFiles.image_url;
+      let image_media_id = null;
       const pdfFile = fd.get("pdf_file");
       const imageFile = fd.get("image_file");
-      if (pdfFile instanceof File && pdfFile.size > 0) {
+      const isFreshPdfUpload = pdfFile instanceof File && pdfFile.size > 0;
+      if (isFreshPdfUpload) {
         renderCalendarUploadStatus("Uploading PDF...");
-        pdf_url = await uploadCalendarFile(pdfFile);
+        pdf_url = (await uploadCalendarFile(pdfFile)).url;
       }
       if (imageFile instanceof File && imageFile.size > 0) {
         renderCalendarUploadStatus("Uploading image...");
-        image_url = await uploadCalendarFile(imageFile);
+        const uploaded = await uploadCalendarFile(imageFile);
+        image_url = uploaded.url;
+        image_media_id = uploaded.id;
       }
 
       const type = String(fd.get("type") || "Blog");
@@ -2255,6 +2275,28 @@ function ensureCalendarAddForm(allOwners) {
         // asked to keep the two lists from crossing over (2026-08-31
         // meeting). Content Calendar and Team tickets are independent now.
       }
+
+      // A fresh PDF + cover together, on an Ebook-type entry, is the signal
+      // to build the WordPress draft pages - triggered right here at upload
+      // time rather than polling for it later, since the upload IS the event.
+      if (type === "Ebook" && isFreshPdfUpload && image_url && image_media_id) {
+        renderCalendarUploadStatus("Building draft pages...");
+        try {
+          const pages = await createCalendarEbookPages({ title, pdf_url, image_url, image_media_id });
+          alert(
+            `Draft pages created for "${pages.title}":\n\n` +
+              `Capture page: ${pages.capture_edit_url}\n` +
+              `Thank-you page: ${pages.thank_you_edit_url}\n\n` +
+              (pages.form_attached
+                ? "GHL form already matched and embedded."
+                : `GHL form not found yet - duplicate an "Ebook - ..." form, rename it to "Ebook - ${pages.title}", it'll attach automatically on the next scheduled run.`)
+          );
+        } catch (error) {
+          console.error("Failed to build ebook pages:", error);
+          alert(`Calendar item saved, but building the draft pages failed: ${error.message}`);
+        }
+      }
+
       resetCalendarAddForm(form, dateInput);
     } catch (error) {
       console.error("Failed to save calendar item:", error);
