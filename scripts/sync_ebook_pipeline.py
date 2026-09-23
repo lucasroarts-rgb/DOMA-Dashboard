@@ -122,12 +122,16 @@ def write_package(env, package, extracted, cover, pdf_upload, capture_page, ty_p
 
     (out_dir / "capture_page.html").write_text(package["capture_html"], encoding="utf-8")
     (out_dir / "thank_you_page.html").write_text(package["thank_you_html"], encoding="utf-8")
-    (out_dir / "email_delivery.md").write_text(
+    email_delivery_text = (
         f"Subject: {package['email_subject']}\n"
         f"Preview: {package['email_preview']}\n\n"
-        f"{package['email_body']}\n",
-        encoding="utf-8",
+        f"{package['email_body']}\n"
     )
+    (out_dir / "email_delivery.md").write_text(email_delivery_text, encoding="utf-8")
+    # Plain .txt alongside the .md - Thalles pastes this straight into the
+    # GHL automation's email step each time and wants a Notepad-openable
+    # copy ready without digging through package.json/capture_page.html.
+    (out_dir / "email_delivery.txt").write_text(email_delivery_text, encoding="utf-8")
 
     wp_base = (env.get("WP_URL") or "").rstrip("/")
     ty_future_url = f"{wp_base}/{package['slug']}-thank-you/"

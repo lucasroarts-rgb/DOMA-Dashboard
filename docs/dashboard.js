@@ -1,5 +1,14 @@
 const STATIC_DATA = window.DOMA_STATIC_DATA || null;
-const IS_STATIC = Boolean(STATIC_DATA);
+// Don't trust STATIC_DATA alone - data.js is a ~1.5MB payload loaded with
+// onerror="void 0" (silently swallowed), so any load hiccup leaves
+// STATIC_DATA null on the published site too, which used to flip IS_STATIC
+// to false and show the ebook upload fields there - guaranteed 405 (no
+// backend on GitHub Pages), confirmed live 2026-09-23. Hostname is a second,
+// independent signal: only localhost/127.0.0.1 (where app.py actually runs)
+// counts as "local", so a data.js failure now fails safe (upload hidden)
+// instead of failing open (upload shown, guaranteed to break).
+const IS_LOCALHOST = ["localhost", "127.0.0.1"].includes(location.hostname);
+const IS_STATIC = Boolean(STATIC_DATA) || !IS_LOCALHOST;
 
 let dashboard = null;
 
@@ -138,7 +147,10 @@ function deltaBadge(curr, prev, { lowerIsBetter = false } = {}) {
 
 async function loadDashboard(days) {
   if (IS_STATIC) {
-    dashboard = (STATIC_DATA.dashboards && STATIC_DATA.dashboards[String(days)]) || STATIC_DATA.dashboard;
+    // IS_STATIC can now be true off the hostname alone (see its definition
+    // above) even when data.js itself failed to load, so STATIC_DATA can
+    // still be null here - don't assume it loaded just because we're static.
+    dashboard = STATIC_DATA ? (STATIC_DATA.dashboards && STATIC_DATA.dashboards[String(days)]) || STATIC_DATA.dashboard : null;
     return;
   }
   try {
@@ -2971,7 +2983,7 @@ function initRangeSelect() {
   await initPasswordGate();
   initTabs();
   initRangeSelect();
-  const initialDays = IS_STATIC ? String(STATIC_DATA.default_range || 90) : (document.getElementById("rangeSelect")?.value || 90);
+  const initialDays = IS_STATIC ? String((STATIC_DATA && STATIC_DATA.default_range) || 90) : (document.getElementById("rangeSelect")?.value || 90);
   const select = document.getElementById("rangeSelect");
   if (select) select.value = initialDays;
   await loadDashboard(initialDays);
