@@ -29,6 +29,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import requests
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -42,6 +44,41 @@ from scripts.ebook_pipeline.notify import notify  # noqa: E402
 STATE_PATH = ROOT / "data" / "ebook_pipeline_state.json"
 PACKAGES_DIR = ROOT / "ebook_packages"
 DOWNLOAD_DIR = ROOT / "data" / "ebook_downloads"
+
+FIRESTORE_PROJECT_ID = "doma-dshboard"
+FIRESTORE_EMAILS_URL = f"https://firestore.googleapis.com/v1/projects/{FIRESTORE_PROJECT_ID}/databases/(default)/documents/ebook_email_deliveries"
+
+
+def save_email_to_firestore(package: dict, capture_url: str, thank_you_url: str, pdf_url: str) -> None:
+    """Durable copy of the delivery email, independent of which machine
+    built it - the local ebook_packages/{slug}/ folder only exists on
+    whichever disk wrote it, and when that's Render's (Content-Calendar-
+    triggered pages), the disk is ephemeral and wiped on every redeploy, so
+    the email was otherwise gone the moment anyone needed it (confirmed
+    live 2026-09-24, "They Didn't Say No" ebook - rebuilt by hand from the
+    published page). Firestore's the one place both the local machine and
+    Render already write to, so every ebook's email lands somewhere durable
+    regardless of which one created it. Keyed by slug so a re-run overwrites
+    instead of duplicating."""
+    body = {
+        "fields": {
+            "slug": {"stringValue": package["slug"]},
+            "title": {"stringValue": package["title"]},
+            "email_subject": {"stringValue": package["email_subject"]},
+            "email_preview": {"stringValue": package["email_preview"]},
+            "email_body": {"stringValue": package["email_body"]},
+            "capture_url": {"stringValue": capture_url},
+            "thank_you_url": {"stringValue": thank_you_url},
+            "pdf_url": {"stringValue": pdf_url},
+            "created_at": {"integerValue": str(int(datetime.now(timezone.utc).timestamp() * 1000))},
+        }
+    }
+    try:
+        response = requests.patch(f"{FIRESTORE_EMAILS_URL}/{package['slug']}", json=body, timeout=30)
+        if response.status_code != 200:
+            print(f"WARNING: could not save email to Firestore ({response.status_code}): {response.text[:200]}", file=sys.stderr)
+    except requests.RequestException as error:
+        print(f"WARNING: could not save email to Firestore: {error}", file=sys.stderr)
 
 
 class PipelineError(RuntimeError):
@@ -132,6 +169,12 @@ def write_package(env, package, extracted, cover, pdf_upload, capture_page, ty_p
     # GHL automation's email step each time and wants a Notepad-openable
     # copy ready without digging through package.json/capture_page.html.
     (out_dir / "email_delivery.txt").write_text(email_delivery_text, encoding="utf-8")
+    save_email_to_firestore(
+        package,
+        capture_page.get("preview_url", ""),
+        ty_page.get("preview_url", ""),
+        pdf_upload["url"],
+    )
 
     wp_base = (env.get("WP_URL") or "").rstrip("/")
     ty_future_url = f"{wp_base}/{package['slug']}-thank-you/"
