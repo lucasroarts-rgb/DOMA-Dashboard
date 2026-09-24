@@ -81,19 +81,22 @@ class WpClient:
         return headers
 
     def upload_media(self, file_path: Path, filename: str) -> dict:
+        content_type = "image/webp" if filename.endswith(".webp") else "image/jpeg"
+        with open(file_path, "rb") as handle:
+            return self.upload_media_bytes(handle.read(), filename, content_type)
+
+    def upload_media_bytes(self, data: bytes, filename: str, content_type: str) -> dict:
         # Multipart form-data, not a raw binary POST with a Content-Disposition
         # header - the raw-body approach 406s on Bluehost's Mod_Security WAF
         # for some content-types (confirmed live on a .webp upload); standard
         # multipart never triggered it.
-        content_type = "image/webp" if filename.endswith(".webp") else "image/jpeg"
-        with open(file_path, "rb") as handle:
-            response = requests.post(
-                f"{self.base_url}/wp-json/wp/v2/media",
-                auth=self.auth,
-                headers=self._headers(),
-                files={"file": (filename, handle, content_type)},
-                timeout=60,
-            )
+        response = requests.post(
+            f"{self.base_url}/wp-json/wp/v2/media",
+            auth=self.auth,
+            headers=self._headers(),
+            files={"file": (filename, data, content_type)},
+            timeout=60,
+        )
         if response.status_code not in (200, 201):
             raise WpError(f"Media upload failed ({response.status_code}): {response.text[:300]}")
         payload = response.json()

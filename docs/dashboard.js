@@ -2214,9 +2214,13 @@ function ensureCalendarAddForm(allOwners) {
   if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
 
   // Uploads need the local FastAPI backend - hide the file pickers on the
-  // published static site instead of offering a control that can only fail.
+  // published static site instead of offering a control that can only fail,
+  // but say why (a silent disappearance is exactly what confused Thalles
+  // 2026-09-24 - "não estou achando mais a parte para fazer o upload").
   const uploadRow = document.getElementById("calendarUploadRow");
   if (uploadRow) uploadRow.hidden = IS_STATIC;
+  const uploadStaticNote = document.getElementById("calendarUploadStaticNote");
+  if (uploadStaticNote) uploadStaticNote.hidden = !IS_STATIC;
 
   if (calendarAddFormAttached) return;
   calendarAddFormAttached = true;
