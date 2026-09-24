@@ -2273,11 +2273,11 @@ function ensureCalendarAddForm(allOwners) {
       const imageFile = fd.get("image_file");
       const isFreshPdfUpload = pdfFile instanceof File && pdfFile.size > 0;
       if (isFreshPdfUpload) {
-        renderCalendarUploadStatus("Uploading PDF...");
+        renderCalendarUploadStatus("Please wait a few moments...");
         pdf_url = (await uploadCalendarFile(pdfFile)).url;
       }
       if (imageFile instanceof File && imageFile.size > 0) {
-        renderCalendarUploadStatus("Uploading image...");
+        renderCalendarUploadStatus("Please wait a few moments...");
         const uploaded = await uploadCalendarFile(imageFile);
         image_url = uploaded.url;
         image_media_id = uploaded.id;
@@ -2322,7 +2322,7 @@ function ensureCalendarAddForm(allOwners) {
       // Pages publish live immediately (not draft) - the calendar item IS
       // the review step, so there's no separate draft-review pass here.
       if (type === "Ebook" && isFreshPdfUpload && image_url && image_media_id) {
-        renderCalendarUploadStatus("Building and publishing pages...");
+        renderCalendarUploadStatus("Please wait a few moments...");
         try {
           const pages = await createCalendarEbookPages({ title, pdf_url, image_url, image_media_id });
           const pageLinks = [
@@ -2333,9 +2333,7 @@ function ensureCalendarAddForm(allOwners) {
             links: [...links, ...pageLinks],
           });
           alert(
-            `Pages published for "${pages.title}":\n\n` +
-              `Capture page: ${pages.capture_url}\n` +
-              `Thank-you page: ${pages.thank_you_url}\n\n` +
+            `Pages published for "${pages.title}". Check the Content Calendar item's Links again - the capture page link is there now.\n\n` +
               (pages.form_attached
                 ? "GHL form already matched and embedded."
                 : `GHL form not found yet - duplicate an "Ebook - ..." form, rename it to "Ebook - ${pages.title}", it'll attach automatically on the next scheduled run.`)
