@@ -10,6 +10,16 @@ const STATIC_DATA = window.DOMA_STATIC_DATA || null;
 const IS_LOCALHOST = ["localhost", "127.0.0.1"].includes(location.hostname);
 const IS_STATIC = Boolean(STATIC_DATA) || !IS_LOCALHOST;
 
+// Where the Content Calendar upload/create-pages calls go. Local: same
+// origin, no auth needed beyond being on your own machine. Published site:
+// a separately-deployed copy of this app (see generate_public_site.py's
+// api_base/upload_auth) when one's configured, else null - no working
+// upload target, dashboard.js falls back to explaining that instead of
+// showing a control that can only fail.
+const CALENDAR_API_BASE = IS_STATIC ? (STATIC_DATA && STATIC_DATA.api_base) || null : "";
+const CALENDAR_UPLOAD_AUTH = IS_STATIC ? (STATIC_DATA && STATIC_DATA.upload_auth) || null : null;
+const CALENDAR_UPLOAD_AVAILABLE = CALENDAR_API_BASE !== null;
+
 let dashboard = null;
 
 /* ---------- password gate (published site only) ----------
@@ -2177,14 +2187,22 @@ function renderCalendarUploadStatus(message) {
   el.hidden = parts.length === 0;
 }
 
-// Uploads to the local dashboard's own backend, which relays to the
-// WordPress media library (see /api/content-calendar/upload in app.py) -
-// only reachable when running the local FastAPI dashboard, not the
-// published static site (IS_STATIC true there, no backend to call).
+// Uploads to this app's own backend, which relays to the WordPress media
+// library (see /api/content-calendar/upload in app.py) - either the local
+// FastAPI dashboard (same origin, no auth header needed) or, on the
+// published site, a separately-deployed copy of this same app.py
+// (CALENDAR_API_BASE, with the Basic-Auth header its protect_writes
+// middleware requires on every write - see CALENDAR_UPLOAD_AUTH above).
 async function uploadCalendarFile(file) {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch("/api/content-calendar/upload", { method: "POST", body });
+  const headers = CALENDAR_UPLOAD_AUTH ? { Authorization: `Basic ${CALENDAR_UPLOAD_AUTH}` } : {};
+  const response = await fetch(`${CALENDAR_API_BASE}/api/content-calendar/upload`, {
+    method: "POST",
+    body,
+    headers,
+    credentials: CALENDAR_API_BASE ? "omit" : "same-origin",
+  });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     throw new Error(`Upload failed (${response.status}): ${text.slice(0, 200)}`);
@@ -2197,10 +2215,13 @@ async function uploadCalendarFile(file) {
 // called right after a NEW pdf upload, never on a plain edit/save, so
 // re-saving an existing ebook item doesn't recreate its pages.
 async function createCalendarEbookPages({ title, pdf_url, image_url, image_media_id }) {
-  const response = await fetch("/api/content-calendar/create-pages", {
+  const headers = { "Content-Type": "application/json" };
+  if (CALENDAR_UPLOAD_AUTH) headers.Authorization = `Basic ${CALENDAR_UPLOAD_AUTH}`;
+  const response = await fetch(`${CALENDAR_API_BASE}/api/content-calendar/create-pages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ title, pdf_url, image_url, image_media_id }),
+    credentials: CALENDAR_API_BASE ? "omit" : "same-origin",
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -2213,14 +2234,16 @@ function ensureCalendarAddForm(allOwners) {
   const ownerOptions = document.getElementById("calendarOwnerOptions");
   if (ownerOptions) ownerOptions.innerHTML = allOwners.map((o) => `<option value="${o}">`).join("");
 
-  // Uploads need the local FastAPI backend - hide the file pickers on the
-  // published static site instead of offering a control that can only fail,
-  // but say why (a silent disappearance is exactly what confused Thalles
-  // 2026-09-24 - "não estou achando mais a parte para fazer o upload").
+  // Show the file pickers whenever there's an actual backend to upload to -
+  // local always has one (same origin); the published site only does once
+  // CALENDAR_API_BASE is configured (see generate_public_site.py). Explain
+  // why otherwise, rather than a silent disappearance (that's exactly what
+  // confused Thalles 2026-09-24 - "não estou achando mais a parte para
+  // fazer o upload").
   const uploadRow = document.getElementById("calendarUploadRow");
-  if (uploadRow) uploadRow.hidden = IS_STATIC;
+  if (uploadRow) uploadRow.hidden = !CALENDAR_UPLOAD_AVAILABLE;
   const uploadStaticNote = document.getElementById("calendarUploadStaticNote");
-  if (uploadStaticNote) uploadStaticNote.hidden = !IS_STATIC;
+  if (uploadStaticNote) uploadStaticNote.hidden = CALENDAR_UPLOAD_AVAILABLE;
 
   if (calendarAddFormAttached) return;
   calendarAddFormAttached = true;

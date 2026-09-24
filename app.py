@@ -26,6 +26,7 @@ from typing import Any
 
 import requests
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
@@ -96,6 +97,24 @@ def has_valid_admin_credentials(request: Request) -> bool:
 
 app = FastAPI(title="DOMA Dashboard")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Lets the published GitHub Pages dashboard call this app's Content Calendar
+# upload/create-pages endpoints when it's deployed somewhere publicly
+# reachable (see scripts/generate_public_site.py's api_base/upload_auth) -
+# only when this app itself IS that public deployment; a purely local
+# instance has nothing to allow cross-origin, so GITHUB_PAGES_URL is simply
+# unset there and this becomes a no-op. allow_credentials requires an exact
+# origin, not "*", so this reads the same GITHUB_PAGES_URL already in .env
+# rather than opening it to every origin.
+_github_pages_url = (_wp_env.get("GITHUB_PAGES_URL") or "").rstrip("/")
+if _github_pages_url:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[_github_pages_url],
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
 
 
 @app.middleware("http")

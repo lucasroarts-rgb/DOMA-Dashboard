@@ -8,6 +8,7 @@ so it is safe to publish to a public GitHub Pages site.
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import shutil
@@ -22,6 +23,7 @@ DOCS_DIR = ROOT / "docs"
 
 sys.path.insert(0, str(ROOT))
 import app as dashboard_app  # noqa: E402
+from scripts.env_utils import load_env_file  # noqa: E402
 
 
 def clean_json(value: Any) -> Any:
@@ -45,12 +47,33 @@ def main() -> int:
         dashboards[str(days)] = dashboard_app.dashboard_with_comparison(start_date, end_date)
 
     default_days = 90
+    env = load_env_file()
+    # Lets the published (static) site reach the Content Calendar
+    # upload/create-pages endpoints on a separately-deployed copy of this
+    # same app.py (e.g. Render) - those two endpoints are the only ones the
+    # published site ever calls; everything else still reads the baked
+    # dashboards data above. api_base empty means "no remote configured",
+    # and dashboard.js falls back to explaining uploads only work locally.
+    # upload_auth is base64("user:password") for the *same* Basic-Auth
+    # credential app.py's protect_writes middleware already requires on
+    # every non-GET /api/* call - baked into this public bundle the same
+    # way the site's own password gate already is (see dashboard.js's
+    # "NOT real security" comment; same accepted model, now also guarding
+    # a write-capable endpoint, so rotate PUBLIC_UPLOAD_PASSWORD in .env if
+    # that credential ever needs to be isolated from other admin uses).
+    api_base = (env.get("PUBLIC_API_BASE") or "").rstrip("/")
+    upload_user = env.get("PUBLIC_UPLOAD_USER") or env.get("ADMIN_USER") or ""
+    upload_password = env.get("PUBLIC_UPLOAD_PASSWORD") or env.get("ADMIN_PASSWORD") or ""
+    upload_auth = base64.b64encode(f"{upload_user}:{upload_password}".encode()).decode() if (api_base and upload_password) else ""
+
     payload = clean_json(
         {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "default_range": default_days,
             "dashboards": dashboards,
             "dashboard": dashboards[str(default_days)],
+            "api_base": api_base,
+            "upload_auth": upload_auth,
         }
     )
 
