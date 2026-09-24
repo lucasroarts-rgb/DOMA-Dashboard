@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -104,13 +105,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # only when this app itself IS that public deployment; a purely local
 # instance has nothing to allow cross-origin, so GITHUB_PAGES_URL is simply
 # unset there and this becomes a no-op. allow_credentials requires an exact
-# origin, not "*", so this reads the same GITHUB_PAGES_URL already in .env
-# rather than opening it to every origin.
-_github_pages_url = (_wp_env.get("GITHUB_PAGES_URL") or "").rstrip("/")
-if _github_pages_url:
+# origin, not "*" - and a CORS origin is scheme+host only, never a path, so
+# this can't just rstrip("/") off GITHUB_PAGES_URL (which is the page URL,
+# "https://.../DOMA-Dashboard/") - the browser's actual Origin header for
+# that page is "https://lucasroarts-rgb.github.io", with no path at all.
+_github_pages_origin = urlsplit(_wp_env.get("GITHUB_PAGES_URL") or "")
+_github_pages_origin = f"{_github_pages_origin.scheme}://{_github_pages_origin.netloc}" if _github_pages_origin.netloc else ""
+if _github_pages_origin:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[_github_pages_url],
+        allow_origins=[_github_pages_origin],
         allow_credentials=True,
         allow_methods=["GET", "POST"],
         allow_headers=["Authorization", "Content-Type"],

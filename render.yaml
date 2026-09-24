@@ -1,0 +1,46 @@
+# Render Blueprint - deploys app.py so the published dashboard (GitHub
+# Pages) can reach the Content Calendar upload/create-pages endpoints, which
+# need a real running backend (PDF parsing, Elementor page templating, GHL
+# API calls) that neither WordPress nor GHL can do on their own.
+#
+# Only those two endpoints matter for this deployment - the rest of app.py
+# (dashboard stats, SEO tabs) boots fine against an empty SQLite database
+# (init_db() just creates empty tables) but has nothing in it; the
+# published dashboard's own stats still come from the baked docs/data.js,
+# not this instance.
+#
+# Setup (see https://render.com/docs/blueprint-spec):
+# 1. render.com -> New -> Blueprint -> connect this GitHub repo.
+# 2. Render reads this file and prompts for every `sync: false` value below
+#    - paste the same values from your local .env (never commit real
+#      secrets into this file or into .env).
+# 3. After it deploys, copy the service URL (https://xxxxx.onrender.com)
+#    and give it to Claude to set as PUBLIC_API_BASE, which rebuilds and
+#    republishes the dashboard to actually use it.
+
+services:
+  - type: web
+    name: doma-dashboard-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: WP_URL
+        sync: false
+      - key: WP_USERNAME
+        sync: false
+      - key: WP_APP_PASSWORD
+        sync: false
+      - key: GHL_EBOOK_API_KEY
+        sync: false
+      - key: GHL_LOCATION_ID
+        sync: false
+      - key: GHL_WIDGET_DOMAIN
+        sync: false
+      - key: ADMIN_USER
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GITHUB_PAGES_URL
+        sync: false
