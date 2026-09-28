@@ -1936,10 +1936,29 @@ function renderTodoBoard() {
 // said the last meeting of each month would be a full to-do review. This is
 // that review, but always live: it recaps the current month's completed
 // tickets by owner, so it already reads as the full month once the month
-// actually ends.
+// actually ends. Starts collapsed (2026-09-28, Lucas asked for it as a
+// toggleable tab rather than always taking up board space) - state persists
+// across re-renders via the module-level flag, same pattern as the Weekly
+// Recap weeks and Team & Meetings panels.
+let todoRecapCollapsed = true;
+let todoRecapListenersAttached = false;
+
+function ensureTodoRecapListeners() {
+  if (todoRecapListenersAttached) return;
+  todoRecapListenersAttached = true;
+  document.getElementById("todoMonthlyRecap").addEventListener("click", (event) => {
+    if (!event.target.closest(".recap-header")) return;
+    todoRecapCollapsed = !todoRecapCollapsed;
+    document.getElementById("todoMonthlyRecap").classList.toggle("collapsed", todoRecapCollapsed);
+  });
+}
+
 function renderTodoMonthlyRecap(items) {
   const el = document.getElementById("todoMonthlyRecap");
   if (!el) return;
+  ensureTodoRecapListeners();
+  el.classList.toggle("collapsed", todoRecapCollapsed);
+  const chevron = `<span class="status-chevron">${todoRecapCollapsed ? "▸" : "▾"}</span>`;
 
   const monthKey = new Date().toISOString().slice(0, 7);
   const monthLabel = new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
@@ -1952,10 +1971,10 @@ function renderTodoMonthlyRecap(items) {
 
   if (!doneThisMonth.length) {
     el.innerHTML = `
-      <div class="recap-header">
-        <h2>Completed in ${monthLabel}</h2>
+      <button type="button" class="recap-header">
+        ${chevron}<h2>Completed in ${monthLabel}</h2>
         <span class="panel-meta">Nothing marked done yet this month</span>
-      </div>`;
+      </button>`;
     return;
   }
 
@@ -1979,11 +1998,11 @@ function renderTodoMonthlyRecap(items) {
     .join("");
 
   el.innerHTML = `
-    <div class="recap-header">
-      <h2>Completed in ${monthLabel}</h2>
+    <button type="button" class="recap-header">
+      ${chevron}<h2>Completed in ${monthLabel}</h2>
       <span class="status-count">${doneThisMonth.length} task${doneThisMonth.length === 1 ? "" : "s"}</span>
-    </div>
-    <div class="recap-owner-grid">${ownerBlocks}</div>`;
+    </button>
+    <div class="recap-body"><div class="recap-owner-grid">${ownerBlocks}</div></div>`;
 }
 
 /* ---------- content calendar ---------- */

@@ -346,10 +346,14 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .weekly-recap-meeting-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px}
 .weekly-recap-summary{margin-top:6px;font-size:13px;line-height:1.6;color:var(--muted)}
 
-/* monthly recap (to do board) */
-.recap-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+/* monthly recap (to do board) - collapsible, same pattern as .weekly-recap-week */
+.recap-panel{padding:16px 20px}
+.recap-header{width:100%;display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:0;background:transparent;padding:0;margin:0;cursor:pointer;text-align:left;font:inherit;color:inherit}
 .recap-header h2{margin:0;font-size:16px}
-.recap-owner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:14px}
+.recap-panel.collapsed .recap-body{display:none}
+.recap-panel.collapsed .status-chevron{transform:rotate(-90deg)}
+.recap-body{margin-top:14px}
+.recap-owner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
 .recap-owner-block{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .recap-owner-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:700;margin-bottom:8px}
 .recap-owner-list{margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:var(--muted)}
