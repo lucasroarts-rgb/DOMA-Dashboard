@@ -40,7 +40,7 @@ OWNER_EMAILS = {
     "Lucas": "lucas@joindoma.com",
     "Kyle": "kyle@joindoma.com",
     "Juli": "juli@joindoma.com",
-    "Michelle": "michelle@joindoma.com",
+    "Michelle": "michelle.day@joindoma.com",
 }
 
 

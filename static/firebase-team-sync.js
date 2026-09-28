@@ -54,7 +54,13 @@ window.domaTeamSync = {
   subscribeAll(callback) {
     return watch(STATUS_COLLECTION, (snapshot) => {
       const statuses = new Map();
-      snapshot.forEach((docSnap) => statuses.set(docSnap.id, docSnap.data().status));
+      // Keeps updated_at alongside status (not just the bare status string) so
+      // the dashboard can tell WHEN a ticket was marked done, not just that it
+      // currently is - needed for the "completed this month" recap.
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        statuses.set(docSnap.id, { status: data.status, updated_at: data.updated_at || null });
+      });
       callback(statuses);
     });
   },

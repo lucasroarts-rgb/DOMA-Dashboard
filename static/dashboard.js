@@ -995,94 +995,6 @@ function renderLeads() {
   );
 }
 
-/* ---------- email campaigns (ActiveCampaign + GoHighLevel, entered by
-   hand from each platform's own reporting screen - split off from Leads
-   2026-09-03 into its own tab so the two source platforms don't blur
-   together) ---------- */
-
-function emailCampaignSentLabel(c) {
-  if (!c.sent_at) return "Not sent yet";
-  const date = fullDate(c.sent_at);
-  return c.sent_time ? `${date} at ${c.sent_time}` : date;
-}
-
-function emailCampaignCardHtml(c) {
-  const stats = [
-    { label: "Sent to", value: number(c.recipients) },
-    { label: "Delivered", value: c.delivered !== null ? `${number(c.delivered)} (${percent(c.delivered_rate)})` : "—" },
-    { label: "Unique opens", value: `${number(c.opens)} (${percent(c.open_rate)})` },
-    { label: "Unique clicks", value: `${number(c.clicks)} (${percent(c.click_rate)})` },
-    { label: "Click-to-open", value: c.ctor !== null ? percent(c.ctor) : "—" },
-    { label: "Unsubscribes", value: c.unsubscribes !== null ? `${number(c.unsubscribes)} (${percent(c.unsubscribe_rate)})` : "—" },
-    {
-      label: "Bounces",
-      value:
-        c.hard_bounces !== null || c.soft_bounces !== null
-          ? `${number((c.hard_bounces || 0) + (c.soft_bounces || 0))} (${percent(c.bounce_rate)})`
-          : c.bounce_rate !== null
-          ? percent(c.bounce_rate)
-          : "—",
-    },
-    { label: "Skipped", value: c.skipped !== null ? `${number(c.skipped)} (${percent(c.skipped_rate)})` : "—" },
-  ];
-
-  return `
-    <div class="panel email-campaign-card">
-      <div class="email-campaign-header">
-        <div>
-          <h3>${c.campaign_name}</h3>
-          <div class="panel-meta">Sent ${emailCampaignSentLabel(c)}${c.scheduled_at ? ` &middot; scheduled for ${c.scheduled_at}` : ""}</div>
-        </div>
-      </div>
-      <div class="email-campaign-stats">
-        ${stats.map((s) => `<div class="email-campaign-stat"><span class="email-campaign-stat-label">${s.label}</span><span class="email-campaign-stat-value">${s.value}</span></div>`).join("")}
-      </div>
-      ${c.notes ? `<div class="email-campaign-notes">${c.notes}</div>` : ""}
-      ${
-        c.top_links && c.top_links.length
-          ? `<details class="email-campaign-links">
-        <summary>&#128279; Click performance (${c.top_links.length} link${c.top_links.length === 1 ? "" : "s"}${c.total_clicks ? `, ${number(c.total_clicks)} total clicks` : ""})</summary>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Link</th><th>Unique clicks</th><th>Total clicks</th></tr></thead>
-            <tbody>
-              ${c.top_links.map((l) => `<tr><td class="email-campaign-link-url">${l.url}</td><td>${number(l.unique_clicks)}</td><td>${number(l.total_clicks)}</td></tr>`).join("")}
-            </tbody>
-          </table>
-        </div>
-      </details>`
-          : ""
-      }
-    </div>`;
-}
-
-function renderEmailCampaigns() {
-  const ghl = dashboard.ghl;
-  const campaigns = ghl.email_campaigns || [];
-  const acCampaigns = campaigns.filter((c) => c.source === "activecampaign");
-  const ghlCampaigns = campaigns.filter((c) => c.source !== "activecampaign");
-
-  document.getElementById("emailCampaignsEmpty").style.display = campaigns.length ? "none" : "block";
-  document.getElementById("emailCampaignsActiveCampaignPanel").style.display = acCampaigns.length ? "block" : "none";
-  document.getElementById("emailCampaignsGhlPanel").style.display = ghlCampaigns.length ? "block" : "none";
-
-  const totalSent = campaigns.reduce((sum, c) => sum + (c.recipients || 0), 0);
-  const totalOpens = campaigns.reduce((sum, c) => sum + (c.opens || 0), 0);
-  const totalClicks = campaigns.reduce((sum, c) => sum + (c.clicks || 0), 0);
-  const totalUnsubs = campaigns.reduce((sum, c) => sum + (c.unsubscribes || 0), 0);
-
-  renderCards("emailCampaignsCards", [
-    { label: "Campaigns", value: number(campaigns.length) },
-    { label: "Total sends", value: number(totalSent), hint: "Sum across sends, not unique people - the resend and the parallel GHL/AC send largely overlap." },
-    { label: "Avg open rate", value: totalSent ? percent((totalOpens / totalSent) * 100) : "—" },
-    { label: "Avg click rate", value: totalSent ? percent((totalClicks / totalSent) * 100) : "—" },
-    { label: "Unsubscribes", value: number(totalUnsubs) },
-  ]);
-
-  document.getElementById("emailCampaignsActiveCampaignList").innerHTML = acCampaigns.map(emailCampaignCardHtml).join("");
-  document.getElementById("emailCampaignsGhlList").innerHTML = ghlCampaigns.map(emailCampaignCardHtml).join("");
-}
-
 function renderSocial() {
   const social = dashboard.social;
   const prev = dashboard.previous;
@@ -1210,7 +1122,15 @@ const TEAM_KNOWN_OWNERS = ["Kyle", "Juli", "Lucas", "Michelle"];
 const TEAM_STATUS_LABELS = { open: "To do", in_progress: "In progress", done: "Completed" };
 
 function teamEffectiveStatus(item) {
-  return teamLiveStatuses.get(String(item.id)) || item.status || "open";
+  const live = teamLiveStatuses.get(String(item.id));
+  return (live && live.status) || item.status || "open";
+}
+
+// When a ticket was last marked done (ms epoch), or null if it was never
+// toggled through Firestore (e.g. still showing its baked default status).
+function teamStatusUpdatedAt(item) {
+  const live = teamLiveStatuses.get(String(item.id));
+  return (live && live.updated_at) || null;
 }
 
 // Team & Meetings shows meeting-derived tickets ONLY - manually-added ones
@@ -1627,7 +1547,7 @@ function renderTeam() {
 /* ---------- to do board (manually-added tasks, split off from Team &
    Meetings 2026-08-31 so ad-hoc tasks stop mixing with meeting recaps) ---------- */
 
-let todoFilters = { owner: "all", topic: "all" };
+let todoFilters = { owner: "all", topic: "all", month: "all" };
 let todoListenersAttached = false;
 let todoAddFormAttached = false;
 let editingTodoItemId = null;
@@ -1636,7 +1556,7 @@ function todoCardHtml(item) {
   const status = teamEffectiveStatus(item);
   const isMeeting = item.source === "meeting";
   return `
-    <div class="todo-card" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-source="${item.source || "manual"}">
+    <div class="todo-card" data-id="${item.id}" data-owner="${item.owner}" data-topic="${item.topic || "General"}" data-source="${item.source || "manual"}" data-date="${item.meeting_date || ""}">
       <div class="todo-card-top">
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>
         ${isMeeting ? `<span class="todo-card-meeting-badge" title="${item.meeting_title || "Team meeting"}${item.meeting_date ? " · " + fullDate(item.meeting_date) : ""}">&#128197; From meeting</span>` : ""}
@@ -1656,10 +1576,50 @@ function applyTodoFilters() {
   document.querySelectorAll(".todo-card").forEach((card) => {
     const ownerMatch = todoFilters.owner === "all" || card.dataset.owner === todoFilters.owner;
     const topicMatch = todoFilters.topic === "all" || card.dataset.topic === todoFilters.topic;
-    card.classList.toggle("hidden", !(ownerMatch && topicMatch));
+    const monthMatch = todoFilters.month === "all" || (card.dataset.date || "").slice(0, 7) === todoFilters.month;
+    card.classList.toggle("hidden", !(ownerMatch && topicMatch && monthMatch));
   });
   document.querySelectorAll("#todoOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === todoFilters.owner));
   document.querySelectorAll("#todoTopicFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === todoFilters.topic));
+
+  const label = document.getElementById("todoMonthLabel");
+  if (label) {
+    label.textContent =
+      todoFilters.month === "all" ? "All time" : new Date(`${todoFilters.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  }
+  document.getElementById("todoAllTimeBtn")?.classList.toggle("active", todoFilters.month === "all");
+
+  TEAM_STATUS_ORDER.forEach((status) => {
+    const listEl = document.getElementById(`todoList${status}`);
+    if (!listEl) return;
+    const visibleCount = listEl.querySelectorAll(".todo-card:not(.hidden)").length;
+    const emptyEl = listEl.querySelector(".todo-empty-col");
+    if (!visibleCount && !emptyEl) listEl.insertAdjacentHTML("beforeend", `<div class="todo-empty-col">Nothing here</div>`);
+    if (visibleCount && emptyEl) emptyEl.remove();
+  });
+}
+
+function ensureTodoMonthNav() {
+  if (document.getElementById("todoPrevMonth")?.dataset.bound) return;
+  const prevBtn = document.getElementById("todoPrevMonth");
+  const nextBtn = document.getElementById("todoNextMonth");
+  const allTimeBtn = document.getElementById("todoAllTimeBtn");
+  if (!prevBtn || !nextBtn || !allTimeBtn) return;
+  prevBtn.dataset.bound = "1";
+
+  const currentMonthAnchor = () => (todoFilters.month === "all" ? new Date().toISOString().slice(0, 7) : todoFilters.month);
+  prevBtn.addEventListener("click", () => {
+    todoFilters.month = shiftMonth(currentMonthAnchor(), -1);
+    applyTodoFilters();
+  });
+  nextBtn.addEventListener("click", () => {
+    todoFilters.month = shiftMonth(currentMonthAnchor(), 1);
+    applyTodoFilters();
+  });
+  allTimeBtn.addEventListener("click", () => {
+    todoFilters.month = "all";
+    applyTodoFilters();
+  });
 }
 
 function openTodoEditForm(item) {
@@ -1906,6 +1866,7 @@ function renderWeeklyRecap() {
 
 function renderTodoBoard() {
   ensureTodoListeners();
+  ensureTodoMonthNav();
   const manualItems = teamManualItems.map((mi) => ({
     id: mi.id,
     owner: mi.owner,
@@ -1968,6 +1929,61 @@ function renderTodoBoard() {
     applyTodoFilters();
   });
   applyTodoFilters();
+  renderTodoMonthlyRecap(items);
+}
+
+// "Pull everything that got done and put a summary" - Sept 28 meeting note
+// said the last meeting of each month would be a full to-do review. This is
+// that review, but always live: it recaps the current month's completed
+// tickets by owner, so it already reads as the full month once the month
+// actually ends.
+function renderTodoMonthlyRecap(items) {
+  const el = document.getElementById("todoMonthlyRecap");
+  if (!el) return;
+
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const monthLabel = new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const doneThisMonth = items.filter((item) => {
+    if (teamEffectiveStatus(item) !== "done") return false;
+    const completedAt = teamStatusUpdatedAt(item);
+    return completedAt && new Date(completedAt).toISOString().slice(0, 7) === monthKey;
+  });
+
+  if (!doneThisMonth.length) {
+    el.innerHTML = `
+      <div class="recap-header">
+        <h2>Completed in ${monthLabel}</h2>
+        <span class="panel-meta">Nothing marked done yet this month</span>
+      </div>`;
+    return;
+  }
+
+  const byOwner = new Map();
+  doneThisMonth.forEach((item) => {
+    if (!byOwner.has(item.owner)) byOwner.set(item.owner, []);
+    byOwner.get(item.owner).push(item);
+  });
+
+  const ownerBlocks = [...byOwner.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(
+      ([owner, ownerItems]) => `
+      <div class="recap-owner-block">
+        <div class="recap-owner-header">${owner} <span class="status-count">${ownerItems.length}</span></div>
+        <ul class="recap-owner-list">
+          ${ownerItems.map((i) => `<li>${i.description}</li>`).join("")}
+        </ul>
+      </div>`
+    )
+    .join("");
+
+  el.innerHTML = `
+    <div class="recap-header">
+      <h2>Completed in ${monthLabel}</h2>
+      <span class="status-count">${doneThisMonth.length} task${doneThisMonth.length === 1 ? "" : "s"}</span>
+    </div>
+    <div class="recap-owner-grid">${ownerBlocks}</div>`;
 }
 
 /* ---------- content calendar ---------- */
@@ -2953,7 +2969,6 @@ function renderAll() {
   safeRender("Content Suggestions", renderContentIdeas);
   safeRender("Content Calendar", renderContentCalendar);
   safeRender("Leads", renderLeads);
-  safeRender("Email Campaigns", renderEmailCampaigns);
   safeRender("Social", renderSocial);
   safeRender("Team & Meetings", renderTeam);
   safeRender("Weekly Recap", renderWeeklyRecap);

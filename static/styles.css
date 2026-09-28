@@ -346,6 +346,15 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .weekly-recap-meeting-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px}
 .weekly-recap-summary{margin-top:6px;font-size:13px;line-height:1.6;color:var(--muted)}
 
+/* monthly recap (to do board) */
+.recap-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.recap-header h2{margin:0;font-size:16px}
+.recap-owner-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:14px}
+.recap-owner-block{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.recap-owner-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:700;margin-bottom:8px}
+.recap-owner-list{margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:var(--muted)}
+.recap-owner-list li{margin-bottom:4px}
+
 /* to do board */
 .todo-board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
 .todo-column{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:14px;border-top:3px solid var(--line-strong)}
