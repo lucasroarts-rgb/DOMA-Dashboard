@@ -481,6 +481,13 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .link-copy:hover{color:var(--teal-2)}
 .link-copy.copied{color:var(--green)}
 
+/* auto-linked URLs inside task descriptions/context/comments */
+.desc-link{color:var(--teal-2);font-weight:600;text-decoration:none;white-space:nowrap}
+.desc-link:hover{text-decoration:underline}
+.desc-link-copy{border:0;background:transparent;color:var(--muted);font-size:12px;line-height:1;cursor:pointer;padding:0 3px;vertical-align:middle}
+.desc-link-copy:hover{color:var(--teal-2)}
+.desc-link-copy.copied{color:var(--green)}
+
 .footer{color:var(--muted);font-size:12px;text-align:center;padding:20px 0}
 
 .password-gate{

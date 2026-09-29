@@ -114,6 +114,60 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Task descriptions, context notes, and comments often have a raw URL pasted
+// straight into them (a Google Doc link, a GHL post link) - this turns those
+// into a real one-click-open link plus a copy button instead of a long dead
+// string of text the team has to hand-select (2026-09-29, Lucas: "make the
+// dashboard links easier to copy or open with a single click"). Everything
+// that isn't a URL is still run through escapeHtml, same as before.
+const URL_PATTERN = /(https?:\/\/[^\s<>"']+)/g;
+
+function linkifyText(text) {
+  if (!text) return "";
+  return String(text)
+    .split(URL_PATTERN)
+    .map((part, i) => {
+      if (i % 2 === 0) return escapeHtml(part);
+      const url = part.replace(/[).,;]+$/, ""); // trailing sentence punctuation often gets swept into the paste
+      const trailing = part.slice(url.length);
+      let display;
+      try {
+        const u = new URL(url);
+        const path = u.pathname === "/" ? "" : u.pathname.length > 22 ? u.pathname.slice(0, 22) + "…" : u.pathname;
+        display = u.hostname.replace(/^www\./, "") + path;
+      } catch {
+        display = url.length > 42 ? url.slice(0, 42) + "…" : url;
+      }
+      return (
+        `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="desc-link" title="${escapeHtml(url)}">&#128279; ${escapeHtml(display)}</a>` +
+        `<button type="button" class="desc-link-copy" data-url="${escapeHtml(url)}" title="Copy link">⧉</button>${escapeHtml(trailing)}`
+      );
+    })
+    .join("");
+}
+
+// One shared, document-level handler for every ".desc-link-copy" button -
+// they show up in Team & Meetings, To Do, and the monthly recap, so this is
+// wired once in init() rather than per-view.
+function initDescLinkCopy() {
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest(".desc-link-copy");
+    if (!btn) return;
+    try {
+      await navigator.clipboard.writeText(btn.dataset.url);
+      const original = btn.textContent;
+      btn.textContent = "✓";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1200);
+    } catch (error) {
+      console.error("Failed to copy link:", error);
+    }
+  });
+}
+
 function titleFromUrl(url) {
   try {
     const path = new URL(url).pathname.replace(/\/$/, "");
@@ -1386,7 +1440,7 @@ function commentsHtml(item) {
     comments
       .map(
         (c) =>
-          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${c.text}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
       )
       .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
   return `
@@ -1433,7 +1487,7 @@ function teamChecklistItemHtml(item) {
       <div class="checklist-row">
         <button type="button" class="checklist-mark" title="Click to change status">${teamStatusIcon(status)}</button>
         <span class="checklist-text">
-          <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${item.description}${item.context ? `<span class="checklist-context">${item.context}</span>` : ""}<span class="checklist-id">#${item.id}</span>
+          <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>${linkifyText(item.description)}${item.context ? `<span class="checklist-context">${linkifyText(item.context)}</span>` : ""}<span class="checklist-id">#${item.id}</span>
         </span>
         ${editBtn}
       </div>
@@ -1561,8 +1615,8 @@ function todoCardHtml(item) {
         <span class="checklist-owner">${item.owner}</span><span class="checklist-topic">${item.topic || "General"}</span>
         ${isMeeting ? `<span class="todo-card-meeting-badge" title="${item.meeting_title || "Team meeting"}${item.meeting_date ? " · " + fullDate(item.meeting_date) : ""}">&#128197; From meeting</span>` : ""}
       </div>
-      <div class="todo-card-desc">${item.description}</div>
-      ${item.context ? `<div class="checklist-context">${item.context}</div>` : ""}
+      <div class="todo-card-desc">${linkifyText(item.description)}</div>
+      ${item.context ? `<div class="checklist-context">${linkifyText(item.context)}</div>` : ""}
       <div class="todo-card-actions">
         ${status !== "done" ? `<button type="button" class="todo-card-advance" title="Move to ${status === "open" ? "In Progress" : "Completed"}">${status === "open" ? "Start →" : "Complete →"}</button>` : `<button type="button" class="todo-card-advance" title="Move back to To Do">↺ Reopen</button>`}
         ${isMeeting ? "" : `<button type="button" class="checklist-edit" title="Edit">&#9998;</button>`}
@@ -1991,7 +2045,7 @@ function renderTodoMonthlyRecap(items) {
       <div class="recap-owner-block">
         <div class="recap-owner-header">${owner} <span class="status-count">${ownerItems.length}</span></div>
         <ul class="recap-owner-list">
-          ${ownerItems.map((i) => `<li>${i.description}</li>`).join("")}
+          ${ownerItems.map((i) => `<li>${linkifyText(i.description)}</li>`).join("")}
         </ul>
       </div>`
     )
@@ -2875,7 +2929,7 @@ function changelogCommentsBodyHtml(item) {
     comments
       .map(
         (c) =>
-          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${c.text}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
       )
       .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
   return `
@@ -3042,6 +3096,7 @@ function initRangeSelect() {
   await initPasswordGate();
   initTabs();
   initRangeSelect();
+  initDescLinkCopy();
   const initialDays = IS_STATIC ? String((STATIC_DATA && STATIC_DATA.default_range) || 90) : (document.getElementById("rangeSelect")?.value || 90);
   const select = document.getElementById("rangeSelect");
   if (select) select.value = initialDays;
