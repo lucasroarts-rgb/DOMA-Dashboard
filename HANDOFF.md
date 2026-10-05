@@ -67,6 +67,20 @@ Esperado: voltar para a faixa de 60 a 110 sessões por dia a partir de 05/10. Se
 - **29/09, links quebrados no WordPress:** `/dental-front-office-resources/` trocado por `/dental-office-manager-resources/` em 9 posts. Dois links isolados de slug truncado corrigidos. Script `scripts/fix_internal_link_targets_round2.py` (não versionado) guarda o registro.
 - **30/09:** o item de calendário "AI + Insurance Verification" estava sem link. Escrevi a página de captura `ai-insurance-verification-2` no campo `links` do doc `iTn1p5XegYm0Y7VWPQI0` em `content_calendar_items`. O item "Sponsor Highlight: Traynar" estava sem imagem. Havia só o logo cru no WordPress (`traynar.webp`, `traynar.png`). Não coloquei sem confirmar. Não sei se foi resolvido depois.
 
+## 3b. Abas Library e SOPs (05/10, pedido da Juli e do Kyle)
+
+Duas abas novas no dashboard, ambas em Firestore ao vivo, como o Useful Links.
+
+- **Library:** artigos coletados com antecedência. Campos: título, autor, tópicos, status (Idea, Drafting, Ready to publish, Scheduled, Published), link, data planejada, notas. Filtros por tópico, autor e status, busca e ordenação.
+- **SOPs (SOP Development):** projeto contínuo. Cada SOP tem área, dono, status (To build, In progress, Draft ready for review, Needs update, Up to date), link do doc atual, "o que precisamos uns dos outros" e notas. O painel "Weekly review" lista o que terminou nos últimos 7 dias, o que está em andamento, o que espera revisão, a fila e os pedidos entre as pessoas. O botão "Paste a list" cria vários SOPs de uma vez (uma linha por SOP, link depois de uma barra vertical), para trazer a lista do ClickUp.
+- **Regras do Firestore:** coleção nova dá 403 sem regra. As duas regras já foram publicadas em 05/10:
+  `match /library_articles/{doc} { allow read, write: if true; }`
+  `match /sop_items/{doc} { allow read, write: if true; }`
+  Se as abas mostrarem o aviso de regra faltando, republicar essas linhas.
+- **Seed (feito em 05/10):** `scripts\seed_library_and_sops.py` criou 12 SOPs (os 10 do documento de SOPs em "Draft ready for review" mais 2 pendências) e 170 artigos publicados do WordPress (sem podcast e sem Downloadable Forms). Pode rodar de novo sem sobrescrever edições, só cria o que falta (`--dry-run` mostra as contagens). Leitura, criação, edição e remoção foram testadas no navegador contra o Firestore real.
+- **ClickUp:** o conector do ClickUp nesta máquina é o workspace `2274132` (BambuSix, trabalho do Thalles), não o da DOMA. Não importar dali. Os SOPs da DOMA no ClickUp precisam vir por lista colada, exportação ou conexão do workspace certo.
+- Arquivos: `static/index.html`, `static/dashboard.js`, `static/styles.css`, `static/firebase-team-sync.js`, `scripts/seed_library_and_sops.py`.
+
 ## 4. Pendências conhecidas (verificar se ainda valem)
 
 - Commit e push do item 1.

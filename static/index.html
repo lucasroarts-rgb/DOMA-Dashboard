@@ -69,6 +69,8 @@
     <button class="tab" data-view="weekly-recap">Weekly Recap</button>
     <button class="tab" data-view="todo">To Do</button>
     <button class="tab" data-view="links">Useful Links</button>
+    <button class="tab" data-view="library">Library</button>
+    <button class="tab" data-view="sops">SOPs</button>
     <button class="tab" data-view="changelog">Changelog</button>
   </nav>
 
@@ -672,6 +674,113 @@
       </div>
 
       <div id="linksList" class="links-list"></div>
+    </section>
+
+    <section class="view" id="view-library">
+      <div class="panel">
+        <h2>Library</h2>
+        <p class="panel-intro">Articles collected ahead of time (ideas, drafts, guest pieces, ready-to-publish) in one place. Filter by topic, author or status - updates live for everyone.</p>
+      </div>
+      <div class="cards" id="libraryCards"></div>
+      <div class="sync-notice" id="libraryNotice" hidden></div>
+
+      <div class="team-add" id="libraryAdd">
+        <button type="button" class="btn-add-ticket" id="libraryAddToggle">+ Add article</button>
+        <form class="team-add-form hidden" id="libraryAddForm">
+          <div class="team-add-row">
+            <input type="text" name="title" placeholder="Article title" required />
+            <input type="text" name="author" placeholder="Author (e.g. Meghan Carlson)" list="libraryAuthorOptions" />
+          </div>
+          <div class="team-add-row">
+            <input type="text" name="topics" placeholder="Topics, comma separated (e.g. Leadership, Hiring)" list="libraryTopicOptions" />
+            <select name="status" id="libraryStatusInput"></select>
+            <input type="date" name="target_date" title="Planned publish date (optional)" />
+          </div>
+          <input type="url" name="url" placeholder="Link to the Google Doc or WordPress draft (optional)" />
+          <textarea name="notes" placeholder="Notes (optional)"></textarea>
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add article</button>
+            <button type="button" id="libraryAddCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="libraryAuthorOptions"></datalist>
+        <datalist id="libraryTopicOptions"></datalist>
+      </div>
+
+      <div class="library-toolbar">
+        <input type="search" id="librarySearch" class="links-search" placeholder="Search title, author, topic or notes..." />
+        <select id="librarySort" aria-label="Sort articles">
+          <option value="newest">Newest added</option>
+          <option value="planned">Planned date</option>
+          <option value="title">Title A-Z</option>
+        </select>
+      </div>
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Topic</span><div class="owner-filter" id="libraryTopicFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Author</span><div class="owner-filter" id="libraryAuthorFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Status</span><div class="owner-filter" id="libraryStatusFilter"></div></div>
+      </div>
+
+      <div id="libraryEmpty" class="empty" style="display:none">No articles yet. Add the first one above.</div>
+      <div id="libraryList" class="lib-list"></div>
+      <button type="button" class="lib-more" id="libraryMore" hidden>Show more</button>
+    </section>
+
+    <section class="view" id="view-sops">
+      <div class="panel">
+        <h2>SOP Development</h2>
+        <p class="panel-intro">An ongoing project: which SOPs exist, which still need building or updating, and what we need from each other. Use the weekly review during the Monday call.</p>
+      </div>
+      <div class="cards" id="sopCards"></div>
+      <div class="sync-notice" id="sopNotice" hidden></div>
+
+      <div class="panel recap-panel" id="sopReview"></div>
+
+      <div class="team-add" id="sopAdd">
+        <button type="button" class="btn-add-ticket" id="sopAddToggle">+ Add SOP</button>
+        <button type="button" class="btn-add-ticket btn-secondary" id="sopBulkToggle">Paste a list (e.g. from ClickUp)</button>
+        <form class="team-add-form hidden" id="sopAddForm">
+          <div class="team-add-row">
+            <input type="text" name="title" placeholder="SOP name (e.g. Ebook publishing)" required />
+            <input type="text" name="area" placeholder="Area (e.g. Content)" list="sopAreaOptions" />
+            <input type="text" name="owner" placeholder="Owner (e.g. Juli)" list="sopOwnerOptions" />
+          </div>
+          <div class="team-add-row">
+            <select name="status" id="sopStatusInput"></select>
+            <input type="url" name="source_url" placeholder="Link to the current doc, e.g. ClickUp (optional)" />
+          </div>
+          <input type="text" name="needs" placeholder="What we need from each other (optional)" />
+          <textarea name="notes" placeholder="Notes (optional)"></textarea>
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add SOP</button>
+            <button type="button" id="sopAddCancel">Cancel</button>
+          </div>
+        </form>
+        <form class="team-add-form hidden" id="sopBulkForm">
+          <p class="panel-intro">One SOP per line. Add a link after a pipe if you have one: <code>Welcome email for new sponsors | https://app.clickup.com/...</code></p>
+          <textarea name="lines" rows="6" placeholder="Ebook publishing | https://...&#10;Sponsor onboarding&#10;Newsletter checklist | https://..." required></textarea>
+          <div class="team-add-row">
+            <input type="text" name="area" placeholder="Area for all (optional)" list="sopAreaOptions" />
+            <input type="text" name="owner" placeholder="Owner for all (optional)" list="sopOwnerOptions" />
+            <select name="status" id="sopBulkStatusInput"></select>
+          </div>
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add all</button>
+            <button type="button" id="sopBulkCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="sopAreaOptions"></datalist>
+        <datalist id="sopOwnerOptions"></datalist>
+      </div>
+
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Area</span><div class="owner-filter" id="sopAreaFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Owner</span><div class="owner-filter" id="sopOwnerFilter"></div></div>
+        <div class="team-filter-row"><span class="team-filter-label">Status</span><div class="owner-filter" id="sopStatusFilter"></div></div>
+      </div>
+
+      <div id="sopEmpty" class="empty" style="display:none">No SOPs yet. Add one above, or paste a list.</div>
+      <div id="sopList" class="sop-list"></div>
     </section>
 
     <section class="view" id="view-changelog">

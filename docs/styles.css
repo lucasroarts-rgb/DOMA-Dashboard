@@ -359,6 +359,34 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .recap-owner-list{margin:0;padding-left:18px;font-size:13px;line-height:1.6;color:var(--muted)}
 .recap-owner-list li{margin-bottom:4px}
 
+.recap-owner-tag{display:inline-block;margin-left:4px;font-size:10.5px;font-weight:700;color:var(--muted)}
+.recap-none{list-style:none;margin-left:-18px;color:var(--muted);font-style:italic}
+
+/* library + SOP development tabs */
+.sync-notice{margin-bottom:16px;padding:12px 14px;border:1px solid var(--amber, #c9932a);border-radius:12px;background:var(--panel-2);font-size:13px;line-height:1.55}
+.sync-notice code{font-size:12px;overflow-wrap:anywhere}
+.team-add .btn-secondary{background:transparent;color:var(--ink);margin-left:6px}
+.library-toolbar{display:flex;gap:10px;margin-bottom:12px}
+.library-toolbar .links-search{margin-bottom:0;flex:1 1 auto}
+.library-toolbar select{flex:0 0 auto;border:1px solid var(--line-strong);background:var(--panel-2);color:var(--ink);border-radius:10px;padding:0 12px;font-size:13px;font-family:inherit}
+.lib-list,.sop-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.lib-row,.sop-row{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}
+.lib-row.status-published,.sop-row.status-done{opacity:.72}
+.lib-main{flex:1 1 auto;min-width:0}
+.lib-title{font-weight:700;font-size:14px;line-height:1.4;overflow-wrap:anywhere}
+.lib-title a{color:var(--ink);text-decoration:none}
+.lib-title a:hover{color:var(--teal-2);text-decoration:underline}
+.lib-meta{margin-top:5px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 0}
+.lib-date{font-size:11.5px;color:var(--muted)}
+.lib-status-select{flex:0 0 auto;border:1px solid var(--line-strong);background:var(--panel);color:var(--ink);border-radius:8px;padding:5px 8px;font-size:12px;font-family:inherit}
+.sop-needs{margin-top:5px;font-size:12.5px;line-height:1.5;color:var(--ink)}
+.lib-more{display:block;margin:14px auto 0;border:1px solid var(--line-strong);background:transparent;color:var(--muted);font-size:13px;padding:8px 18px;border-radius:8px;cursor:pointer}
+.lib-more[hidden]{display:none}
+@media (max-width:640px){
+  .lib-row,.sop-row{flex-wrap:wrap}
+  .lib-main{flex-basis:100%}
+}
+
 /* to do board */
 .todo-board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
 .todo-column{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:14px;border-top:3px solid var(--line-strong)}

@@ -30,6 +30,8 @@ const LINKS_COLLECTION = "useful_links";
 const COMMUNITY_STATS_COLLECTION = "community_stats";
 const COMMUNITY_STATS_DOC_ID = "doma_free_community";
 const CHANGELOG_COLLECTION = "site_changelog";
+const LIBRARY_COLLECTION = "library_articles";
+const SOP_COLLECTION = "sop_items";
 
 function watch(collectionName, onChange, mapEntry) {
   return onSnapshot(
@@ -41,8 +43,17 @@ function watch(collectionName, onChange, mapEntry) {
       // going stale, since a dead listener looks identical to "nobody
       // else has changed anything yet" from the UI.
       console.error(`Team live-sync (${collectionName}) stopped:`, error.code, error.message);
+      // A new collection with no Firestore rule yet fails right here with
+      // permission-denied; the Library and SOPs tabs listen for this to tell
+      // the person what to fix instead of showing an empty list.
+      window.dispatchEvent(new CustomEvent("doma-sync-error", { detail: { collection: collectionName, code: error.code } }));
     }
   );
+}
+
+// Firestore rejects undefined values; the forms leave unfilled fields undefined.
+function nullify(fields) {
+  return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v === undefined ? null : v]));
 }
 
 window.domaTeamSync = {
@@ -216,6 +227,58 @@ window.domaUsefulLinks = {
   },
   async deleteLink(linkId) {
     await deleteDoc(doc(db, LINKS_COLLECTION, linkId));
+  },
+};
+
+// Library tab - articles collected ahead of time (ideas, drafts, guest pieces),
+// filterable by topic/author/status. Needs its own Firestore rule.
+window.domaLibrary = {
+  async addArticle(fields) {
+    const ref = await addDoc(collection(db, LIBRARY_COLLECTION), nullify({ ...fields, added_at: Date.now(), updated_at: Date.now() }));
+    return ref.id;
+  },
+  subscribeArticles(callback) {
+    return watch(LIBRARY_COLLECTION, (snapshot) => {
+      const items = [];
+      snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
+      callback(items);
+    });
+  },
+  async updateArticle(itemId, fields) {
+    await setDoc(doc(db, LIBRARY_COLLECTION, itemId), nullify({ ...fields, updated_at: Date.now() }), { merge: true });
+  },
+  async deleteArticle(itemId) {
+    await deleteDoc(doc(db, LIBRARY_COLLECTION, itemId));
+  },
+};
+
+// SOP Development tab - an ongoing project tracking which SOPs exist, which
+// need building or updating, and what the team needs from each other. A status
+// change stamps status_changed_at, and moving to "done" stamps completed_at, so
+// the weekly review can list what got finished in the last 7 days.
+function sopStatusStamps(fields) {
+  if (!fields.status) return {};
+  const now = Date.now();
+  return { status_changed_at: now, completed_at: fields.status === "done" ? now : null };
+}
+
+window.domaSops = {
+  async addSop(fields) {
+    const ref = await addDoc(collection(db, SOP_COLLECTION), nullify({ ...fields, ...sopStatusStamps(fields), created_at: Date.now(), updated_at: Date.now() }));
+    return ref.id;
+  },
+  subscribeSops(callback) {
+    return watch(SOP_COLLECTION, (snapshot) => {
+      const items = [];
+      snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
+      callback(items);
+    });
+  },
+  async updateSop(itemId, fields) {
+    await setDoc(doc(db, SOP_COLLECTION, itemId), nullify({ ...fields, ...sopStatusStamps(fields), updated_at: Date.now() }), { merge: true });
+  },
+  async deleteSop(itemId) {
+    await deleteDoc(doc(db, SOP_COLLECTION, itemId));
   },
 };
 

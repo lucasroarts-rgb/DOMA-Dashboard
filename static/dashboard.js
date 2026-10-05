@@ -3115,6 +3115,8 @@ function renderAll() {
   safeRender("Weekly Recap", renderWeeklyRecap);
   safeRender("To Do", renderTodoBoard);
   safeRender("Useful Links", renderLinks);
+  safeRender("Library", renderLibrary);
+  safeRender("SOPs", renderSops);
   safeRender("Changelog", renderChangelog);
 
   const synced = [
@@ -3134,6 +3136,582 @@ function renderAll() {
       ? `vs ${fullDate(dashboard.previous_start_date)} – ${fullDate(dashboard.previous_end_date)}`
       : "";
   }
+}
+
+/* ---------- shared bits for the Library and SOPs tabs ---------- */
+
+function escAttr(text) {
+  return escapeHtml(String(text ?? "")).replace(/"/g, "&quot;");
+}
+
+// A brand-new Firestore collection has no rule yet and fails with
+// permission-denied; say so on the tab instead of showing a silently empty list.
+const syncErrors = new Map();
+window.addEventListener("doma-sync-error", (event) => {
+  syncErrors.set(event.detail.collection, event.detail.code);
+  safeRender("Library", renderLibrary);
+  safeRender("SOPs", renderSops);
+});
+
+function showSyncNotice(elementId, collectionName) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const code = syncErrors.get(collectionName);
+  if (!code) {
+    el.hidden = true;
+    return;
+  }
+  el.innerHTML =
+    code === "permission-denied"
+      ? `This tab needs one Firestore rule before it can save anything. In the Firebase console (Firestore, then Rules) add <code>match /${collectionName}/{doc} { allow read, write: if true; }</code> and publish.`
+      : `Live sync for this tab stopped (${escapeHtml(code)}). Reload the page to retry.`;
+  el.hidden = false;
+}
+
+function uniqueCaseInsensitive(values) {
+  const seen = new Map();
+  values.forEach((v) => {
+    const text = String(v || "").trim();
+    if (text && !seen.has(text.toLowerCase())) seen.set(text.toLowerCase(), text);
+  });
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+function markActivePills(containerId, activeValue) {
+  document.querySelectorAll(`#${containerId} button`).forEach((b) => b.classList.toggle("active", b.dataset.value === activeValue));
+}
+
+function linkedTitleHtml(title, url) {
+  if (!url) return escapeHtml(title);
+  return (
+    `<a href="${escAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escAttr(url)}">${escapeHtml(title)}</a>` +
+    `<button type="button" class="desc-link-copy" data-url="${escAttr(url)}" title="Copy link">⧉</button>`
+  );
+}
+
+function shortDateFromMs(ms) {
+  return ms ? fullDate(new Date(ms).toISOString().slice(0, 10)) : "";
+}
+
+/* ---------- library (articles collected ahead of time) ---------- */
+
+const LIBRARY_STATUSES = [
+  ["idea", "Idea"],
+  ["drafting", "Drafting"],
+  ["ready", "Ready to publish"],
+  ["scheduled", "Scheduled"],
+  ["published", "Published"],
+];
+const LIBRARY_STATUS_LABELS = Object.fromEntries(LIBRARY_STATUSES);
+const LIBRARY_PAGE_SIZE = 50;
+
+let libraryItems = [];
+let libraryFilters = { topic: "all", author: "all", status: "all", search: "", sort: "newest" };
+let libraryEditingId = null;
+let libraryShown = LIBRARY_PAGE_SIZE;
+let libraryListenersAttached = false;
+
+function libraryTopics(item) {
+  return Array.isArray(item.topics) ? item.topics : [];
+}
+
+function resetLibraryForm() {
+  const form = document.getElementById("libraryAddForm");
+  libraryEditingId = null;
+  form.reset();
+  form.querySelector('[name="status"]').value = "idea";
+  form.classList.add("hidden");
+  form.querySelector('button[type="submit"]').textContent = "Add article";
+}
+
+function openLibraryEdit(itemId) {
+  const item = libraryItems.find((i) => i.id === itemId);
+  const form = document.getElementById("libraryAddForm");
+  if (!item || !form) return;
+  libraryEditingId = itemId;
+  form.querySelector('[name="title"]').value = item.title || "";
+  form.querySelector('[name="author"]').value = item.author || "";
+  form.querySelector('[name="topics"]').value = libraryTopics(item).join(", ");
+  form.querySelector('[name="status"]').value = item.status || "idea";
+  form.querySelector('[name="target_date"]').value = item.target_date || "";
+  form.querySelector('[name="url"]').value = item.url || "";
+  form.querySelector('[name="notes"]').value = item.notes || "";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function ensureLibraryListeners() {
+  if (libraryListenersAttached) return;
+  libraryListenersAttached = true;
+  const form = document.getElementById("libraryAddForm");
+  form.querySelector('[name="status"]').innerHTML = LIBRARY_STATUSES.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+
+  document.getElementById("libraryAddToggle").addEventListener("click", () => form.classList.toggle("hidden"));
+  document.getElementById("libraryAddCancel").addEventListener("click", resetLibraryForm);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const title = String(fd.get("title") || "").trim();
+    if (!title) return;
+    const fields = {
+      title,
+      author: String(fd.get("author") || "").trim() || null,
+      topics: uniqueCaseInsensitive(String(fd.get("topics") || "").split(",")),
+      status: String(fd.get("status") || "idea"),
+      url: String(fd.get("url") || "").trim() || null,
+      target_date: String(fd.get("target_date") || "") || null,
+      notes: String(fd.get("notes") || "").trim() || null,
+    };
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaLibrary) throw new Error("Firestore sync not ready yet");
+      if (libraryEditingId) await window.domaLibrary.updateArticle(libraryEditingId, fields);
+      else await window.domaLibrary.addArticle(fields);
+      resetLibraryForm();
+    } catch (error) {
+      console.error("Failed to save article:", error);
+      alert("Could not save the article - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById("librarySearch").addEventListener("input", (event) => {
+    libraryFilters.search = event.target.value;
+    libraryShown = LIBRARY_PAGE_SIZE;
+    renderLibrary();
+  });
+  document.getElementById("librarySort").addEventListener("change", (event) => {
+    libraryFilters.sort = event.target.value;
+    renderLibrary();
+  });
+  document.getElementById("libraryMore").addEventListener("click", () => {
+    libraryShown += LIBRARY_PAGE_SIZE;
+    renderLibrary();
+  });
+
+  const list = document.getElementById("libraryList");
+  list.addEventListener("click", async (event) => {
+    const row = event.target.closest(".lib-row");
+    if (!row) return;
+    if (event.target.closest(".lib-edit")) return openLibraryEdit(row.dataset.id);
+    if (event.target.closest(".lib-delete")) {
+      const item = libraryItems.find((i) => i.id === row.dataset.id);
+      if (!confirm(`Remove "${item ? item.title : "this article"}" from the Library?`)) return;
+      try {
+        await window.domaLibrary.deleteArticle(row.dataset.id);
+      } catch (error) {
+        console.error("Failed to delete article:", error);
+      }
+    }
+  });
+  list.addEventListener("change", async (event) => {
+    const select = event.target.closest(".lib-status-select");
+    if (!select) return;
+    try {
+      await window.domaLibrary.updateArticle(select.closest(".lib-row").dataset.id, { status: select.value });
+    } catch (error) {
+      console.error("Failed to change article status:", error);
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaLibrary.subscribeArticles((items) => {
+      libraryItems = items;
+      renderLibrary();
+    });
+  });
+}
+
+function libraryRowHtml(item) {
+  const topics = libraryTopics(item).map((t) => `<span class="checklist-topic">${escapeHtml(t)}</span>`).join("");
+  const options = LIBRARY_STATUSES.map(([v, l]) => `<option value="${v}"${v === item.status ? " selected" : ""}>${l}</option>`).join("");
+  const dates = [
+    item.target_date ? `Planned ${fullDate(item.target_date)}` : "",
+    item.added_at ? `Added ${shortDateFromMs(item.added_at)}` : "",
+  ].filter(Boolean);
+  return `
+    <div class="lib-row status-${escAttr(item.status || "idea")}" data-id="${escAttr(item.id)}">
+      <div class="lib-main">
+        <div class="lib-title">${linkedTitleHtml(item.title || "Untitled", item.url)}</div>
+        <div class="lib-meta">
+          ${item.author ? `<span class="checklist-owner">${escapeHtml(item.author)}</span>` : ""}${topics}
+          ${dates.length ? `<span class="lib-date">${dates.join(" · ")}</span>` : ""}
+        </div>
+        ${item.notes ? `<div class="checklist-context">${linkifyText(item.notes)}</div>` : ""}
+      </div>
+      <select class="lib-status-select" aria-label="Status">${options}</select>
+      <button type="button" class="checklist-edit lib-edit" title="Edit">&#9998;</button>
+      <button type="button" class="checklist-delete lib-delete" title="Remove">&times;</button>
+    </div>`;
+}
+
+function sortLibraryItems(items, sort) {
+  const byAdded = (a, b) => (b.added_at || 0) - (a.added_at || 0);
+  const sorted = [...items];
+  if (sort === "title") return sorted.sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
+  if (sort === "planned") {
+    return sorted.sort((a, b) => {
+      if (a.target_date && b.target_date) return a.target_date < b.target_date ? -1 : a.target_date > b.target_date ? 1 : byAdded(a, b);
+      if (a.target_date) return -1;
+      if (b.target_date) return 1;
+      return byAdded(a, b);
+    });
+  }
+  return sorted.sort(byAdded);
+}
+
+function renderLibrary() {
+  ensureLibraryListeners();
+  showSyncNotice("libraryNotice", "library_articles");
+
+  const items = libraryItems;
+  const countStatus = (...statuses) => items.filter((i) => statuses.includes(i.status)).length;
+  renderCards("libraryCards", [
+    { label: "Articles", value: number(items.length) },
+    { label: "Ready to publish", value: number(countStatus("ready")) },
+    { label: "In the pipeline", value: number(countStatus("idea", "drafting", "scheduled")), hint: "idea, drafting or scheduled" },
+    { label: "Published", value: number(countStatus("published")) },
+  ]);
+
+  const topics = uniqueCaseInsensitive(items.flatMap(libraryTopics));
+  const authors = uniqueCaseInsensitive(items.map((i) => i.author));
+  document.getElementById("libraryAuthorOptions").innerHTML = authors.map((a) => `<option value="${escAttr(a)}">`).join("");
+  document.getElementById("libraryTopicOptions").innerHTML = topics.map((t) => `<option value="${escAttr(t)}">`).join("");
+
+  buildFilterPills("libraryTopicFilter", topics, null, (value) => {
+    libraryFilters.topic = value;
+    libraryShown = LIBRARY_PAGE_SIZE;
+    renderLibrary();
+  });
+  buildFilterPills("libraryAuthorFilter", authors, null, (value) => {
+    libraryFilters.author = value;
+    libraryShown = LIBRARY_PAGE_SIZE;
+    renderLibrary();
+  });
+  buildFilterPills("libraryStatusFilter", LIBRARY_STATUSES.map(([v]) => v), (v) => LIBRARY_STATUS_LABELS[v], (value) => {
+    libraryFilters.status = value;
+    libraryShown = LIBRARY_PAGE_SIZE;
+    renderLibrary();
+  });
+  markActivePills("libraryTopicFilter", libraryFilters.topic);
+  markActivePills("libraryAuthorFilter", libraryFilters.author);
+  markActivePills("libraryStatusFilter", libraryFilters.status);
+
+  const query = libraryFilters.search.trim().toLowerCase();
+  const filtered = items.filter((item) => {
+    if (libraryFilters.topic !== "all" && !libraryTopics(item).some((t) => t.toLowerCase() === libraryFilters.topic.toLowerCase())) return false;
+    if (libraryFilters.author !== "all" && String(item.author || "").toLowerCase() !== libraryFilters.author.toLowerCase()) return false;
+    if (libraryFilters.status !== "all" && item.status !== libraryFilters.status) return false;
+    if (!query) return true;
+    return [item.title, item.author, libraryTopics(item).join(" "), item.notes].join(" ").toLowerCase().includes(query);
+  });
+  const sorted = sortLibraryItems(filtered, libraryFilters.sort);
+  const visible = sorted.slice(0, libraryShown);
+
+  const emptyEl = document.getElementById("libraryEmpty");
+  emptyEl.textContent = items.length ? "No articles match these filters." : "No articles yet. Add the first one above.";
+  emptyEl.style.display = sorted.length ? "none" : "block";
+  document.getElementById("libraryList").innerHTML = visible.map(libraryRowHtml).join("");
+  const moreBtn = document.getElementById("libraryMore");
+  moreBtn.hidden = sorted.length <= visible.length;
+  moreBtn.textContent = `Show more (${sorted.length - visible.length} left)`;
+}
+
+/* ---------- SOP development (ongoing project, reviewed in the weekly call) ---------- */
+
+const SOP_STATUSES = [
+  ["to_build", "To build"],
+  ["in_progress", "In progress"],
+  ["review", "Draft ready for review"],
+  ["needs_update", "Needs update"],
+  ["done", "Up to date"],
+];
+const SOP_STATUS_LABELS = Object.fromEntries(SOP_STATUSES);
+const SOP_SORT_ORDER = ["in_progress", "review", "needs_update", "to_build", "done"];
+const SOP_DEFAULT_AREAS = ["Content", "Social", "Sponsors", "Ebooks", "Newsletter", "Team", "Dashboard", "Website"];
+
+let sopItems = [];
+let sopFilters = { area: "all", owner: "all", status: "all" };
+let sopEditingId = null;
+let sopReviewCollapsed = false;
+let sopListenersAttached = false;
+
+function sopOptionsHtml(selected) {
+  return SOP_STATUSES.map(([v, l]) => `<option value="${v}"${v === selected ? " selected" : ""}>${l}</option>`).join("");
+}
+
+function resetSopForms() {
+  const form = document.getElementById("sopAddForm");
+  sopEditingId = null;
+  form.reset();
+  form.querySelector('[name="status"]').value = "to_build";
+  form.classList.add("hidden");
+  form.querySelector('button[type="submit"]').textContent = "Add SOP";
+  const bulk = document.getElementById("sopBulkForm");
+  bulk.reset();
+  bulk.querySelector('[name="status"]').value = "needs_update";
+  bulk.classList.add("hidden");
+}
+
+function openSopEdit(itemId) {
+  const item = sopItems.find((i) => i.id === itemId);
+  const form = document.getElementById("sopAddForm");
+  if (!item || !form) return;
+  sopEditingId = itemId;
+  form.querySelector('[name="title"]').value = item.title || "";
+  form.querySelector('[name="area"]').value = item.area || "";
+  form.querySelector('[name="owner"]').value = item.owner || "";
+  form.querySelector('[name="status"]').value = item.status || "to_build";
+  form.querySelector('[name="source_url"]').value = item.source_url || "";
+  form.querySelector('[name="needs"]').value = item.needs || "";
+  form.querySelector('[name="notes"]').value = item.notes || "";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  document.getElementById("sopBulkForm").classList.add("hidden");
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function parseSopLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [first, ...rest] = line.split("|");
+      const maybeUrl = rest.join("|").trim();
+      return /^https?:\/\//i.test(maybeUrl) ? { title: first.trim(), source_url: maybeUrl } : { title: line, source_url: null };
+    })
+    .filter((entry) => entry.title);
+}
+
+function ensureSopListeners() {
+  if (sopListenersAttached) return;
+  sopListenersAttached = true;
+  const form = document.getElementById("sopAddForm");
+  const bulk = document.getElementById("sopBulkForm");
+  form.querySelector('[name="status"]').innerHTML = sopOptionsHtml("to_build");
+  bulk.querySelector('[name="status"]').innerHTML = sopOptionsHtml("needs_update");
+
+  document.getElementById("sopAddToggle").addEventListener("click", () => {
+    bulk.classList.add("hidden");
+    form.classList.toggle("hidden");
+  });
+  document.getElementById("sopBulkToggle").addEventListener("click", () => {
+    form.classList.add("hidden");
+    bulk.classList.toggle("hidden");
+  });
+  document.getElementById("sopAddCancel").addEventListener("click", resetSopForms);
+  document.getElementById("sopBulkCancel").addEventListener("click", resetSopForms);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const title = String(fd.get("title") || "").trim();
+    if (!title) return;
+    const fields = {
+      title,
+      area: String(fd.get("area") || "").trim() || null,
+      owner: String(fd.get("owner") || "").trim() || null,
+      status: String(fd.get("status") || "to_build"),
+      source_url: String(fd.get("source_url") || "").trim() || null,
+      needs: String(fd.get("needs") || "").trim() || null,
+      notes: String(fd.get("notes") || "").trim() || null,
+    };
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaSops) throw new Error("Firestore sync not ready yet");
+      if (sopEditingId) {
+        const existing = sopItems.find((i) => i.id === sopEditingId);
+        // Leave status out when it didn't change, so editing a finished SOP's
+        // notes doesn't restamp its completed date.
+        if (existing && existing.status === fields.status) delete fields.status;
+        await window.domaSops.updateSop(sopEditingId, fields);
+      } else {
+        await window.domaSops.addSop(fields);
+      }
+      resetSopForms();
+    } catch (error) {
+      console.error("Failed to save SOP:", error);
+      alert("Could not save the SOP - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  bulk.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(bulk);
+    const entries = parseSopLines(fd.get("lines"));
+    if (!entries.length) return;
+    const shared = {
+      area: String(fd.get("area") || "").trim() || null,
+      owner: String(fd.get("owner") || "").trim() || null,
+      status: String(fd.get("status") || "needs_update"),
+    };
+    const submitBtn = bulk.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaSops) throw new Error("Firestore sync not ready yet");
+      await Promise.all(entries.map((entry) => window.domaSops.addSop({ ...shared, ...entry, needs: null, notes: null })));
+      resetSopForms();
+    } catch (error) {
+      console.error("Failed to add SOPs:", error);
+      alert("Could not add the SOPs - check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById("sopReview").addEventListener("click", (event) => {
+    if (!event.target.closest(".recap-header")) return;
+    sopReviewCollapsed = !sopReviewCollapsed;
+    document.getElementById("sopReview").classList.toggle("collapsed", sopReviewCollapsed);
+    const chevron = document.querySelector("#sopReview .status-chevron");
+    if (chevron) chevron.textContent = sopReviewCollapsed ? "▸" : "▾";
+  });
+
+  const list = document.getElementById("sopList");
+  list.addEventListener("click", async (event) => {
+    const row = event.target.closest(".sop-row");
+    if (!row) return;
+    if (event.target.closest(".sop-edit")) return openSopEdit(row.dataset.id);
+    if (event.target.closest(".sop-delete")) {
+      const item = sopItems.find((i) => i.id === row.dataset.id);
+      if (!confirm(`Remove "${item ? item.title : "this SOP"}" from SOP Development?`)) return;
+      try {
+        await window.domaSops.deleteSop(row.dataset.id);
+      } catch (error) {
+        console.error("Failed to delete SOP:", error);
+      }
+    }
+  });
+  list.addEventListener("change", async (event) => {
+    const select = event.target.closest(".sop-status-select");
+    if (!select) return;
+    try {
+      await window.domaSops.updateSop(select.closest(".sop-row").dataset.id, { status: select.value });
+    } catch (error) {
+      console.error("Failed to change SOP status:", error);
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaSops.subscribeSops((items) => {
+      sopItems = items;
+      renderSops();
+    });
+  });
+}
+
+function sopRowHtml(item) {
+  const updated = shortDateFromMs(item.status_changed_at || item.updated_at || item.created_at);
+  return `
+    <div class="sop-row status-${escAttr(item.status || "to_build")}" data-id="${escAttr(item.id)}">
+      <div class="lib-main">
+        <div class="lib-title">${linkedTitleHtml(item.title || "Untitled", item.source_url)}</div>
+        <div class="lib-meta">
+          ${item.area ? `<span class="checklist-topic">${escapeHtml(item.area)}</span>` : ""}
+          ${item.owner ? `<span class="checklist-owner">${escapeHtml(item.owner)}</span>` : ""}
+          ${updated ? `<span class="lib-date">${item.status === "done" ? "Finished" : "Updated"} ${updated}</span>` : ""}
+        </div>
+        ${item.needs ? `<div class="sop-needs"><strong>Needs:</strong> ${linkifyText(item.needs)}</div>` : ""}
+        ${item.notes ? `<div class="checklist-context">${linkifyText(item.notes)}</div>` : ""}
+      </div>
+      <select class="lib-status-select sop-status-select" aria-label="Status">${sopOptionsHtml(item.status)}</select>
+      <button type="button" class="checklist-edit sop-edit" title="Edit">&#9998;</button>
+      <button type="button" class="checklist-delete sop-delete" title="Remove">&times;</button>
+    </div>`;
+}
+
+function sopReviewBlock(title, entries, emptyText) {
+  const rows = entries.length ? entries.map((html) => `<li>${html}</li>`).join("") : `<li class="recap-none">${emptyText}</li>`;
+  return `
+    <div class="recap-owner-block">
+      <div class="recap-owner-header">${title} <span class="status-count">${entries.length}</span></div>
+      <ul class="recap-owner-list">${rows}</ul>
+    </div>`;
+}
+
+function renderSopReview() {
+  const el = document.getElementById("sopReview");
+  if (!el) return;
+  el.classList.toggle("collapsed", sopReviewCollapsed);
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const label = (item) => `${escapeHtml(item.title)}${item.owner ? ` <span class="recap-owner-tag">${escapeHtml(item.owner)}</span>` : ""}`;
+  const by = (status) => sopItems.filter((i) => i.status === status);
+
+  const doneThisWeek = sopItems.filter((i) => i.status === "done" && (i.completed_at || 0) >= weekAgo);
+  const upNext = [...by("needs_update"), ...by("to_build")];
+  const needs = sopItems.filter((i) => i.needs && i.status !== "done");
+
+  el.innerHTML = `
+    <button type="button" class="recap-header">
+      <span class="status-chevron">${sopReviewCollapsed ? "▸" : "▾"}</span><h2>Weekly review</h2>
+      <span class="panel-meta">What to go through on the Monday call</span>
+    </button>
+    <div class="recap-body"><div class="recap-owner-grid">
+      ${sopReviewBlock("Finished in the last 7 days", doneThisWeek.map(label), "Nothing finished yet")}
+      ${sopReviewBlock("In progress", by("in_progress").map(label), "Nothing in progress")}
+      ${sopReviewBlock("Draft ready for review", by("review").map(label), "No drafts waiting")}
+      ${sopReviewBlock("Up next", upNext.slice(0, 8).map(label), "Nothing queued")}
+      ${sopReviewBlock("What we need from each other", needs.map((i) => `<strong>${escapeHtml(i.title)}</strong>: ${linkifyText(i.needs)}`), "Nothing needed right now")}
+    </div></div>`;
+}
+
+function renderSops() {
+  ensureSopListeners();
+  showSyncNotice("sopNotice", "sop_items");
+
+  const countStatus = (status) => sopItems.filter((i) => i.status === status).length;
+  renderCards(
+    "sopCards",
+    SOP_STATUSES.map(([value, text]) => ({ label: text, value: number(countStatus(value)) }))
+  );
+
+  const areas = uniqueCaseInsensitive([...SOP_DEFAULT_AREAS, ...sopItems.map((i) => i.area)]);
+  const usedAreas = uniqueCaseInsensitive(sopItems.map((i) => i.area));
+  const owners = uniqueCaseInsensitive([...TEAM_KNOWN_OWNERS, ...sopItems.map((i) => i.owner)]);
+  document.getElementById("sopAreaOptions").innerHTML = areas.map((a) => `<option value="${escAttr(a)}">`).join("");
+  document.getElementById("sopOwnerOptions").innerHTML = owners.map((o) => `<option value="${escAttr(o)}">`).join("");
+
+  buildFilterPills("sopAreaFilter", usedAreas, null, (value) => {
+    sopFilters.area = value;
+    renderSops();
+  });
+  buildFilterPills("sopOwnerFilter", owners, null, (value) => {
+    sopFilters.owner = value;
+    renderSops();
+  });
+  buildFilterPills("sopStatusFilter", SOP_STATUSES.map(([v]) => v), (v) => SOP_STATUS_LABELS[v], (value) => {
+    sopFilters.status = value;
+    renderSops();
+  });
+  markActivePills("sopAreaFilter", sopFilters.area);
+  markActivePills("sopOwnerFilter", sopFilters.owner);
+  markActivePills("sopStatusFilter", sopFilters.status);
+
+  renderSopReview();
+
+  const filtered = sopItems
+    .filter((item) => {
+      if (sopFilters.area !== "all" && String(item.area || "").toLowerCase() !== sopFilters.area.toLowerCase()) return false;
+      if (sopFilters.owner !== "all" && String(item.owner || "").toLowerCase() !== sopFilters.owner.toLowerCase()) return false;
+      if (sopFilters.status !== "all" && item.status !== sopFilters.status) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const order = SOP_SORT_ORDER.indexOf(a.status) - SOP_SORT_ORDER.indexOf(b.status);
+      return order || String(a.title || "").localeCompare(String(b.title || ""));
+    });
+
+  const emptyEl = document.getElementById("sopEmpty");
+  emptyEl.textContent = sopItems.length ? "No SOPs match these filters." : "No SOPs yet. Add one above, or paste a list.";
+  emptyEl.style.display = filtered.length ? "none" : "block";
+  document.getElementById("sopList").innerHTML = filtered.map(sopRowHtml).join("");
 }
 
 /* ---------- tabs + range ---------- */
