@@ -518,6 +518,50 @@ function renderTable(tableId, rows, renderRow, emptyMessage = "No data for this 
 
 /* ---------- issues / data health panel ---------- */
 
+// Google Search Console normally trails real time by 2-3 days, so only call it
+// stale once the last successful sync is clearly older than that.
+function gscSyncAgeDays() {
+  const last = dashboard.search_console && dashboard.search_console.last_synced_at;
+  return last ? daysBetween(last, new Date().toISOString()) : null;
+}
+
+function isGscStale() {
+  const age = gscSyncAgeDays();
+  return age !== null && age >= 4;
+}
+
+// The cookie-consent banner went live 2026-09-11 with Consent Mode defaulting
+// analytics_storage to "denied" for everyone, so GA4 only counted visitors who
+// clicked Accept: every channel fell 70-95% overnight while Search Console
+// clicks (Google's own count) stayed flat. Fixed 2026-10-05 (region-aware
+// default: analytics counted outside EEA/UK/CH). Days in between are
+// undercounted for good - GA4 can't backfill them.
+const GA4_UNDERCOUNT_START = "2026-09-11";
+const GA4_UNDERCOUNT_END = "2026-10-04";
+
+// "none" | "partial" | "full": how much of a date range sits inside the
+// undercounted window.
+function ga4UndercountOverlap(start, end) {
+  if (!start || !end) return "none";
+  if (end < GA4_UNDERCOUNT_START || start > GA4_UNDERCOUNT_END) return "none";
+  return start >= GA4_UNDERCOUNT_START && end <= GA4_UNDERCOUNT_END ? "full" : "partial";
+}
+
+function ga4SpansConsentChange() {
+  return (
+    ga4UndercountOverlap(dashboard.start_date, dashboard.end_date) !== "none" ||
+    ga4UndercountOverlap(dashboard.previous_start_date, dashboard.previous_end_date) !== "none"
+  );
+}
+
+// A period-over-period % is only fair when both periods were measured the
+// same way: both entirely inside the undercounted window, or both outside it.
+function ga4ComparisonUnreliable() {
+  const now = ga4UndercountOverlap(dashboard.start_date, dashboard.end_date);
+  const before = ga4UndercountOverlap(dashboard.previous_start_date, dashboard.previous_end_date);
+  return now !== before;
+}
+
 function computeIssues() {
   const issues = [];
   const gsc = dashboard.search_console;
@@ -525,8 +569,23 @@ function computeIssues() {
   const ghl = dashboard.ghl;
   const social = dashboard.social;
   const prev = dashboard.previous;
+  const gscStale = isGscStale();
+  const consentAffected = ga4SpansConsentChange();
 
-  if (!gsc.available) {
+  if (gscStale) {
+    issues.push({
+      severity: "error",
+      text: `Search Console hasn't synced in ${gscSyncAgeDays()} days (last good sync: ${fullDate(gsc.last_synced_at.slice(0, 10))}). Google clicks, impressions and their % changes here are incomplete - this is missing data, not a real drop. Fix: run scripts/gsc_oauth_setup.py to re-authorize.`,
+    });
+  }
+  if (consentAffected && ga4.available) {
+    issues.push({
+      severity: "warn",
+      text: `GA4 undercounted visitors from ${fullDate(GA4_UNDERCOUNT_START)} to ${fullDate(GA4_UNDERCOUNT_END)}: the cookie banner only let it count visitors who clicked Accept (every channel fell 70-95% overnight while Search Console clicks stayed flat). Fixed ${fullDate("2026-10-05")} - visitors outside the EU/UK/Switzerland are counted again. Sessions in that window are low for good, and % changes across it aren't comparable; use Search Console clicks as the real organic trend.`,
+    });
+  }
+
+  if (!gsc.available && !gscStale) {
     issues.push({
       severity: "info",
       text: "Search Console has no data for this period yet. New/re-verified properties can take Google 1-2 days to backfill - re-run scripts/sync_gsc.py after that.",
@@ -600,9 +659,12 @@ function computeIssues() {
   // Period-over-period trend degradation - only meaningful once there's a
   // real previous period to compare against.
   if (prev) {
+    // A stale GSC feed and the GA4 consent change both make the current period
+    // look like a collapse when it isn't - those get their own explanation
+    // above, so don't also raise a "dropped X%" alarm for the same numbers.
     const trendChecks = [
-      { curr: gsc.available ? gsc.clicks : null, prevVal: prev.search_console.available ? prev.search_console.clicks : null, label: "Organic clicks (GSC)" },
-      { curr: ga4.available ? ga4.sessions : null, prevVal: prev.ga4.available ? prev.ga4.sessions : null, label: "Sessions (GA4)" },
+      { curr: gsc.available && !gscStale ? gsc.clicks : null, prevVal: prev.search_console.available ? prev.search_console.clicks : null, label: "Organic clicks (GSC)" },
+      { curr: ga4.available && !ga4ComparisonUnreliable() ? ga4.sessions : null, prevVal: prev.ga4.available ? prev.ga4.sessions : null, label: "Sessions (GA4)" },
       { curr: ghl.available ? ghl.total_leads : null, prevVal: prev.ghl.available ? prev.ghl.total_leads : null, label: "New leads (GoHighLevel)" },
     ];
     trendChecks.forEach(({ curr, prevVal, label }) => {
@@ -704,15 +766,19 @@ function renderOverview() {
     {
       label: "Organic clicks (GSC)",
       value: number(gsc.clicks),
-      hint: `${number(gsc.impressions)} impressions`,
-      delta: prev ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
+      hint: isGscStale()
+        ? `${number(gsc.impressions)} impressions · data stale, last sync ${fullDate(gsc.last_synced_at.slice(0, 10))}`
+        : `${number(gsc.impressions)} impressions`,
+      delta: prev && !isGscStale() ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
     },
-    { label: "Average position", value: gsc.position || "—", hint: "lower is better", delta: prev ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
+    { label: "Average position", value: gsc.position || "—", hint: "lower is better", delta: prev && !isGscStale() ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
     {
       label: "Sessions (GA4)",
       value: number(ga4.sessions),
-      hint: `${number(ga4.active_users)} active users`,
-      delta: prev ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
+      hint: ga4SpansConsentChange()
+        ? `${number(ga4.active_users)} active users · undercounted ${fullDate(GA4_UNDERCOUNT_START)} - ${fullDate(GA4_UNDERCOUNT_END)}`
+        : `${number(ga4.active_users)} active users`,
+      delta: prev && !ga4ComparisonUnreliable() ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
     },
     {
       label: "New leads (GoHighLevel)",
@@ -737,11 +803,13 @@ function renderOverview() {
 function renderSeo() {
   const gsc = dashboard.search_console;
   const prev = dashboard.previous;
+  const stale = isGscStale();
+  const staleHint = stale ? `data stale, last sync ${fullDate(gsc.last_synced_at.slice(0, 10))}` : undefined;
   renderCards("seoCards", [
-    { label: "Clicks", value: number(gsc.clicks), delta: prev ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
-    { label: "Impressions", value: number(gsc.impressions), delta: prev ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
-    { label: "Average CTR", value: percent(gsc.ctr), delta: prev ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
-    { label: "Average position", value: gsc.position || "—", delta: prev ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
+    { label: "Clicks", value: number(gsc.clicks), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
+    { label: "Impressions", value: number(gsc.impressions), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
+    { label: "Average CTR", value: percent(gsc.ctr), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
+    { label: "Average position", value: gsc.position || "—", hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
   ]);
 
   if (!gsc.available) {

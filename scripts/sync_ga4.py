@@ -348,8 +348,8 @@ def main() -> int:
         countries = fetch_top_countries(client, property_id)
         demographics = fetch_demographics(client, property_id)
         devices = fetch_device_breakdown(client, property_id)
-    except Ga4SyncError as error:
-        log_sync(dashboard_app, "ga4", "error", str(error))
+    except Exception as error:  # noqa: BLE001 - log then re-raise, so auth/transport errors that aren't Ga4SyncError still leave a sync_log row
+        log_sync(dashboard_app, "ga4", "error", f"{type(error).__name__}: {error}")
         raise
 
     store_daily_traffic(traffic)

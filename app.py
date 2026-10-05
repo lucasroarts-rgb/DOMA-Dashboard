@@ -608,16 +608,20 @@ def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
 def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
     totals_row = con.execute(
         "SELECT COALESCE(SUM(clicks),0), COALESCE(SUM(impressions),0), "
-        "COALESCE(SUM(position*impressions),0), MAX(synced_at) "
+        "COALESCE(SUM(position*impressions),0) "
         "FROM search_console_daily WHERE report_date BETWEEN ? AND ?",
         (start_date, end_date),
     ).fetchone()
-    clicks, impressions, position_weighted, last_synced_at = (
+    clicks, impressions, position_weighted = (
         int(totals_row[0] or 0),
         int(totals_row[1] or 0),
         float(totals_row[2] or 0),
-        totals_row[3],
     )
+    # Table-wide, not range-limited: a range that sits past the newest synced
+    # day (e.g. the last 7 days while the sync is down) has no rows, and
+    # last_synced_at must still say when the sync last worked or the
+    # dashboard can't tell "no data yet" from "sync is broken".
+    last_synced_at = con.execute("SELECT MAX(synced_at) FROM search_console_daily").fetchone()[0]
     ctr = round((clicks / impressions) * 100, 2) if impressions else 0.0
     position = round(position_weighted / impressions, 1) if impressions else 0.0
 

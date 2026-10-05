@@ -1,0 +1,19 @@
+{
+ "id": 11,
+ "name": "Google Consent Mode v2 (bridges Complianz consent to gtag)",
+ "desc": "Default-denies ad/analytics storage before any Google tag loads, then updates via gtag consent update when Complianz reports a category change - same cmplz_fire_categories/cmplz_revoke events already used by the existing Clarity consent bridge on this site. Lets GA4/Google Ads model conversions using the consent signal (site has no Complianz Premium, this is the free/manual wiring).",
+ "code": "add_action('wp_head', 'doma_google_consent_mode_v2', -999);\nfunction doma_google_consent_mode_v2() {\n    ?>\n<script>\n(function () {\n  window.dataLayer = window.dataLayer || [];\n  function gtag() { dataLayer.push(arguments); }\n\n  gtag('consent', 'default', {\n    'ad_storage': 'denied',\n    'analytics_storage': 'denied',\n    'ad_user_data': 'denied',\n    'ad_personalization': 'denied',\n    'functionality_storage': 'granted',\n    'personalization_storage': 'denied',\n    'security_storage': 'granted',\n    'wait_for_update': 500\n  });\n\n  function domaConsentFromEvent(e) {\n    var cats = (e && e.detail && e.detail.categories) ? e.detail.categories : [];\n    cats = Array.isArray(cats) ? cats : [];\n    var marketing = cats.indexOf('marketing') !== -1;\n    var statistics = cats.indexOf('statistics') !== -1;\n    var preferences = cats.indexOf('preferences') !== -1;\n    return {\n      'ad_storage': marketing ? 'granted' : 'denied',\n      'analytics_storage': statistics ? 'granted' : 'denied',\n      'ad_user_data': marketing ? 'granted' : 'denied',\n      'ad_personalization': marketing ? 'granted' : 'denied',\n      'personalization_storage': preferences ? 'granted' : 'denied'\n    };\n  }\n\n  document.addEventListener('cmplz_fire_categories', function (e) {\n    gtag('consent', 'update', domaConsentFromEvent(e));\n  });\n\n  document.addEventListener('cmplz_revoke', function (e) {\n    gtag('consent', 'update', domaConsentFromEvent(e));\n  });\n})();\n</script>\n    <?php\n}",
+ "tags": [],
+ "scope": "global",
+ "condition_id": 0,
+ "active": true,
+ "trashed": false,
+ "locked": false,
+ "priority": 1,
+ "network": false,
+ "shared_network": false,
+ "modified": "2026-09-10T20:32:20+00:00",
+ "last_active": "0",
+ "code_error": null,
+ "code_error_trace": null
+}

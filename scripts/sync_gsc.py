@@ -399,8 +399,8 @@ def main() -> int:
         top_queries = fetch_top_queries(service, site_url)
         countries = fetch_top_countries(service, site_url)
         devices = fetch_device_breakdown(service, site_url)
-    except GscSyncError as error:
-        log_sync(dashboard_app, "gsc", "error", str(error))
+    except Exception as error:  # noqa: BLE001 - log then re-raise; an expired OAuth token raises google's RefreshError, not GscSyncError, and used to vanish without a sync_log row
+        log_sync(dashboard_app, "gsc", "error", f"{type(error).__name__}: {error}")
         raise
 
     store_daily(daily)
