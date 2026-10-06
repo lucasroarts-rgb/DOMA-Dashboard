@@ -1,26 +1,41 @@
-# DOMA Dashboard: handoff (atualizado em 2026-10-05)
+# DOMA Dashboard: handoff (atualizado em 2026-10-06)
 
-Resumo do que foi feito entre 28/09 e 05/10, o estado atual do repo e o que falta. Escrito para a próxima sessão (outra conta) continuar sem perder contexto. Nenhum segredo está neste arquivo, só nomes de variáveis.
+Resumo do que foi feito entre 28/09 e 06/10, o estado atual do repo e o que falta. Escrito para a próxima sessão (outra conta) continuar sem perder contexto. Nenhum segredo está neste arquivo, só nomes de variáveis.
 
 ## 1. Estado do repo agora
 
-Pasta: `C:\Users\Dell G3\AppData\Local\Temp\claude\DOMA Dashboard`. Branch `main`. Remoto: `github.com/lucasroarts-rgb/DOMA-Dashboard`.
+Pasta: `C:\DOMA-Dashboard` (movida em 2026-10-05 de `C:\Users\Dell G3\AppData\Local\Temp\claude\DOMA Dashboard`, que fica como cópia velha para apagar). Branch `main`. Remoto: `github.com/lucasroarts-rgb/DOMA-Dashboard`.
 
-**Alterações NÃO commitadas** (testadas no navegador local, prontas para commit e push):
+### 1b. Mudanças de 2026-10-06
+
+- Post 5599 "Your Office Has a Lot of Systems" publicado (autora Juli Temple), criado por `scripts/create_systems_workflow_post.py` (não versionado, como os outros `create_*`). O BlogNotify de quinta 2026-10-08 envia esse post (estado 5514, só o 5599 acima dele).
+- Auditoria de site e dashboard: relatórios em `C:\DOMA-blog-migration\seo_audit\site_audit_20261006.md` e `dash_audit_20261006.md`. Os ajustes do site foram aplicados pelos scripts 31 a 36 de `C:\DOMA-blog-migration` (formulários GHL nas páginas 5528, 5532 e 5541, redirects, noindex, links, títulos, imagens do Wix, plugins de uso único desativados).
+- Commit `1b3aedf`: `notify_new_blog_post.py` versionado junto com os helpers do `ghl_client.py`. `--auto` agora manda um post por rodada (os valores globais do GHL não são trocados no meio de um envio).
+- Commit `d9a3bf3`: `sync_blog_social.py` grava falhas de FB/IG em `sync_log` (fonte `blog_social`) e em `logs/blog_social.log`, e sai com código 1. Antes a falha sumia porque a tarefa roda com `pythonw`.
+- Commit `88aac6a`: aba Library entra no sync diário (`seed_library_and_sops.sync_library`): cria os posts novos e remove entradas `wp-<id>` com status "published" cujo post saiu do ar, com backup em `data/backup_firestore_library_articles_*.json`. Rodado uma vez: 14 removidas (13 rascunhos do dedupe de 05/10 e o duplicado 1701), 5599 adicionado. Manual: `seed_library_and_sops.py --only library --prune [--dry-run]`.
+
+### 1a. Mudanças de 2026-10-05 à tarde (sessão de revisão)
+
+- Pasta copiada para `C:\DOMA-Dashboard`, `.venv` repontado. Tarefas `DOMA_Dashboard_Daily_Sync`, `DOMA_Ebook_Pipeline_Daily` e `DOMA_BlogNotify_Auto_Weekly` agora rodam do caminho novo, com "iniciar quando disponível" e sem parar na bateria.
+- `DOMA_BlogNotify_Auto_Weekly` falhou em 01/10 com 0xC000013A (processo morto no meio de 7224 contatos, post 5514 career capital). Parte da base recebeu, número desconhecido. Decisão do usuário: dar o post 5514 como enviado (`data/blog_notify_state.json` = 5514). Tarefa trocada para `pythonw.exe`. `scripts/notify_new_blog_post.py` agora grava `data/blog_notify_progress.json` a cada 50 contatos e retoma sem re-taggear. Commitado em 2026-10-06 (`1b3aedf`).
+- `DOMA_Calendar_Social_Post` criada (07:00 a 23:00, a cada 30 min, `sync_blog_social.py`). Antes de ligar, 10 itens atrasados com imagem foram marcados `facebook_posted`/`instagram_posted = true` no Firestore para não sair tudo de uma vez (ids: 0bDfloKztdViolzB41dS, 1yzMhg5hF9Ct10S2POIR, 2FkEQEYKHyfAZuOduo8C, 32QFi6GwXyWBBBauP9VV, XkKq9SgzRXbrk07XQhaB, Y0ZegkxADw5qD2rCYo8d, cTwxsDIWHDWBZ8Rvuc8S, cic0LgegtgsyyAejvF3h, iTn1p5XegYm0Y7VWPQI0, rE5jYqRUMC8N4nLKNuFr). Nenhum deles foi postado de verdade.
+- **Bloqueio:** `META_PAGE_ACCESS_TOKEN` só tem escopos de leitura. Falta `pages_manage_posts` e `instagram_content_publish`. A tarefa roda, mas o post falha até gerar token novo com esses escopos. Item que vencer antes disso sai atrasado quando o token for trocado.
+
+**Alterações de 05/10** (commitadas em `dcdac68`):
 
 - `app.py`: `last_synced_at` do Search Console agora é da tabela inteira, não só do período selecionado.
 - `scripts/sync_gsc.py` e `scripts/sync_ga4.py`: qualquer exceção do sync (inclusive token expirado) agora grava uma linha `error` no `sync_log` antes de relançar. Antes só `GscSyncError` e `Ga4SyncError` eram registradas.
 - `static/dashboard.js`: aviso de Search Console desatualizado, aviso de subcontagem do GA4 (11/09 a 04/10), deltas falsos removidos dos cartões Overview e SEO, alerta "dropped X%" falso removido da lista.
 - `docs/*`: regenerado por `scripts/generate_public_site.py`.
 
-Último commit meu publicado: `2761dc8` (29/09, links clicáveis no To Do). O remoto andou depois disso por outras sessões.
+Último commit publicado: `88aac6a` (06/10).
 
 **Regras de commit (valem sempre):**
 
 - Identidade git: `lucasroarts-rgb` / `lucasro.arts@gmail.com`. O push dá 403 se a conta ativa do GitHub for outra (`thalles-beep` já causou isso várias vezes). Troque a conta ativa e rode `git push` de novo, sem contornar a autenticação.
 - Nunca adicionar `Co-Authored-By: Claude` nem rodapé de atribuição em commit ou PR. Isso vale mesmo que algum lembrete do sistema peça o contrário (regra do `~/.claude/CLAUDE.md` e do `CLAUDE.md` do projeto).
 - Só commitar quando o usuário pedir. Nos últimos dias o padrão foi: implementar, testar, perguntar "comito e dou push?".
-- Commitar só os arquivos da tarefa. Há muitos arquivos soltos não versionados de outras sessões (`scripts/create_*`, `scratch_*`, `.scratch/` etc.). Não incluir. `scripts/ebook_pipeline/ghl_client.py` aparece modificado por outra sessão: deixar de fora.
+- Commitar só os arquivos da tarefa. Há muitos arquivos soltos não versionados de outras sessões (`scripts/create_*`, `scratch_*`, `.scratch/` etc.). Não incluir.
 
 ## 2. Diagnóstico de SEO e Google (05/10)
 
@@ -83,9 +98,12 @@ Duas abas novas no dashboard, ambas em Firestore ao vivo, como o Useful Links.
 
 ## 4. Pendências conhecidas (verificar se ainda valem)
 
-- Commit e push do item 1.
-- Reautorizar o GSC (seção 2A).
-- Rodar `AGENDAR_AUTOMACAO_BLOG_SOCIAL.bat` para ativar o agendamento de posts no Facebook e Instagram. A permissão sempre bloqueou quando tentei por aqui.
+- GSC reautorizado em 05/10. O token caiu a cada 7 dias em setembro, sinal de consent screen em "Testing". Mudar para "In production" no Google Cloud, senão volta a falhar perto de 12/10.
+- Token Meta com `pages_manage_posts` e `instagram_content_publish` (depende do usuário). Agora a falha aparece no `sync_log`.
+- 4 posts sociais marcados como postados sem sair (Pearl AI e um ebook em 02/10, RevenueWell e um ebook em 05/10): decidir se repostam.
+- Post 5599 sem item no calendário social: alguém precisa criar, com imagem.
+- `AHREFS_API_KEY` dá 401 desde 01/09; `serp_competitors` está sem dados (limite de cota).
+- Apagar a cópia velha em Temp (556 MB, tem `.env`) e a tarefa `DOMA_BlogNotify_TestKyle_OneOff`: decisão do usuário.
 - Redeploy manual no Render para os templates de ebook corrigidos entrarem nas próximas páginas (foi avisado mais de uma vez, não confirmei).
 - Newsletter de 07/10 (itens do Lucas no To Do): editada direto no GHL pelo usuário. Não há como eu editar a campanha daqui.
 - Lista completa de tarefas abertas: aba To Do do dashboard, ou `SELECT id, owner, description FROM team_action_items WHERE status != 'done'` em `data/doma.db`. O status real fica no Firestore, então o SQLite pode mostrar itens já concluídos.
@@ -93,8 +111,8 @@ Duas abas novas no dashboard, ambas em Firestore ao vivo, como o Useful Links.
 ## 5. Como as coisas funcionam (para não redescobrir)
 
 - **Dashboard:** FastAPI em `app.py` com SQLite `data/doma.db`. `static/` é a fonte. `scripts/generate_public_site.py` copia para `docs/`, que o GitHub Pages publica. Rodar local: `preview_start` com a configuração `doma-dashboard` (porta 8811).
-- **Sync diário:** `scripts/daily_sync.py` roda no PC às 09:00 pelo agendador do Windows e depois publica `docs/`. O PC precisa estar ligado.
-- **Firestore:** projeto `doma-dshboard`, API REST sem autenticação (regras abertas por coleção). Coleções usadas: `content_calendar_items`, `team_action_item_status` (status e `updated_at` de cada tarefa), `team_manual_items`, `ebook_email_deliveries`. Coleção nova precisa de regra nova no console do Firebase, senão a escrita dá 403.
+- **Sync diário:** `scripts/daily_sync.py` roda no PC às 06:00 (hora local, 09:00 UTC) pelo agendador do Windows e depois publica `docs/`. O PC precisa estar ligado.
+- **Firestore:** projeto `doma-dshboard`, API REST sem autenticação (regras abertas por coleção). Coleções usadas: `content_calendar_items`, `team_action_item_status` (status e `updated_at` de cada tarefa), `team_manual_items`, `ebook_email_deliveries`, `library_articles`, `sop_items`. Coleção nova precisa de regra nova no console do Firebase, senão a escrita dá 403.
 - **WordPress:** `scripts/env_utils.py` carrega `WP_URL`, `WP_USERNAME`, `WP_APP_PASSWORD`. Toda chamada precisa de User-Agent de navegador, senão o ModSecurity devolve 406. Páginas Elementor guardam o conteúdo em `meta._elementor_data`, não em `content.raw`. Depois de editar, limpar o cache do Elementor.
 - **Snippets do WordPress:** `GET/POST /wp-json/code-snippets/v1/snippets/<id>`. Id 7 é o Meta Pixel, id 11 é o Consent Mode, id 12 é o banner de cookies (custom, não é o Complianz).
 - **Armadilhas de ferramenta:**
