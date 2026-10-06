@@ -31,7 +31,7 @@ comment even when the item happens to carry one - Thalles confirmed
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import requests
@@ -40,7 +40,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from scripts import instagram_creative  # noqa: E402
-from scripts.env_utils import load_env_file  # noqa: E402
+import app as dashboard_app  # noqa: E402
+from scripts.env_utils import load_env_file, log_sync  # noqa: E402
 
 META_API_VERSION = "v21.0"
 META_API_BASE = f"https://graph.facebook.com/{META_API_VERSION}"
@@ -178,7 +179,10 @@ def post_ig_comment(media_id: str, token: str, message: str) -> None:
         raise SocialSyncError(f"Instagram comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
 
 
-def process_item(env: dict, item: dict) -> None:
+def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
+    """Returns (posted, failures) as short human-readable lines."""
+    posted: list[str] = []
+    failures: list[str] = []
     title = item["title"]
     caption = build_caption(item)
     link = first_link(item)
@@ -193,8 +197,10 @@ def process_item(env: dict, item: dict) -> None:
                 fb_id = post_to_facebook_photo(page_id, page_token, item["image_url"], caption)
                 mark_posted(item["id"], facebook_posted=True)
                 print(f"Facebook: posted '{title}' ({fb_id})")
+                posted.append(f"FB '{title}'")
             except SocialSyncError as error:
                 print(f"WARNING: Facebook post failed for '{title}': {error}", file=sys.stderr)
+                failures.append(f"FB '{title}': {error}")
         else:
             print("Facebook: META_PAGE_ID/META_PAGE_ACCESS_TOKEN not set, skipping.", file=sys.stderr)
 
@@ -209,10 +215,34 @@ def process_item(env: dict, item: dict) -> None:
                         print(f"WARNING: Instagram comment (link) failed for '{title}': {comment_error}", file=sys.stderr)
                 mark_posted(item["id"], instagram_posted=True)
                 print(f"Instagram: posted '{title}' ({ig_post_id})")
+                posted.append(f"IG '{title}'")
             except SocialSyncError as error:
                 print(f"WARNING: Instagram post failed for '{title}': {error}", file=sys.stderr)
+                failures.append(f"IG '{title}': {error}")
         else:
             print("Instagram: META_IG_ACCOUNT_ID/META_PAGE_ACCESS_TOKEN not set, skipping.", file=sys.stderr)
+    return posted, failures
+
+
+def record_run(posted: list[str], failures: list[str]) -> None:
+    # Runs under pythonw every 30 min, so stderr goes nowhere. Failures land in
+    # logs/blog_social.log and sync_log (the dashboard shows sync_log).
+    stamp = datetime.now().isoformat(timespec="seconds")
+    log_path = ROOT / "logs" / "blog_social.log"
+    log_path.parent.mkdir(exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as handle:
+        for line in posted:
+            handle.write(f"{stamp} posted {line}\n")
+        for line in failures:
+            handle.write(f"{stamp} FAILED {line}\n")
+    try:
+        dashboard_app.init_db()
+        if failures:
+            log_sync(dashboard_app, "blog_social", "error", "; ".join(failures))
+        elif posted:
+            log_sync(dashboard_app, "blog_social", "ok", "; ".join(posted))
+    except Exception as error:  # noqa: BLE001 - the log file above already has the run
+        print(f"WARNING: could not write sync_log: {error}", file=sys.stderr)
 
 
 def main() -> int:
@@ -235,9 +265,14 @@ def main() -> int:
         print("No calendar items due for posting.")
         return 0
 
+    posted: list[str] = []
+    failures: list[str] = []
     for item in due:
-        process_item(env, item)
-    return 0
+        ok, failed = process_item(env, item)
+        posted += ok
+        failures += failed
+    record_run(posted, failures)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
