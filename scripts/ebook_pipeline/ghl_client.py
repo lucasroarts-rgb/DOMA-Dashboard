@@ -110,3 +110,90 @@ class GhlClient:
             if _normalize(workflow.get("name", "")) == target:
                 return workflow
         return None
+
+    # --- Blog "new post" notification helpers ---
+    # Custom Values API and Contacts tag API are both standard (non-premium)
+    # GHL v2 endpoints, confirmed live 2026-09-25. Unlike forms/workflows,
+    # these ARE writable via the public API - no manual GHL UI step needed
+    # for this part.
+
+    def list_custom_values(self) -> list[dict]:
+        response = requests.get(
+            f"{API_BASE}/locations/{self.location_id}/customValues",
+            headers=self._headers(),
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise GhlError(f"GHL custom values list failed ({response.status_code}): {response.text[:300]}")
+        return response.json().get("customValues", [])
+
+    def update_custom_value(self, custom_value_id: str, name: str, value: str) -> None:
+        # GHL's PUT requires `name` in the body even though it's not
+        # changing - omitting it 422s with "name should not be empty".
+        response = requests.put(
+            f"{API_BASE}/locations/{self.location_id}/customValues/{custom_value_id}",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"name": name, "value": value},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise GhlError(f"GHL custom value update failed ({response.status_code}): {response.text[:300]}")
+
+    def find_contact_by_email(self, email: str) -> dict | None:
+        response = requests.get(
+            f"{API_BASE}/contacts/",
+            headers=self._headers(),
+            params={"locationId": self.location_id, "query": email, "limit": 5},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise GhlError(f"GHL contact search failed ({response.status_code}): {response.text[:300]}")
+        for contact in response.json().get("contacts", []):
+            if contact.get("email", "").lower() == email.lower():
+                return contact
+        return None
+
+    def add_tag_to_contact(self, contact_id: str, tag: str) -> None:
+        response = requests.post(
+            f"{API_BASE}/contacts/{contact_id}/tags",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"tags": [tag]},
+            timeout=30,
+        )
+        if response.status_code not in (200, 201):
+            raise GhlError(f"GHL add tag failed ({response.status_code}): {response.text[:300]}")
+
+    def remove_tag_from_contact(self, contact_id: str, tag: str) -> None:
+        response = requests.delete(
+            f"{API_BASE}/contacts/{contact_id}/tags",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            json={"tags": [tag]},
+            timeout=30,
+        )
+        if response.status_code not in (200, 201):
+            raise GhlError(f"GHL remove tag failed ({response.status_code}): {response.text[:300]}")
+
+    def iter_all_contact_ids(self, page_size: int = 100):
+        """Paginate through every contact in the location. Used for the full
+        (non-test) blog-notify run - 7224 contacts as of 2026-09-25."""
+        start_after = None
+        start_after_id = None
+        while True:
+            params = {"locationId": self.location_id, "limit": page_size}
+            if start_after is not None:
+                params["startAfter"] = start_after
+                params["startAfterId"] = start_after_id
+            response = requests.get(f"{API_BASE}/contacts/", headers=self._headers(), params=params, timeout=30)
+            if response.status_code != 200:
+                raise GhlError(f"GHL contacts list failed ({response.status_code}): {response.text[:300]}")
+            payload = response.json()
+            contacts = payload.get("contacts", [])
+            if not contacts:
+                return
+            for contact in contacts:
+                yield contact["id"]
+            meta = payload.get("meta", {})
+            start_after = meta.get("nextPage") and meta.get("startAfter")
+            start_after_id = meta.get("startAfterId")
+            if not start_after:
+                return
