@@ -6,6 +6,7 @@ Both tabs read Firestore collections that need their own security rule
     python scripts/seed_library_and_sops.py --dry-run     # counts only, writes nothing
     python scripts/seed_library_and_sops.py               # seed both
     python scripts/seed_library_and_sops.py --only sops   # or --only library
+    python scripts/seed_library_and_sops.py --only library --prune   # also drop unpublished
 
 Idempotent: documents get stable ids and anything already in Firestore is
 skipped, so re-running never overwrites edits made in the dashboard.
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -228,11 +230,61 @@ def seed(collection: str, items: list[tuple[str, dict]], dry_run: bool) -> None:
     print(f"{collection}: wrote {len(fresh)} new documents, skipped {len(items) - len(fresh)} already there")
 
 
+def prune_library(dry_run: bool) -> None:
+    """Drop Library entries this script created (id wp-<post id>, status still
+    "published") whose WordPress post is no longer published. Entries the team
+    added or moved to another status are never touched. Each removed document is
+    saved to data/backup_firestore_library_articles_<stamp>.json first."""
+    env = load_env_file()
+    auth = (env["WP_USERNAME"], env["WP_APP_PASSWORD"])
+    published: set[int] = set()
+    page = 1
+    while True:
+        batch = wp_get("posts", {"per_page": 100, "page": page, "status": "publish", "_fields": "id"}, auth)
+        published.update(p["id"] for p in batch)
+        if len(batch) < 100:
+            break
+        page += 1
+
+    stale = []
+    token = None
+    while True:
+        params = {"pageSize": 300}
+        if token:
+            params["pageToken"] = token
+        body = requests.get(f"{BASE}/library_articles", params=params, timeout=30).json()
+        for doc in body.get("documents", []):
+            doc_id = doc["name"].rsplit("/", 1)[-1]
+            status = doc.get("fields", {}).get("status", {}).get("stringValue")
+            if doc_id.startswith("wp-") and doc_id[3:].isdigit() and status == "published" and int(doc_id[3:]) not in published:
+                stale.append(doc)
+        token = body.get("nextPageToken")
+        if not token:
+            break
+
+    print(f"library_articles: {len(stale)} entries point to posts that are no longer published")
+    if dry_run or not stale:
+        for doc in stale:
+            print("  would remove", doc["name"].rsplit("/", 1)[-1])
+        return
+    backup = ROOT / "data" / f"backup_firestore_library_articles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    backup.write_text(json.dumps(stale, ensure_ascii=False, indent=1), encoding="utf-8")
+    commit([{"delete": doc["name"]} for doc in stale])
+    print(f"  removed {len(stale)}, backup at {backup}")
+
+
+def sync_library() -> None:
+    """Daily-sync step: add newly published posts, drop unpublished ones."""
+    seed("library_articles", build_library_writes(include_all=False), dry_run=False)
+    prune_library(dry_run=False)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--only", choices=["library", "sops"])
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--include-all", action="store_true", help="also import podcast episodes and Downloadable Forms posts")
+    parser.add_argument("--prune", action="store_true", help="remove seeded Library entries whose post is no longer published")
     args = parser.parse_args()
 
     if args.only != "library":
@@ -245,6 +297,8 @@ def main() -> int:
             topics = sorted({t for _, d in library for t in d["topics"]})
             print(f"library topics found ({len(topics)}): {', '.join(topics)}")
         seed("library_articles", library, args.dry_run)
+        if args.prune:
+            prune_library(args.dry_run)
     return 0
 
 
