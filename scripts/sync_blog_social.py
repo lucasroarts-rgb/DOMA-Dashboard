@@ -105,6 +105,12 @@ def fetch_calendar_items() -> list[dict]:
                     "image_url_story": _field(fields, "image_url_story"),
                     # Story that asks for a reply with a word: held until its GHL DM workflow is published.
                     "story_keyword": _field(fields, "story_keyword"),
+                    # Carousel: image URLs for Instagram and the Facebook version (last slide differs).
+                    "carousel_urls": [v.get("stringValue") for v in fields.get("carousel_urls", {}).get("arrayValue", {}).get("values", []) if v.get("stringValue")],
+                    "carousel_urls_facebook": [v.get("stringValue") for v in fields.get("carousel_urls_facebook", {}).get("arrayValue", {}).get("values", []) if v.get("stringValue")],
+                    # HH:MM New York; when empty, feed items of the same day get staggered slots.
+                    "post_time_et": _field(fields, "post_time_et"),
+                    "created_at": int(fields.get("created_at", {}).get("integerValue", 0) or 0),
                     "story_dm_workflow": _field(fields, "story_dm_workflow"),
                     "ig_story_posted": fields.get("ig_story_posted", {}).get("booleanValue", False),
                     "fb_story_posted": fields.get("fb_story_posted", {}).get("booleanValue", False),
@@ -128,7 +134,7 @@ def mark_posted(item_id: str, **flags: bool) -> None:
         raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
 
 
-LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook", "community reshare"}
+LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook", "community reshare", "event"}
 
 
 def first_link(item: dict) -> str | None:
@@ -208,6 +214,49 @@ def post_fb_comment(post_id: str, token: str, message: str) -> None:
     payload = r.json()
     if r.status_code != 200 or "error" in payload:
         raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
+
+
+def post_ig_carousel(ig_id: str, token: str, image_urls: list[str], caption: str) -> str:
+    import time as _time
+
+    children = []
+    for url in image_urls[:10]:
+        c = requests.post(f"{META_API_BASE}/{ig_id}/media",
+                          data={"image_url": url, "is_carousel_item": "true", "access_token": token}, timeout=60).json()
+        if "error" in c:
+            raise SocialSyncError(f"Instagram carousel item failed: {c['error'].get('message')}")
+        children.append(c["id"])
+    container = requests.post(f"{META_API_BASE}/{ig_id}/media",
+                              data={"media_type": "CAROUSEL", "children": ",".join(children), "caption": caption,
+                                    "access_token": token}, timeout=60).json()
+    if "error" in container:
+        raise SocialSyncError(f"Instagram carousel create failed: {container['error'].get('message')}")
+    for _ in range(10):  # wait until the container is ready
+        st = requests.get(f"{META_API_BASE}/{container['id']}",
+                          params={"fields": "status_code", "access_token": token}, timeout=30).json()
+        if st.get("status_code") in ("FINISHED", None):
+            break
+        _time.sleep(3)
+    publish = requests.post(f"{META_API_BASE}/{ig_id}/media_publish",
+                            data={"creation_id": container["id"], "access_token": token}, timeout=60).json()
+    if "error" in publish:
+        raise SocialSyncError(f"Instagram carousel publish failed: {publish['error'].get('message')}")
+    return publish["id"]
+
+
+def post_fb_carousel(page_id: str, token: str, image_urls: list[str], message: str) -> str:
+    """Facebook multi-photo post: photos uploaded unpublished, then one feed post with all of them."""
+    data = {"message": message, "access_token": token}
+    for i, url in enumerate(image_urls[:10]):
+        ph = requests.post(f"{META_API_BASE}/{page_id}/photos",
+                           data={"url": url, "published": "false", "access_token": token}, timeout=60).json()
+        if "error" in ph:
+            raise SocialSyncError(f"Facebook carousel photo failed: {ph['error'].get('message')}")
+        data[f"attached_media[{i}]"] = '{"media_fbid":"' + ph["id"] + '"}'
+    r = requests.post(f"{META_API_BASE}/{page_id}/feed", data=data, timeout=60).json()
+    if "error" in r:
+        raise SocialSyncError(f"Facebook carousel post failed: {r['error'].get('message')}")
+    return r["id"]
 
 
 def post_ig_story(ig_id: str, token: str, image_url: str) -> str:
@@ -291,7 +340,9 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     if not item["facebook_posted"]:
         if page_id and page_token:
             try:
-                fb_id = post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption)
+                fb_slides = item.get("carousel_urls_facebook") or item.get("carousel_urls")
+                fb_id = (post_fb_carousel(page_id, page_token, fb_slides, fb_caption) if fb_slides
+                         else post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption))
                 if link:
                     try:
                         post_fb_comment(fb_id, page_token, link)
@@ -313,7 +364,8 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     elif not item["instagram_posted"]:
         if ig_id and page_token:
             try:
-                ig_post_id = post_to_instagram(ig_id, page_token, item["image_url"], ig_caption)
+                ig_post_id = (post_ig_carousel(ig_id, page_token, item["carousel_urls"], ig_caption) if item.get("carousel_urls")
+                              else post_to_instagram(ig_id, page_token, item["image_url"], ig_caption))
                 if ig_link:
                     try:
                         post_ig_comment(ig_post_id, page_token, ig_link)
@@ -375,6 +427,37 @@ def now_new_york() -> datetime:
     return utc.astimezone(timezone(timedelta(hours=offset)))
 
 
+# Two feed posts on the same day never go out together (Lucas, 2026-10-12): the first one
+# takes the default time, the next ones these New York times, in this order.
+EXTRA_SLOTS = ["16:00", "10:00", "18:00", "14:00", "09:00"]
+
+
+def post_slots(items: list[dict], default_time: str) -> dict[str, tuple[int, int]]:
+    """item id -> (hour, minute) New York. post_time_et on the item wins; the other feed items
+    of a date fill the default time and then EXTRA_SLOTS, by creation order. Story-only items
+    use the default time."""
+    def hm(t: str) -> tuple[int, int]:
+        h, m = t.split(":")
+        return int(h), int(m)
+
+    out: dict[str, tuple[int, int]] = {}
+    by_date: dict[str, list[dict]] = {}
+    for it in items:
+        if it.get("post_time_et"):
+            out[it["id"]] = hm(it["post_time_et"])
+        elif it["image_url"] and it["date"]:
+            by_date.setdefault(it["date"], []).append(it)
+        else:
+            out[it["id"]] = hm(default_time)
+    for date, group in by_date.items():
+        taken = {out[i["id"]] for i in items if i["date"] == date and i.get("post_time_et")}
+        free = [hm(t) for t in [default_time] + EXTRA_SLOTS if hm(t) not in taken]
+        free += [(20, 0)] * len(group)
+        for it, slot in zip(sorted(group, key=lambda x: x.get("created_at", 0)), free):
+            out[it["id"]] = slot
+    return out
+
+
 def main() -> int:
     env = load_env_file()
     if (env.get("SOCIAL_POSTING_PAUSED") or "").strip() in ("1", "true", "yes"):
@@ -382,8 +465,7 @@ def main() -> int:
         return 0
     ny = now_new_york()
     today = ny.date().isoformat()
-    hour, minute = (int(x) for x in (env.get("SOCIAL_POST_TIME_ET") or DEFAULT_POST_TIME_ET).split(":"))
-    before_post_time = (ny.hour, ny.minute) < (hour, minute)
+    default_time = env.get("SOCIAL_POST_TIME_ET") or DEFAULT_POST_TIME_ET
 
     try:
         items = fetch_calendar_items()
@@ -391,11 +473,13 @@ def main() -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
+    slots = post_slots(items, default_time)
+    now_hm = (ny.hour, ny.minute)
     due = [
         item
         for item in items
         if (item["image_url"] or item.get("image_url_story")) and item["date"]
-        and (item["date"] < today or (item["date"] == today and not before_post_time))
+        and (item["date"] < today or (item["date"] == today and now_hm >= slots.get(item["id"], (12, 0))))
         and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
                  and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
     ]

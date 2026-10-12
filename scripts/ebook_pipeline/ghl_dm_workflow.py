@@ -118,9 +118,9 @@ def message_text(title: str, url: str) -> list[str]:
             f"Here's your copy of {title}:", url, "", "Hope it helps!"]
 
 
-def _write_message(page, title: str, url: str) -> None:
+def _write_message(page, title: str, url: str, lines: list[str] | None = None) -> None:
     f = _frame(page)
-    editors = f.locator('[contenteditable="true"]', has_text="Here's your copy")
+    editors = f.locator('[contenteditable="true"]', has_text="Hi ")
     if editors.count() == 0:
         raise DmWorkflowError("message editor not found")
     ed = editors.first.element_handle()
@@ -129,7 +129,7 @@ def _write_message(page, title: str, url: str) -> None:
     ed.evaluate("e=>{const r=document.createRange();r.selectNodeContents(e);const s=window.getSelection();s.removeAllRanges();s.addRange(r);}")
     page.keyboard.press("Delete")
     page.wait_for_timeout(800)
-    lines = message_text(title, url)
+    lines = lines or message_text(title, url)
     for i, line in enumerate(lines):
         if line:
             page.keyboard.insert_text(line)
@@ -151,7 +151,8 @@ def _set_button_url(page, url: str) -> int:
     return len(hits)
 
 
-def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url: str, log=print) -> str:
+def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url: str, log=print,
+                       lines: list[str] | None = None) -> str:
     """Returns the id of the published workflow. Reuses one that already exists
     (published) under that name."""
     existing = [w for w in ghl.list_workflows() if w["name"] == name]
@@ -193,13 +194,17 @@ def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url:
 
             set_trigger_keywords(page, keyword, replace=True)
 
-            for i, node in enumerate(NODES):
+            steps = (("Facebook interactive messenger", 0), ("Instagram interactive messenger", 0),
+                     ("Instagram interactive messenger", 1))
+            for i, (card_text, card_index) in enumerate(steps):
                 for attempt in range(2):  # the previous panel may still be closing
                     page.wait_for_timeout(2000)
-                    page.mouse.click(*node)
+                    # cards are found by name: their position changes when a branch is removed
+                    cards = [c for c in _frame(page).get_by_text(card_text, exact=True).all() if c.is_visible()]
+                    cards[card_index].click()
                     page.wait_for_timeout(4000)
                     try:
-                        _write_message(page, title, url)
+                        _write_message(page, title, url, lines)
                     except DmWorkflowError:
                         page.mouse.click(1317, 903)
                         continue
@@ -207,8 +212,8 @@ def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url:
                     buttons = _set_button_url(page, url)
                     page.keyboard.press("Tab")
                     page.wait_for_timeout(1000)
-                    text = _frame(page).locator('[contenteditable="true"]', has_text="Here's your copy").first.inner_text()
-                    ok = (text.count("Here's your copy") == 1 and url in text
+                    text = _frame(page).locator('[contenteditable="true"]', has_text="Hi ").first.inner_text()
+                    ok = (text.count("Hi ") == 1 and url in text
                           and TEMPLATE_URL_PART not in text and "10 Reports" not in text and buttons <= 1)
                     if ok:
                         page.mouse.click(1417, 903)  # Save action
