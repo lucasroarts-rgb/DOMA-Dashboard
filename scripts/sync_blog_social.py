@@ -100,6 +100,9 @@ def fetch_calendar_items() -> list[dict]:
                     # Optional Facebook version of the image (ebook posts: "link in the comments"
                     # instead of "comment the word"); falls back to image_url.
                     "image_url_facebook": _field(fields, "image_url_facebook"),
+                    # Instagram art when image_url may be replaced later (an ebook cover uploaded
+                    # by the team after the social art is ready); falls back to image_url.
+                    "image_url_instagram": _field(fields, "image_url_instagram"),
                     "ig_dm_workflow": _field(fields, "ig_dm_workflow"),
                     # 1080x1920 art; posted as an Instagram story and a Facebook page story.
                     "image_url_story": _field(fields, "image_url_story"),
@@ -136,17 +139,25 @@ def mark_posted(item_id: str, **flags: bool) -> None:
         raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
 
 
-LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook", "community reshare", "event"}
+LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "blog", "ebook", "community reshare", "event"}
+# Posts that promise "link in the comments" to a page on the site: held until the item has it
+# (the ebook capture page or the published blog post). Art and captions can be ready earlier.
+SITE_LINK_TYPES = {"ebook", "blog", "blog post", "blog/ebook"}
+SITE = "https://dentalofficemanagers.com/"
 
 
 def first_link(item: dict) -> str | None:
-    if item.get("type", "").strip().lower() not in LINK_COMMENT_TYPES:
+    kind = item.get("type", "").strip().lower()
+    if kind not in LINK_COMMENT_TYPES:
         return None
     for value in item.get("links") or []:
         map_fields = value.get("mapValue", {}).get("fields", {})
-        url = map_fields.get("url", {}).get("stringValue")
-        if url:
-            return url
+        url = (map_fields.get("url", {}).get("stringValue") or "").strip()
+        if not url.startswith("http"):
+            continue  # labels typed into the url box ("Companion Guides")
+        if kind in SITE_LINK_TYPES and (not url.startswith(SITE) or "thank-you" in url):
+            continue  # the site page, not a Drive draft or the thank-you page
+        return url
     return None
 
 
@@ -388,6 +399,11 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         post_stories(env, item, posted, failures)
         return posted, failures
 
+    if item.get("type", "").strip().lower() in SITE_LINK_TYPES and not link:
+        print(f"Held '{title}': no {SITE} link in the item yet.", file=sys.stderr)
+        failures.append(f"'{title}': waiting for the ebook page / blog post link in the item")
+        return posted, failures
+
     if not item["facebook_posted"]:
         if page_id and page_token:
             try:
@@ -419,7 +435,7 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
                 ig_post_id = (post_ig_reel(ig_id, page_token, item["video_url"], ig_caption) if item.get("video_url")
                               else post_ig_carousel(ig_id, page_token, [ensure_jpeg(env, u) for u in item["carousel_urls"]], ig_caption)
                               if item.get("carousel_urls")
-                              else post_to_instagram(ig_id, page_token, ensure_jpeg(env, item["image_url"]), ig_caption))
+                              else post_to_instagram(ig_id, page_token, ensure_jpeg(env, item.get("image_url_instagram") or item["image_url"]), ig_caption))
                 if ig_link:
                     try:
                         post_ig_comment(ig_post_id, page_token, ig_link)

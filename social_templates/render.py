@@ -24,6 +24,7 @@ BLOBS = {
     "923518d0ab0c5eb14d7401bb234e3add": "monica-circle.png",
     "58526341ac97ffda6e559522ca6c926f": "kyle-poster.jpg",
     "324476149466d3ee75063bb93bb40cd0": "archy-logo.png",
+    "fe6a0b51421eb7ded61c46d851ea6e34": "cherry-logo.png",
 }
 
 
