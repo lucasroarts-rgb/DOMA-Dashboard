@@ -120,7 +120,7 @@ def mark_posted(item_id: str, **flags: bool) -> None:
         raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
 
 
-LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post"}
+LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook"}
 
 
 def first_link(item: dict) -> str | None:

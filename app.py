@@ -1685,7 +1685,11 @@ async def create_content_calendar_pages(request: Request):
 
     try:
         ghl = GhlClient(env)
-        matched_form = ghl.find_form_by_title(form_name)
+        # Created here when missing (copy of an existing ebook form, redirect set to
+        # this ebook's thank-you page), so the page is published with the real form.
+        # Its leads are tagged and emailed by scripts/ebook_lead_delivery.py.
+        slug = copy_generator.slugify(extracted["title"])
+        matched_form = ghl.ensure_ebook_form(form_name, f"{WP_URL.rstrip('/')}/{slug}-thank-you/")
         matched_workflow = ghl.find_workflow_by_title(form_name)
     except GhlError as error:
         # A missing/broken GHL connection shouldn't block the WP pages from
