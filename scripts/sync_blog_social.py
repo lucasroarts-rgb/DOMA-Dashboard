@@ -100,6 +100,7 @@ def fetch_calendar_items() -> list[dict]:
                     # Optional Facebook version of the image (ebook posts: "link in the comments"
                     # instead of "comment the word"); falls back to image_url.
                     "image_url_facebook": _field(fields, "image_url_facebook"),
+                    "ig_dm_workflow": _field(fields, "ig_dm_workflow"),
                 }
             )
         page_token = data.get("nextPageToken")
@@ -202,6 +203,16 @@ def post_fb_comment(post_id: str, token: str, message: str) -> None:
         raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
 
 
+def dm_workflow_live(env: dict, workflow_id: str | None) -> bool:
+    if not workflow_id:
+        return False
+    from scripts.ebook_pipeline.ghl_client import GhlClient, GhlError
+    try:
+        return any(w["id"] == workflow_id and w.get("status") == "published" for w in GhlClient(env).list_workflows())
+    except GhlError:
+        return False
+
+
 def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     """Returns (posted, failures) as short human-readable lines."""
     posted: list[str] = []
@@ -236,7 +247,11 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         else:
             print("Facebook: META_PAGE_ID/META_PAGE_ACCESS_TOKEN not set, skipping.", file=sys.stderr)
 
-    if not item["instagram_posted"]:
+    if not item["instagram_posted"] and item.get("ig_keyword") and not dm_workflow_live(env, item.get("ig_dm_workflow")):
+        # "Comment KEYWORD" with no live DM workflow would leave people without the link.
+        print(f"Instagram: held '{title}', DM workflow for {item['ig_keyword']} is not published yet.", file=sys.stderr)
+        failures.append(f"IG '{title}': waiting for the {item['ig_keyword']} DM workflow")
+    elif not item["instagram_posted"]:
         if ig_id and page_token:
             try:
                 ig_post_id = post_to_instagram(ig_id, page_token, item["image_url"], ig_caption)

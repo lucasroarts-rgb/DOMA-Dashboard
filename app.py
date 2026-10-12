@@ -1683,40 +1683,44 @@ async def create_content_calendar_pages(request: Request):
         extracted["title"] = title
     form_name = f"Ebook - {extracted['title'].strip()}"
 
-    try:
-        ghl = GhlClient(env)
-        # Created here when missing (copy of an existing ebook form, redirect set to
-        # this ebook's thank-you page), so the page is published with the real form.
-        # Its leads are tagged and emailed by scripts/ebook_lead_delivery.py.
-        slug = copy_generator.slugify(extracted["title"])
-        matched_form = ghl.ensure_ebook_form(form_name, f"{WP_URL.rstrip('/')}/{slug}-thank-you/")
-        matched_workflow = ghl.find_workflow_by_title(form_name)
-    except GhlError as error:
-        # A missing/broken GHL connection shouldn't block the WP pages from
-        # being created - they're still useful as drafts, just without a
-        # live form embedded yet (same placeholder path the Drive pipeline
-        # uses when the form doesn't exist yet).
-        print(f"GHL lookup failed, continuing without a matched form: {error}")
-        matched_form, matched_workflow = None, None
-
-    package = copy_generator.build_package(extracted, cover_url, pdf_url, env.get("GHL_WIDGET_DOMAIN", ""), matched_form)
-
+    # Order matters: thank-you page first (its real URL, WordPress may add -2 to
+    # a slug), then the GHL form redirecting to it, then the capture page with
+    # that form embedded. The form's leads are tagged and emailed by
+    # scripts/ebook_lead_delivery.py, so no per-ebook GHL workflow is needed.
+    ghl_domain = env.get("GHL_WIDGET_DOMAIN", "")
+    package = copy_generator.build_package(extracted, cover_url, pdf_url, ghl_domain, None)
     try:
         wp = WpClient(env)
         # Published straight away (not draft) - Content-Calendar-triggered
         # pages are reviewed by the person uploading the PDF before they
         # upload it, so there's no separate draft-review step here unlike
         # the Drive-based pipeline's create_draft_page default.
-        capture_page = wp.create_draft_page(
-            f"{package['title']} - Free Guide", package["slug"], package["capture_html"],
-            excerpt=package["excerpt"], featured_media=cover_media_id,
-            meta_description=package["excerpt"],
-            status="publish",
-        )
         ty_page = wp.create_draft_page(
             f"{package['title']} - Thank You", f"{package['slug']}-thank-you", package["thank_you_html"],
             excerpt=package["excerpt"], featured_media=cover_media_id,
             noindex=True,
+            status="publish",
+        )
+    except WpError as error:
+        raise HTTPException(502, f"WordPress page creation failed: {error}") from None
+
+    try:
+        ghl = GhlClient(env)
+        ty_url = ty_page.get("preview_url") or f"{WP_URL.rstrip('/')}/{package['slug']}-thank-you/"
+        matched_form = ghl.ensure_ebook_form(form_name, ty_url)
+        matched_workflow = ghl.find_workflow_by_title(form_name)
+    except GhlError as error:
+        # A missing/broken GHL connection shouldn't block the capture page; it is
+        # created with the placeholder and attach.py embeds the form later.
+        print(f"GHL form step failed, continuing without a form: {error}")
+        matched_form, matched_workflow = None, None
+
+    package = copy_generator.build_package(extracted, cover_url, pdf_url, ghl_domain, matched_form)
+    try:
+        capture_page = wp.create_draft_page(
+            f"{package['title']} - Free Guide", package["slug"], package["capture_html"],
+            excerpt=package["excerpt"], featured_media=cover_media_id,
+            meta_description=package["excerpt"],
             status="publish",
         )
     except WpError as error:

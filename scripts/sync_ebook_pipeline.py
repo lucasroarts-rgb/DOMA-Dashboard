@@ -296,6 +296,14 @@ def main() -> int:
     # Always recheck pending forms, even on a run with no new Drive files -
     # this is what lets Lucas skip telling anyone the GHL form is ready.
     recheck_pending_forms(env)
+
+    # Social posts for ebooks on the Content Calendar in the next days: art,
+    # captions, Instagram DM workflow (scripts/ebook_social_launch.py).
+    from scripts import ebook_social_launch
+    try:
+        ebook_social_launch.run(apply=True, only=None)
+    except Exception as error:  # never block the pipeline over the social step
+        print(f"WARNING: ebook social launch failed: {error}", file=sys.stderr)
     return 0
 
 
