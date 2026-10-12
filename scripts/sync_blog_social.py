@@ -110,6 +110,8 @@ def fetch_calendar_items() -> list[dict]:
                     "carousel_urls_facebook": [v.get("stringValue") for v in fields.get("carousel_urls_facebook", {}).get("arrayValue", {}).get("values", []) if v.get("stringValue")],
                     # HH:MM New York; when empty, feed items of the same day get staggered slots.
                     "post_time_et": _field(fields, "post_time_et"),
+                    # Vertical video (MP4): Instagram Reel + Facebook video post.
+                    "video_url": _field(fields, "video_url"),
                     "created_at": int(fields.get("created_at", {}).get("integerValue", 0) or 0),
                     "story_dm_workflow": _field(fields, "story_dm_workflow"),
                     "ig_story_posted": fields.get("ig_story_posted", {}).get("booleanValue", False),
@@ -214,6 +216,37 @@ def post_fb_comment(post_id: str, token: str, message: str) -> None:
     payload = r.json()
     if r.status_code != 200 or "error" in payload:
         raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
+
+
+def post_ig_reel(ig_id: str, token: str, video_url: str, caption: str) -> str:
+    import time as _time
+
+    container = requests.post(f"{META_API_BASE}/{ig_id}/media",
+                              data={"media_type": "REELS", "video_url": video_url, "caption": caption,
+                                    "share_to_feed": "true", "access_token": token}, timeout=60).json()
+    if "error" in container:
+        raise SocialSyncError(f"Instagram reel create failed: {container['error'].get('message')}")
+    for _ in range(40):  # video processing takes a while
+        st = requests.get(f"{META_API_BASE}/{container['id']}",
+                          params={"fields": "status_code,status", "access_token": token}, timeout=30).json()
+        if st.get("status_code") == "FINISHED":
+            break
+        if st.get("status_code") == "ERROR":
+            raise SocialSyncError(f"Instagram reel processing failed: {st.get('status')}")
+        _time.sleep(10)
+    publish = requests.post(f"{META_API_BASE}/{ig_id}/media_publish",
+                            data={"creation_id": container["id"], "access_token": token}, timeout=60).json()
+    if "error" in publish:
+        raise SocialSyncError(f"Instagram reel publish failed: {publish['error'].get('message')}")
+    return publish["id"]
+
+
+def post_fb_video(page_id: str, token: str, video_url: str, description: str) -> str:
+    r = requests.post(f"{META_API_BASE}/{page_id}/videos",
+                      data={"file_url": video_url, "description": description, "access_token": token}, timeout=300).json()
+    if "error" in r:
+        raise SocialSyncError(f"Facebook video post failed: {r['error'].get('message')}")
+    return r["id"]
 
 
 def post_ig_carousel(ig_id: str, token: str, image_urls: list[str], caption: str) -> str:
@@ -341,7 +374,8 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         if page_id and page_token:
             try:
                 fb_slides = item.get("carousel_urls_facebook") or item.get("carousel_urls")
-                fb_id = (post_fb_carousel(page_id, page_token, fb_slides, fb_caption) if fb_slides
+                fb_id = (post_fb_video(page_id, page_token, item["video_url"], fb_caption) if item.get("video_url")
+                         else post_fb_carousel(page_id, page_token, fb_slides, fb_caption) if fb_slides
                          else post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption))
                 if link:
                     try:
@@ -364,7 +398,8 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     elif not item["instagram_posted"]:
         if ig_id and page_token:
             try:
-                ig_post_id = (post_ig_carousel(ig_id, page_token, item["carousel_urls"], ig_caption) if item.get("carousel_urls")
+                ig_post_id = (post_ig_reel(ig_id, page_token, item["video_url"], ig_caption) if item.get("video_url")
+                              else post_ig_carousel(ig_id, page_token, item["carousel_urls"], ig_caption) if item.get("carousel_urls")
                               else post_to_instagram(ig_id, page_token, item["image_url"], ig_caption))
                 if ig_link:
                     try:
