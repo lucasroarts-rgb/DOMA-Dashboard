@@ -209,7 +209,7 @@ def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url:
                     page.wait_for_timeout(1000)
                     text = _frame(page).locator('[contenteditable="true"]', has_text="Here's your copy").first.inner_text()
                     ok = (text.count("Here's your copy") == 1 and url in text
-                          and TEMPLATE_URL_PART not in text and "10 Reports" not in text and buttons == 1)
+                          and TEMPLATE_URL_PART not in text and "10 Reports" not in text and buttons <= 1)
                     if ok:
                         page.mouse.click(1417, 903)  # Save action
                         page.wait_for_timeout(4000)
@@ -227,3 +227,56 @@ def create_dm_workflow(ghl: GhlClient, name: str, keyword: str, title: str, url:
     if status != ["published"]:
         raise DmWorkflowError(f"workflow {wid} is not published (status {status})")
     return wid
+
+
+def remove_ig_buttons(workflow_id: str) -> int:
+    """Drops the "Get the guide" button from the Instagram messenger steps (the DM
+    then carries only the text with the link; Lucas asked 2026-10-12). The
+    button's branch only holds END, which GHL deletes with it."""
+    from playwright.sync_api import sync_playwright
+
+    removed = 0
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(PROFILE_DIR, headless=True, viewport={"width": 1500, "height": 950})
+        page = ctx.new_page()
+        page.on("dialog", lambda d: d.accept())
+        try:
+            page.goto(f"{APP}/workflow/{workflow_id}", timeout=90000)
+            _wait_text(page, "Instagram interactive")
+            page.wait_for_timeout(4000)
+            for idx in range(2):
+                page.wait_for_timeout(2000)
+                cards = _frame(page).get_by_text("Instagram interactive messenger", exact=True).all()
+                if idx >= len(cards):
+                    break
+                cards[idx].click()
+                page.wait_for_timeout(4000)
+                f = _frame(page)
+                labels = [i for i in f.locator("input").all() if i.input_value() in ("Get the guide", "Link here")]
+                if not labels:
+                    page.mouse.click(1317, 903)
+                    continue
+                labels[0].scroll_into_view_if_needed()
+                page.wait_for_timeout(800)
+                box = labels[0].bounding_box()
+                page.mouse.click(box["x"] + box["width"] + 32, box["y"] + box["height"] / 2)  # the X next to the label
+                page.wait_for_timeout(1500)
+                f.get_by_role("button", name="Delete").last.click()
+                page.wait_for_timeout(1500)
+                if any(i.input_value() in ("Get the guide", "Link here") for i in f.locator("input").all()):
+                    page.mouse.click(1317, 903)
+                    raise DmWorkflowError("button still there after delete")
+                page.mouse.click(1417, 903)  # Save action
+                page.wait_for_timeout(4000)
+                removed += 1
+            # Structural changes need the workflow-level Save (top right).
+            if removed:
+                page.mouse.click(1437, 28)  # Save
+                page.wait_for_timeout(6000)
+                top = _frame(page).locator("body").inner_text()[:400]
+                if "Saved" not in top:
+                    raise DmWorkflowError("workflow Save did not go through")
+            page.screenshot(path=str(Path(__file__).resolve().parents[2] / ".scratch" / f"nobtn_{workflow_id[:8]}.png"))
+        finally:
+            ctx.close()
+    return removed

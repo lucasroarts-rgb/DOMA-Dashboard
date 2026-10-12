@@ -204,6 +204,13 @@ def main() -> int:
                                "email_message_id": message_id, "at": datetime.now(timezone.utc).isoformat()}
             save_json(STATE_PATH, state)
 
+    # Same 10-minute cadence: public reply under Instagram keyword comments.
+    if args.apply and not args.test_contact:
+        from scripts import ig_comment_replies
+        try:
+            ig_comment_replies.run(apply=True)
+        except Exception as error:
+            print(f"WARNING: Instagram comment replies failed: {error}", file=sys.stderr)
     return 1 if errors else 0
 
 
