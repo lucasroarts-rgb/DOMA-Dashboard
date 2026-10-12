@@ -90,6 +90,16 @@ def fetch_calendar_items() -> list[dict]:
                     "facebook_posted": fields.get("facebook_posted", {}).get("booleanValue", False),
                     "instagram_posted": fields.get("instagram_posted", {}).get("booleanValue", False),
                     "links": fields.get("links", {}).get("arrayValue", {}).get("values", []),
+                    # Ebook posts (2026-10-12): Instagram asks people to comment a keyword and the
+                    # GHL "<ebook> Instagram DM" workflow sends the link by DM; Facebook says the
+                    # link is in the comments and this script comments it. Either caption may be
+                    # written by hand; when empty the generated one is used.
+                    "ig_keyword": _field(fields, "ig_keyword"),
+                    "caption_instagram": _field(fields, "caption_instagram"),
+                    "caption_facebook": _field(fields, "caption_facebook"),
+                    # Optional Facebook version of the image (ebook posts: "link in the comments"
+                    # instead of "comment the word"); falls back to image_url.
+                    "image_url_facebook": _field(fields, "image_url_facebook"),
                 }
             )
         page_token = data.get("nextPageToken")
@@ -179,13 +189,30 @@ def post_ig_comment(media_id: str, token: str, message: str) -> None:
         raise SocialSyncError(f"Instagram comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
 
 
+def post_fb_comment(post_id: str, token: str, message: str) -> None:
+    # Same "link in the comments" as Instagram; Lucas used to paste it by hand
+    # on Facebook (2026-10-12). Needs pages_manage_engagement on the page token.
+    r = requests.post(
+        f"{META_API_BASE}/{post_id}/comments",
+        data={"message": message, "access_token": token},
+        timeout=30,
+    )
+    payload = r.json()
+    if r.status_code != 200 or "error" in payload:
+        raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
+
+
 def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     """Returns (posted, failures) as short human-readable lines."""
     posted: list[str] = []
     failures: list[str] = []
     title = item["title"]
     caption = build_caption(item)
+    fb_caption = item.get("caption_facebook") or caption
+    ig_caption = item.get("caption_instagram") or caption
     link = first_link(item)
+    # With a keyword the link goes out by DM, so no link comment on Instagram.
+    ig_link = None if item.get("ig_keyword") else link
 
     page_id = env.get("META_PAGE_ID")
     page_token = env.get("META_PAGE_ACCESS_TOKEN")
@@ -194,7 +221,12 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     if not item["facebook_posted"]:
         if page_id and page_token:
             try:
-                fb_id = post_to_facebook_photo(page_id, page_token, item["image_url"], caption)
+                fb_id = post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption)
+                if link:
+                    try:
+                        post_fb_comment(fb_id, page_token, link)
+                    except SocialSyncError as comment_error:
+                        print(f"WARNING: Facebook comment (link) failed for '{title}': {comment_error}", file=sys.stderr)
                 mark_posted(item["id"], facebook_posted=True)
                 print(f"Facebook: posted '{title}' ({fb_id})")
                 posted.append(f"FB '{title}'")
@@ -207,10 +239,10 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     if not item["instagram_posted"]:
         if ig_id and page_token:
             try:
-                ig_post_id = post_to_instagram(ig_id, page_token, item["image_url"], caption)
-                if link:
+                ig_post_id = post_to_instagram(ig_id, page_token, item["image_url"], ig_caption)
+                if ig_link:
                     try:
-                        post_ig_comment(ig_post_id, page_token, link)
+                        post_ig_comment(ig_post_id, page_token, ig_link)
                     except SocialSyncError as comment_error:
                         print(f"WARNING: Instagram comment (link) failed for '{title}': {comment_error}", file=sys.stderr)
                 mark_posted(item["id"], instagram_posted=True)
@@ -245,9 +277,38 @@ def record_run(posted: list[str], failures: list[str]) -> None:
         print(f"WARNING: could not write sync_log: {error}", file=sys.stderr)
 
 
+# Items dated today wait until this time in New York (DOMA's audience is in the US).
+# DOMA's own posts, Aug to Oct 2026 (about 45 per network): Facebook did best
+# between 12:00 and 15:00 ET, Instagram between 9:00 and 12:00 and 15:00 to 18:00 ET.
+# Noon ET serves both. SOCIAL_POST_TIME_ET overrides (HH:MM).
+DEFAULT_POST_TIME_ET = "12:00"
+
+
+def now_new_york() -> datetime:
+    """US Eastern time without tzdata (not installed on this Windows box): EDT
+    (UTC-4) from the second Sunday of March to the first Sunday of November,
+    switching at 2:00 local, else EST (UTC-5)."""
+    from datetime import timedelta, timezone
+
+    utc = datetime.now(timezone.utc)
+    year = utc.year
+    march_1 = datetime(year, 3, 1, tzinfo=timezone.utc)
+    nov_1 = datetime(year, 11, 1, tzinfo=timezone.utc)
+    dst_start = march_1 + timedelta(days=(6 - march_1.weekday()) % 7 + 7, hours=7)  # 2:00 EST
+    dst_end = nov_1 + timedelta(days=(6 - nov_1.weekday()) % 7, hours=6)  # 2:00 EDT
+    offset = -4 if dst_start <= utc < dst_end else -5
+    return utc.astimezone(timezone(timedelta(hours=offset)))
+
+
 def main() -> int:
     env = load_env_file()
-    today = date.today().isoformat()
+    if (env.get("SOCIAL_POSTING_PAUSED") or "").strip() in ("1", "true", "yes"):
+        print("Social posting paused (SOCIAL_POSTING_PAUSED in .env).")
+        return 0
+    ny = now_new_york()
+    today = ny.date().isoformat()
+    hour, minute = (int(x) for x in (env.get("SOCIAL_POST_TIME_ET") or DEFAULT_POST_TIME_ET).split(":"))
+    before_post_time = (ny.hour, ny.minute) < (hour, minute)
 
     try:
         items = fetch_calendar_items()
@@ -258,7 +319,8 @@ def main() -> int:
     due = [
         item
         for item in items
-        if item["image_url"] and item["date"] and item["date"] <= today
+        if item["image_url"] and item["date"]
+        and (item["date"] < today or (item["date"] == today and not before_post_time))
         and not (item["facebook_posted"] and item["instagram_posted"])
     ]
     if not due:

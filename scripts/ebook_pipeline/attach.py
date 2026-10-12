@@ -31,7 +31,7 @@ def try_attach(env: dict, package_json_path: Path) -> dict:
 
     try:
         ghl = GhlClient(env)
-        matched_form = ghl.find_form_by_title(saved["form_name"])
+        matched_form = ghl.ensure_ebook_form(saved["form_name"], saved["thank_you_future_url"])
     except GhlError as error:
         return {"message": f"{slug}: GHL lookup failed ({error})", "attached": False, "slug": slug, "edit_url": None}
 

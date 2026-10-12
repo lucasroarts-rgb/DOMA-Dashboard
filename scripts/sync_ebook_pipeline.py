@@ -40,6 +40,7 @@ from scripts.ebook_pipeline.wp_client import WpClient, WpError  # noqa: E402
 from scripts.ebook_pipeline.ghl_client import GhlClient, GhlError  # noqa: E402
 from scripts.ebook_pipeline.attach import try_attach  # noqa: E402
 from scripts.ebook_pipeline.notify import notify  # noqa: E402
+from scripts.ebook_lead_delivery import add_form as add_delivery_form  # noqa: E402
 
 STATE_PATH = ROOT / "data" / "ebook_pipeline_state.json"
 PACKAGES_DIR = ROOT / "ebook_packages"
@@ -121,8 +122,14 @@ def process_pair(env: dict, pair: dict) -> dict:
     # Check *before* generating the capture page HTML - if this ebook's form
     # already exists in GHL (e.g. it was set up before this pipeline existed),
     # embed the real working form instead of leaving a placeholder.
-    matched_form = ghl.find_form_by_title(form_name)
+    # The form is created here when missing (copy of an existing ebook form,
+    # redirecting to this ebook's thank-you page), so nobody duplicates it by hand.
+    wp_base = (env.get("WP_URL") or "").rstrip("/")
+    matched_form = ghl.ensure_ebook_form(form_name, f"{wp_base}/{slug}-thank-you/")
     matched_workflow = ghl.find_workflow_by_title(form_name)
+    if not matched_workflow:
+        # No per-ebook workflow anymore: ebook_lead_delivery.py tags and emails this form's leads.
+        add_delivery_form(matched_form["id"])
 
     ghl_domain = env.get("GHL_WIDGET_DOMAIN", "")
     package = copy_generator.build_package(extracted, cover["url"], pdf_upload["url"], ghl_domain, matched_form)

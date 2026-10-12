@@ -24,6 +24,9 @@ import requests
 
 API_BASE = "https://services.leadconnectorhq.com"
 API_VERSION = "2021-07-28"
+# New ebook forms are copied from this one ("Ebook - Getting Your Doctor to
+# Invest in Your Development", 2026-10-11); GHL_EBOOK_FORM_TEMPLATE_ID overrides.
+EBOOK_FORM_TEMPLATE_ID = "yuK8Sq6xlzVPLNQzZAaR"
 
 
 class GhlError(RuntimeError):
@@ -44,6 +47,7 @@ class GhlClient:
     def __init__(self, env: dict[str, str]):
         self.api_key = env.get("GHL_EBOOK_API_KEY")
         self.location_id = env.get("GHL_LOCATION_ID")
+        self.form_template_id = env.get("GHL_EBOOK_FORM_TEMPLATE_ID") or EBOOK_FORM_TEMPLATE_ID
         if not self.api_key or not self.location_id:
             raise GhlError("Missing GHL_EBOOK_API_KEY or GHL_LOCATION_ID in .env")
 
@@ -70,15 +74,23 @@ class GhlClient:
         return {"file_id": payload["fileId"], "url": payload["url"]}
 
     def list_forms(self, name_contains: str = "") -> list[dict]:
-        response = requests.get(
-            f"{API_BASE}/forms/",
-            headers=self._headers(),
-            params={"locationId": self.location_id, "limit": 100},
-            timeout=30,
-        )
-        if response.status_code != 200:
-            raise GhlError(f"GHL forms list failed ({response.status_code}): {response.text[:300]}")
-        forms = response.json().get("forms", [])
+        # 93 forms on 2026-10-12 against a page size of 100, so page with skip.
+        forms: list[dict] = []
+        while True:
+            response = requests.get(
+                f"{API_BASE}/forms/",
+                headers=self._headers(),
+                params={"locationId": self.location_id, "limit": 100, "skip": len(forms)},
+                timeout=30,
+            )
+            if response.status_code != 200:
+                raise GhlError(f"GHL forms list failed ({response.status_code}): {response.text[:300]}")
+            page = response.json().get("forms", [])
+            if forms and page and page[0].get("id") == forms[0].get("id"):
+                break  # skip ignored, same page again
+            forms.extend(page)
+            if len(page) < 100:
+                break
         if name_contains:
             forms = [f for f in forms if name_contains.lower() in f.get("name", "").lower()]
         return forms
@@ -96,6 +108,42 @@ class GhlClient:
         if name_contains:
             workflows = [w for w in workflows if name_contains.lower() in w.get("name", "").lower()]
         return workflows
+
+    def get_form(self, form_id: str) -> dict:
+        response = requests.get(
+            f"{API_BASE}/forms/{form_id}",
+            headers=self._headers(),
+            params={"locationId": self.location_id},
+            timeout=30,
+        )
+        if response.status_code != 200:
+            raise GhlError(f"GHL form get failed ({response.status_code}): {response.text[:300]}")
+        return response.json()["form"]
+
+    def create_form_from_template(self, template_form_id: str, name: str, redirect_url: str) -> dict:
+        """Copies an existing ebook form (fields, style, button) under a new name,
+        redirecting to this ebook's thank-you page. POST /forms/ with the full
+        formData creates it (confirmed live 2026-10-12). There is no update
+        endpoint for a private integration token (PUT/PATCH 404, POST /forms/{id}
+        needs a user session), so the redirect has to be right at creation."""
+        form_data = self.get_form(template_form_id)["formData"]
+        form_data["form"]["formAction"]["redirectUrl"] = redirect_url
+        response = requests.post(
+            f"{API_BASE}/forms/",
+            headers={**self._headers(), "Content-Type": "application/json"},
+            params={"locationId": self.location_id},
+            json={"locationId": self.location_id, "name": name, "formData": form_data},
+            timeout=60,
+        )
+        if response.status_code not in (200, 201):
+            raise GhlError(f"GHL form create failed ({response.status_code}): {response.text[:300]}")
+        created = self.find_form_by_title(name)
+        if not created:
+            raise GhlError(f'GHL form "{name}" was created but is not listed yet')
+        return created
+
+    def ensure_ebook_form(self, name: str, redirect_url: str) -> dict:
+        return self.find_form_by_title(name) or self.create_form_from_template(self.form_template_id, name, redirect_url)
 
     def find_form_by_title(self, expected_name: str) -> dict | None:
         target = _normalize(expected_name)
@@ -176,6 +224,12 @@ class GhlClient:
     def iter_all_contact_ids(self, page_size: int = 100):
         """Paginate through every contact in the location. Used for the full
         (non-test) blog-notify run - 7224 contacts as of 2026-09-25."""
+        for contact in self.iter_all_contacts(page_size):
+            yield contact["id"]
+
+    def iter_all_contacts(self, page_size: int = 100):
+        """Same pagination as iter_all_contact_ids, yielding the contact objects
+        (the blog notify needs dateAdded to let new contacts in)."""
         start_after = None
         start_after_id = None
         while True:
@@ -190,8 +244,7 @@ class GhlClient:
             contacts = payload.get("contacts", [])
             if not contacts:
                 return
-            for contact in contacts:
-                yield contact["id"]
+            yield from contacts
             meta = payload.get("meta", {})
             start_after = meta.get("nextPage") and meta.get("startAfter")
             start_after_id = meta.get("startAfterId")
