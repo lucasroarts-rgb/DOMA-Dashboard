@@ -29,8 +29,8 @@ PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 body{{margin:0}}
-.bg{{width:1080px;height:1350px;box-sizing:border-box;position:relative;overflow:hidden;font-family:'Montserrat',sans-serif;color:#fff;
-display:flex;flex-direction:column;align-items:center;padding:64px 80px 0;
+.bg{{width:1080px;height:{height}px;box-sizing:border-box;position:relative;overflow:hidden;font-family:'Montserrat',sans-serif;color:#fff;
+display:flex;flex-direction:column;align-items:center;padding:{pad_top}px 80px 0;
 background:radial-gradient(ellipse 70% 45% at 85% 8%,rgba(56,92,214,.45),transparent 70%),radial-gradient(ellipse 60% 40% at 10% 95%,rgba(56,92,214,.35),transparent 70%),linear-gradient(180deg,#0a1633 0%,#0d1d47 55%,#0a1633 100%)}}
 .gold{{background:linear-gradient(180deg,#f9dc8a 0%,#e5b24a 55%,#c8902c 100%);-webkit-background-clip:text;background-clip:text;color:transparent}}
 .swoosh{{position:absolute;background:linear-gradient(90deg,transparent 0%,#e5b24a 35%,#f9dc8a 50%,#e5b24a 65%,transparent 100%)}}
@@ -46,7 +46,7 @@ background:radial-gradient(ellipse 70% 45% at 85% 8%,rgba(56,92,214,.45),transpa
 {subtitle}
 {points}
 </div>
-<div style="margin-bottom:96px;display:flex;flex-direction:column;align-items:center;gap:14px">
+<div style="margin-bottom:{pad_bottom}px;display:flex;flex-direction:column;align-items:center;gap:14px">
 <div style="font-size:30px;font-weight:600;color:#dbe3f7">{cta_top}</div>
 <div class="pill" style="font-size:{pill_size}px;letter-spacing:{pill_ls}px">{pill}</div>
 <div style="font-size:28px;font-weight:500;color:#dbe3f7">{cta_bottom}</div></div>
@@ -85,7 +85,8 @@ def _size(text: str, big: int, small: int) -> int:
 
 def render(spec: dict, variant: str, out_path: Path) -> Path:
     """spec: title, subtitle (optional), points (0-4 short lines), keyword.
-    variant: "instagram" or "facebook". Writes a 1080x1350 JPEG."""
+    variant: "instagram", "facebook" (1080x1350) or "story" (1080x1920, "reply with the
+    word"; Instagram's top and bottom 230-250 px stay clear of text). Writes a JPEG."""
     white, gold = spec.get("headline_white"), spec.get("headline_gold")
     if not (white or gold):
         white, gold = split_headline(spec["title"])
@@ -93,7 +94,10 @@ def render(spec: dict, variant: str, out_path: Path) -> Path:
     subtitle = spec.get("subtitle") or ""
     if points and len(subtitle) > 90:
         subtitle = ""
-    if variant == "instagram":
+    if variant == "story":
+        cta_top, pill, cta_bottom = "Reply to this story with", spec["keyword"], "and we'll DM you the free guide"
+        pill_size = 64 if len(spec["keyword"]) <= 8 else 54
+    elif variant == "instagram":
         cta_top, pill, cta_bottom = "Comment the word", spec["keyword"], "and we'll send the free guide to your DMs"
         pill_size = 64 if len(spec["keyword"]) <= 8 else 54
     else:
@@ -109,7 +113,9 @@ def render(spec: dict, variant: str, out_path: Path) -> Path:
         points=(('<div style="margin-top:40px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;width:100%">'
                  + "".join(f'<div class="pt">{CHECK}<div>{e(p)}</div></div>' for p in points) + "</div>") if points else ""),
         cta_top=e(cta_top), pill=e(pill), cta_bottom=e(cta_bottom),
-        pill_size=pill_size, pill_ls=4 if variant == "instagram" else 2,
+        pill_size=pill_size, pill_ls=2 if variant == "facebook" else 4,
+        height=1920 if variant == "story" else HEIGHT,
+        pad_top=230 if variant == "story" else 64, pad_bottom=250 if variant == "story" else 96,
     )
     from playwright.sync_api import sync_playwright
 
@@ -119,11 +125,12 @@ def render(spec: dict, variant: str, out_path: Path) -> Path:
         png = Path(tmp) / "art.png"
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            tab = browser.new_page(viewport={"width": WIDTH, "height": HEIGHT})
+            h = 1920 if variant == "story" else HEIGHT
+            tab = browser.new_page(viewport={"width": WIDTH, "height": h})
             tab.goto(page_path.as_uri())
             tab.wait_for_timeout(2500)
-            overflow = tab.evaluate("document.querySelector('.bg').scrollHeight > 1350")
-            tab.screenshot(path=str(png), clip={"x": 0, "y": 0, "width": WIDTH, "height": HEIGHT})
+            overflow = tab.evaluate(f"document.querySelector('.bg').scrollHeight > {h}")
+            tab.screenshot(path=str(png), clip={"x": 0, "y": 0, "width": WIDTH, "height": h})
             browser.close()
         if overflow:
             raise ValueError("text does not fit the 1080x1350 art; shorten the title, subtitle or points")

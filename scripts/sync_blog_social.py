@@ -101,6 +101,13 @@ def fetch_calendar_items() -> list[dict]:
                     # instead of "comment the word"); falls back to image_url.
                     "image_url_facebook": _field(fields, "image_url_facebook"),
                     "ig_dm_workflow": _field(fields, "ig_dm_workflow"),
+                    # 1080x1920 art; posted as an Instagram story and a Facebook page story.
+                    "image_url_story": _field(fields, "image_url_story"),
+                    # Story that asks for a reply with a word: held until its GHL DM workflow is published.
+                    "story_keyword": _field(fields, "story_keyword"),
+                    "story_dm_workflow": _field(fields, "story_dm_workflow"),
+                    "ig_story_posted": fields.get("ig_story_posted", {}).get("booleanValue", False),
+                    "fb_story_posted": fields.get("fb_story_posted", {}).get("booleanValue", False),
                 }
             )
         page_token = data.get("nextPageToken")
@@ -121,7 +128,7 @@ def mark_posted(item_id: str, **flags: bool) -> None:
         raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
 
 
-LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook"}
+LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "ebook", "community reshare"}
 
 
 def first_link(item: dict) -> str | None:
@@ -203,6 +210,54 @@ def post_fb_comment(post_id: str, token: str, message: str) -> None:
         raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
 
 
+def post_ig_story(ig_id: str, token: str, image_url: str) -> str:
+    container = requests.post(f"{META_API_BASE}/{ig_id}/media",
+                              data={"image_url": image_url, "media_type": "STORIES", "access_token": token}, timeout=60).json()
+    if "error" in container:
+        raise SocialSyncError(f"Instagram story create failed: {container['error'].get('message')}")
+    publish = requests.post(f"{META_API_BASE}/{ig_id}/media_publish",
+                            data={"creation_id": container["id"], "access_token": token}, timeout=60).json()
+    if "error" in publish:
+        raise SocialSyncError(f"Instagram story publish failed: {publish['error'].get('message')}")
+    return publish["id"]
+
+
+def post_fb_story(page_id: str, token: str, image_url: str) -> str:
+    photo = requests.post(f"{META_API_BASE}/{page_id}/photos",
+                          data={"url": image_url, "published": "false", "access_token": token}, timeout=60).json()
+    if "error" in photo:
+        raise SocialSyncError(f"Facebook story photo upload failed: {photo['error'].get('message')}")
+    story = requests.post(f"{META_API_BASE}/{page_id}/photo_stories",
+                          data={"photo_id": photo["id"], "access_token": token}, timeout=60).json()
+    if "error" in story:
+        raise SocialSyncError(f"Facebook story failed: {story['error'].get('message')}")
+    return str(story.get("post_id") or story.get("id"))
+
+
+def post_stories(env: dict, item: dict, posted: list[str], failures: list[str]) -> None:
+    url, title = item.get("image_url_story"), item["title"]
+    if not url:
+        return
+    if item.get("story_keyword") and not dm_workflow_live(env, item.get("story_dm_workflow")):
+        failures.append(f"Stories '{title}': waiting for the {item['story_keyword']} DM workflow")
+        return
+    token = env.get("META_PAGE_ACCESS_TOKEN")
+    if not item.get("ig_story_posted") and env.get("META_IG_ACCOUNT_ID"):
+        try:
+            post_ig_story(env["META_IG_ACCOUNT_ID"], token, url)
+            mark_posted(item["id"], ig_story_posted=True)
+            posted.append(f"IG story '{title}'")
+        except SocialSyncError as error:
+            failures.append(f"IG story '{title}': {error}")
+    if not item.get("fb_story_posted") and env.get("META_PAGE_ID"):
+        try:
+            post_fb_story(env["META_PAGE_ID"], token, url)
+            mark_posted(item["id"], fb_story_posted=True)
+            posted.append(f"FB story '{title}'")
+        except SocialSyncError as error:
+            failures.append(f"FB story '{title}': {error}")
+
+
 def dm_workflow_live(env: dict, workflow_id: str | None) -> bool:
     if not workflow_id:
         return False
@@ -228,6 +283,10 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     page_id = env.get("META_PAGE_ID")
     page_token = env.get("META_PAGE_ACCESS_TOKEN")
     ig_id = env.get("META_IG_ACCOUNT_ID")
+
+    if not item["image_url"]:  # story-only item
+        post_stories(env, item, posted, failures)
+        return posted, failures
 
     if not item["facebook_posted"]:
         if page_id and page_token:
@@ -268,6 +327,7 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
                 failures.append(f"IG '{title}': {error}")
         else:
             print("Instagram: META_IG_ACCOUNT_ID/META_PAGE_ACCESS_TOKEN not set, skipping.", file=sys.stderr)
+    post_stories(env, item, posted, failures)
     return posted, failures
 
 
@@ -334,9 +394,10 @@ def main() -> int:
     due = [
         item
         for item in items
-        if item["image_url"] and item["date"]
+        if (item["image_url"] or item.get("image_url_story")) and item["date"]
         and (item["date"] < today or (item["date"] == today and not before_post_time))
-        and not (item["facebook_posted"] and item["instagram_posted"])
+        and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
+                 and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
     ]
     if not due:
         print("No calendar items due for posting.")

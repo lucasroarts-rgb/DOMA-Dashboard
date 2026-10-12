@@ -198,6 +198,39 @@ def prepare(env: dict, doc: dict, apply: bool) -> str:
     return spec["keyword"]
 
 
+def story_lines(title: str, url: str) -> list[str]:
+    return ["Hi {{contact.first_name}}!", "", "Thanks for jumping in 👋", "",
+            f"Here's your copy of {title}:", url, "", "Hope it helps!"]
+
+
+def prepare_story(env: dict, doc: dict, apply: bool) -> None:
+    """Instagram/Facebook story for an ebook post: 1080x1920 art asking for a reply with
+    the keyword, plus the "<ebook> Story DM" workflow that answers that reply."""
+    f = doc["fields"]
+    doc_id = doc["name"].split("/")[-1]
+    kw = sval(f, "ig_keyword")
+    page = capture_link({"links": f.get("links", {}).get("arrayValue", {}).get("values", [])})
+    spec = {"title": re.sub(r"^\d+\.\s*", "", sval(f, "title")).strip(), "subtitle": ""}
+    if sval(f, "pdf_url"):
+        extracted = pdf_text(sval(f, "pdf_url"))
+        spec.update({k: v for k, v in (("title", extracted.get("title")), ("subtitle", extracted.get("subtitle"))) if v})
+    if sval(f, "social_spec"):
+        spec.update(json.loads(sval(f, "social_spec")))
+    spec["keyword"] = kw
+    url = f"{page}?utm_source=instagram&utm_medium=story_dm&utm_campaign={re.sub(r'[^a-z0-9]+', '-', kw.lower())}"
+    print(f"  story: {spec['title']} / {kw}")
+    if not apply:
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        slug = re.sub(r"[^a-z0-9]+", "-", spec["title"].lower()).strip("-")[:60]
+        img = WpClient(env).upload_media(render(spec, "story", Path(tmp) / f"doma-ebook-{slug}-story.jpg"), f"doma-ebook-{slug}-story.jpg")
+    patch_item(doc_id, {"image_url_story": img["url"], "story_keyword": kw})
+    from scripts.ebook_pipeline.ghl_dm_workflow import create_story_dm_workflow
+    wid = create_story_dm_workflow(GhlClient(env), f"{spec['title'][:60].strip()} Story DM", kw, story_lines(spec["title"], url), url)
+    patch_item(doc_id, {"story_dm_workflow": wid})
+    print(f"  story ready: workflow {wid}")
+
+
 def run(apply: bool, only: str | None) -> int:
     env = load_env_file()
     today = social.now_new_york().date()
@@ -211,7 +244,16 @@ def run(apply: bool, only: str | None) -> int:
         d = sval(f, "date")
         if sval(f, "type").lower() != "ebook" or not d or not (today.isoformat() <= d <= last.isoformat()):
             continue
-        if f.get("facebook_posted", {}).get("booleanValue") or sval(f, "ig_dm_workflow"):
+        if f.get("facebook_posted", {}).get("booleanValue"):
+            continue
+        if sval(f, "ig_dm_workflow"):
+            if not sval(f, "story_dm_workflow") and capture_link({"links": f.get("links", {}).get("arrayValue", {}).get("values", [])}):
+                print(f"{d} {sval(f, 'title')[:70]} ({doc_id})")
+                try:
+                    prepare_story(env, doc, apply)
+                except Exception as error:
+                    print(f"  FAILED (story): {error}", file=sys.stderr)
+                    errors.append(f"{d} story {sval(f, 'title')[:40]}: {error}")
             continue
         if not capture_link({"links": f.get("links", {}).get("arrayValue", {}).get("values", [])}):
             continue

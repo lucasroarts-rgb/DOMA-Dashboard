@@ -280,3 +280,117 @@ def remove_ig_buttons(workflow_id: str) -> int:
         finally:
             ctx.close()
     return removed
+
+
+STORY_TEMPLATE = "Plug the Leaks Story DM"
+
+
+def _duplicate(page, ghl: GhlClient, template: str, name: str) -> str:
+    page.goto(f"{APP}/workflows", timeout=90000)
+    _wait_text(page, "Workflows list")
+    page.wait_for_timeout(3000)
+    page.mouse.click(1330, 248)
+    page.keyboard.type(template, delay=30)
+    page.wait_for_timeout(6000)
+    page.mouse.click(1432, 383)
+    page.wait_for_timeout(2000)
+    page.mouse.click(1370, 305)
+    page.wait_for_timeout(3000)
+    page.mouse.click(860, 547)
+    page.keyboard.press("Control+A")
+    page.keyboard.type(name, delay=20)
+    page.mouse.click(1072, 627)
+    page.wait_for_timeout(8000)
+    found = [w for w in ghl.list_workflows() if w["name"] == name]
+    if not found:
+        raise DmWorkflowError(f'copy "{name}" was not created')
+    return found[0]["id"]
+
+
+def _rewrite_node(page, card_index: int, card_text: str, lines: list[str], url: str) -> None:
+    f = _frame(page)
+    cards = [c for c in f.get_by_text(card_text, exact=True).all() if c.is_visible()]
+    cards[card_index].click()
+    page.wait_for_timeout(4000)
+    eds = [e for e in f.locator('[contenteditable="true"]').all() if e.is_visible() and "Hi " in (e.inner_text() or "")]
+    if not eds:
+        page.mouse.click(1317, 903)
+        raise DmWorkflowError(f"{card_text} {card_index}: message editor not found")
+    ed = eds[0].element_handle()
+    ed.click()
+    page.wait_for_timeout(500)
+    ed.evaluate("e=>{const r=document.createRange();r.selectNodeContents(e);const s=window.getSelection();s.removeAllRanges();s.addRange(r);}")
+    page.keyboard.press("Delete")
+    page.wait_for_timeout(800)
+    for i, line in enumerate(lines):
+        if line:
+            page.keyboard.insert_text(line)
+        if i < len(lines) - 1:
+            page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    for c in f.locator('[contenteditable="true"]').all():  # button link, where the step has one
+        t = (c.inner_text() or "").strip()
+        if t.startswith("https://") and "Hi " not in t:
+            c.scroll_into_view_if_needed()
+            c.click()
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Delete")
+            page.keyboard.insert_text(url)
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(1000)
+    text = [e.inner_text() for e in f.locator('[contenteditable="true"]').all() if "Hi " in (e.inner_text() or "")]
+    ok = bool(text) and url in text[0] and ("archy.com" in url or "archy.com" not in text[0])
+    if not ok:
+        page.mouse.click(1317, 903)
+        raise DmWorkflowError(f"{card_text} {card_index} did not validate")
+    page.mouse.click(1417, 903)
+    page.wait_for_timeout(4000)
+
+
+def create_story_dm_workflow(ghl: GhlClient, name: str, keyword: str, lines: list[str], url: str) -> str:
+    """Workflow answering an Instagram story reply that contains the keyword: copy of
+    STORY_TEMPLATE (trigger "Customer replied", Message body contains + Reply channel
+    Instagram DM, messenger steps set to "Reply to DM"), with the keyword and the
+    message swapped. Returns the id of the published workflow."""
+    existing = [w for w in ghl.list_workflows() if w["name"] == name]
+    if existing and existing[0].get("status") == "published":
+        return existing[0]["id"]
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(PROFILE_DIR, headless=True, viewport={"width": 1500, "height": 950})
+        page = ctx.new_page()
+        page.on("dialog", lambda d: d.accept())
+        try:
+            wid = existing[0]["id"] if existing else _duplicate(page, ghl, STORY_TEMPLATE, name)
+            page.goto(f"{APP}/workflow/{wid}", timeout=90000)
+            _wait_text(page, "Instagram interactive")
+            page.wait_for_timeout(4000)
+            page.mouse.click(650, 285)  # Customer replied trigger
+            page.wait_for_timeout(4000)
+            for _ in range(5):  # remove the template's phrases with each chip's x
+                page.mouse.click(1041, 612)
+                page.wait_for_timeout(500)
+            page.mouse.click(1300, 611)
+            for word in keyword_variants(keyword):
+                page.keyboard.type(word, delay=40)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+            panel = _frame(page).locator("body").inner_text()
+            seg = panel.split("Contains", 1)[-1].split("Reply channel", 1)[0]
+            if keyword.upper() not in seg or (keyword.upper() != "SEAT" and "SEAT" in seg):
+                page.mouse.click(1313, 903)
+                raise DmWorkflowError(f"story trigger keywords not set: {seg.strip()[:80]!r}")
+            page.mouse.click(1415, 903)
+            page.wait_for_timeout(4000)
+            for card, idx in (("Facebook interactive messenger", 0), ("Instagram interactive messenger", 0), ("Instagram interactive messenger", 1)):
+                page.wait_for_timeout(2000)
+                _rewrite_node(page, idx, card, lines, url)
+            page.mouse.click(1395, 80)  # publish
+            page.wait_for_timeout(6000)
+        finally:
+            ctx.close()
+    status = [w.get("status") for w in ghl.list_workflows() if w["id"] == wid]
+    if status != ["published"]:
+        raise DmWorkflowError(f"story workflow {wid} is not published ({status})")
+    return wid
