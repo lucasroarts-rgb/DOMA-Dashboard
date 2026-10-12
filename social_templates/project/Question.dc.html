@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Engagement question</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900;1,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.bg{background:radial-gradient(ellipse 45% 30% at 92% 4%,rgba(80,120,255,.5),transparent 70%),radial-gradient(ellipse 40% 25% at 4% 55%,rgba(80,120,255,.25),transparent 70%),radial-gradient(ellipse 80% 35% at 50% 100%,rgba(40,80,220,.55),transparent 70%),linear-gradient(180deg,#070f26 0%,#0b1840 55%,#081129 100%)}
+.gold{background:linear-gradient(180deg,#fff0bf 0%,#f0c35e 45%,#c48a26 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 4px 18px rgba(240,195,94,.35))}
+.bokeh{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(130,160,255,.35),rgba(130,160,255,0) 70%)}
+.bubble{position:absolute;padding:16px 30px;border-radius:999px;font-size:30px;font-weight:700;color:#e9eefc;background:linear-gradient(135deg,rgba(255,255,255,.12),rgba(255,255,255,.03));border:1.5px solid rgba(200,215,255,.35);box-shadow:0 12px 30px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.2)}
+.bubble.g{border-color:rgba(240,195,94,.85);color:#fbe39a;box-shadow:0 0 26px rgba(240,195,94,.45),inset 0 1px 0 rgba(255,255,255,.2)}
+</style>
+</helmet>
+<div class="bg" style="width: 1080px; height: 1350px; position: relative; overflow: hidden; font-family: 'Montserrat', sans-serif; color: #ffffff">
+<div class="bokeh" style="left: -80px; top: 1040px; width: 260px; height: 260px"></div>
+<div class="bokeh" style="left: 900px; top: 40px; width: 220px; height: 220px"></div>
+<div class="bokeh" style="left: 860px; top: 1080px; width: 300px; height: 300px"></div>
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" style="position: absolute; inset: 0" aria-hidden="true">
+<defs>
+<filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"></feGaussianBlur></filter>
+<linearGradient id="trail" x1="0" x2="1"><stop offset="0" stop-color="#f0c35e" stop-opacity="0"></stop><stop offset=".45" stop-color="#fff2c4"></stop><stop offset="1" stop-color="#f0c35e" stop-opacity=".1"></stop></linearGradient>
+<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="#e9b84f" stop-opacity="0"></stop><stop offset=".5" stop-color="#ffe7a6"></stop><stop offset="1" stop-color="#e9b84f" stop-opacity="0"></stop></linearGradient>
+<linearGradient id="swb" x1="0" x2="1"><stop offset="0" stop-color="#3f6bff" stop-opacity="0"></stop><stop offset=".5" stop-color="#5d86ff"></stop><stop offset="1" stop-color="#3f6bff" stop-opacity="0"></stop></linearGradient>
+</defs>
+<path d="M90 560 C 300 470, 520 760, 760 600 S 1000 520, 1040 560" stroke="url(#trail)" stroke-width="10" fill="none" filter="url(#glow)" opacity=".8"></path>
+<path d="M90 560 C 300 470, 520 760, 760 600 S 1000 520, 1040 560" stroke="url(#trail)" stroke-width="2.5" fill="none"></path>
+<g fill="#ffe9ad"><circle cx="210" cy="520" r="2.5"></circle><circle cx="330" cy="560" r="2"></circle><circle cx="430" cy="640" r="3"></circle><circle cx="520" cy="690" r="2"></circle><circle cx="610" cy="680" r="3.5"></circle><circle cx="700" cy="630" r="2"></circle><circle cx="790" cy="590" r="3"></circle><circle cx="880" cy="560" r="2.5"></circle><circle cx="960" cy="545" r="2"></circle><circle cx="560" cy="650" r="1.5"></circle><circle cx="650" cy="700" r="1.5"></circle><circle cx="750" cy="560" r="1.5"></circle></g>
+<path d="M-60 1215 C 260 1120, 420 1180, 540 1185 C 660 1180, 820 1120, 1140 1215" stroke="url(#sw)" stroke-width="5" fill="none" filter="url(#glow)"></path>
+<path d="M-60 1215 C 260 1120, 420 1180, 540 1185 C 660 1180, 820 1120, 1140 1215" stroke="url(#sw)" stroke-width="2" fill="none"></path>
+<path d="M-60 1270 C 260 1180, 420 1235, 540 1240 C 660 1235, 820 1180, 1140 1270" stroke="url(#swb)" stroke-width="4" fill="none" opacity=".8"></path>
+</svg>
+<div style="position: relative; height: 100%; box-sizing: border-box; padding: 92px 60px 0; display: flex; flex-direction: column; align-items: center">
+<div class="gold" style="font-size: 30px; font-weight: 800; letter-spacing: 8px">THE PATIENT SAYS</div>
+<div style="margin-top: 20px; text-align: center; font-weight: 900; font-size: 104px; line-height: .98; letter-spacing: -1px">“I NEED TO</div>
+<div class="gold" style="text-align: center; font-weight: 900; font-size: 104px; line-height: 1.02; letter-spacing: -1px">THINK ABOUT IT…”</div>
+<div style="margin-top: 26px; font-size: 40px; font-weight: 700; text-align: center">Do we know what they <span style="color: #f0c35e">really</span> mean?</div>
+<div style="position: relative; width: 100%; height: 470px; margin-top: 10px">
+<div class="bubble" style="left: 40px; top: 70px; transform: rotate(-6deg)">Cost?</div>
+<div class="bubble g" style="left: 300px; top: 20px; transform: rotate(3deg)">Fear?</div>
+<div class="bubble" style="left: 640px; top: 60px; transform: rotate(-3deg)">Timing?</div>
+<div class="bubble g" style="left: 110px; top: 250px; transform: rotate(4deg)">Trust?</div>
+<div class="bubble" style="left: 400px; top: 300px; transform: rotate(-4deg)">Confusion?</div>
+<div class="bubble g" style="left: 720px; top: 230px; transform: rotate(5deg)">Insurance?</div>
+</div>
+<div style="font-size: 44px; font-weight: 900; letter-spacing: 1px">Don't assume. <span class="gold">Ask.</span></div>
+</div>
+<img src="/_blob/f9587cd6c521c2d288b086227f763289" alt="DOMA, Dental Office Managers Alliance" style="position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); width: 190px; height: 190px; filter: drop-shadow(0 0 30px rgba(240,195,94,.45))">
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1080,"height":1350}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

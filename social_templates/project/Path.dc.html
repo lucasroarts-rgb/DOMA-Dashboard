@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Development path</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900;1,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.bg{background:radial-gradient(ellipse 50% 30% at 8% 4%,rgba(80,120,255,.45),transparent 70%),radial-gradient(ellipse 60% 30% at 100% 70%,rgba(229,178,74,.14),transparent 70%),radial-gradient(ellipse 80% 35% at 50% 102%,rgba(40,80,220,.5),transparent 70%),linear-gradient(180deg,#070f26 0%,#0b1840 55%,#081129 100%)}
+.gold{background:linear-gradient(180deg,#fff0bf 0%,#f0c35e 45%,#c48a26 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.step{position:absolute;width:300px;padding:24px 26px;border-radius:26px;background:linear-gradient(135deg,rgba(255,255,255,.11),rgba(255,255,255,.03));border:1.5px solid rgba(240,195,94,.5);box-shadow:0 18px 40px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.18)}
+.dot{width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;color:#0a1633;background:radial-gradient(circle at 35% 30%,#fff1c2,#f0c35e 45%,#b9801f);box-shadow:0 0 0 6px rgba(240,195,94,.16),0 0 30px rgba(240,195,94,.5)}
+</style>
+</helmet>
+<div class="bg" style="width: 1080px; height: 1350px; position: relative; overflow: hidden; font-family: 'Montserrat', sans-serif; color: #ffffff">
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" style="position: absolute; inset: 0" aria-hidden="true">
+<defs><filter id="pg" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"></feGaussianBlur></filter>
+<linearGradient id="road" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#5d86ff" stop-opacity=".2"></stop><stop offset="1" stop-color="#fbe39a"></stop></linearGradient></defs>
+<path d="M150 1150 C 380 1110, 300 930, 520 900 S 760 760, 640 690 S 700 520, 930 500" stroke="url(#road)" stroke-width="16" fill="none" filter="url(#pg)" opacity=".7"></path>
+<path d="M150 1150 C 380 1110, 300 930, 520 900 S 760 760, 640 690 S 700 520, 930 500" stroke="url(#road)" stroke-width="4" fill="none" stroke-dasharray="2 14" stroke-linecap="round"></path>
+<g fill="#ffe9ad"><circle cx="930" cy="500" r="6"></circle><circle cx="960" cy="470" r="2"></circle><circle cx="905" cy="460" r="2.5"></circle><circle cx="985" cy="515" r="1.8"></circle></g>
+</svg>
+<div style="position: relative; height: 100%; box-sizing: border-box; padding: 64px 64px 0">
+<div style="display: flex; align-items: center; gap: 18px"><img src="/_blob/f9587cd6c521c2d288b086227f763289" alt="DOMA" style="width: 96px; height: 96px"><div style="font-size: 22px; font-weight: 800; letter-spacing: 6px; color: #f0c35e">YOUR DEVELOPMENT PATH</div></div>
+<div style="margin-top: 30px; font-weight: 900; font-size: 74px; line-height: 1; letter-spacing: -1px">ONE-SIZE-FITS-ALL<br>TRAINING DOESN'T FIT</div>
+<div class="gold" style="font-weight: 900; font-size: 86px; line-height: 1.05; letter-spacing: -1px">OFFICE MANAGERS.</div>
+</div>
+<div class="step" style="left: 70px; top: 1000px"><div style="display: flex; align-items: center; gap: 16px"><div class="dot">1</div><div class="gold" style="font-size: 30px; font-weight: 900; letter-spacing: 2px">FOUNDATION</div></div><div style="margin-top: 10px; font-size: 25px; font-weight: 600">Learn the fundamentals</div></div>
+<div class="step" style="left: 400px; top: 800px"><div style="display: flex; align-items: center; gap: 16px"><div class="dot">2</div><div class="gold" style="font-size: 30px; font-weight: 900; letter-spacing: 2px">GROWTH</div></div><div style="margin-top: 10px; font-size: 25px; font-weight: 600">Understand &amp; improve</div></div>
+<div class="step" style="left: 130px; top: 600px"><div style="display: flex; align-items: center; gap: 16px"><div class="dot">3</div><div class="gold" style="font-size: 30px; font-weight: 900; letter-spacing: 2px">LEADERSHIP</div></div><div style="margin-top: 10px; font-size: 25px; font-weight: 600">Lead people &amp; change</div></div>
+<div class="step" style="left: 690px; top: 560px"><div style="display: flex; align-items: center; gap: 16px"><div class="dot">4</div><div class="gold" style="font-size: 30px; font-weight: 900; letter-spacing: 2px">SPECIALTY</div></div><div style="margin-top: 10px; font-size: 25px; font-weight: 600">Develop your expertise</div></div>
+<div style="position: absolute; right: 64px; bottom: 120px; text-align: right"><div style="font-size: 54px; font-weight: 900; line-height: 1.05">What do <span class="gold">YOU</span><br>need next?</div></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1080,"height":1350}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

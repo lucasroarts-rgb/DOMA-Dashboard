@@ -218,6 +218,24 @@ def post_fb_comment(post_id: str, token: str, message: str) -> None:
         raise SocialSyncError(f"Facebook comment failed: {payload.get('error', {}).get('message', r.text[:200])}")
 
 
+def ensure_jpeg(env: dict, url: str) -> str:
+    """The Instagram API only publishes JPEG. A WebP/PNG image (Michelle's uploads are
+    WebP) is converted and uploaded to WordPress once; the JPEG URL is returned."""
+    if not url or url.lower().split("?")[0].endswith((".jpg", ".jpeg")):
+        return url
+    import io
+    import tempfile
+    from PIL import Image
+    from scripts.ebook_pipeline.wp_client import WpClient
+
+    raw = requests.get(url, headers={"User-Agent": "Mozilla/5.0 Chrome/124"}, timeout=60).content
+    name = url.rsplit("/", 1)[-1].rsplit(".", 1)[0] + "-ig.jpg"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / name
+        Image.open(io.BytesIO(raw)).convert("RGB").save(path, quality=92)
+        return WpClient(env).upload_media(path, name)["url"]
+
+
 def post_ig_reel(ig_id: str, token: str, video_url: str, caption: str) -> str:
     import time as _time
 
@@ -317,7 +335,7 @@ def post_fb_story(page_id: str, token: str, image_url: str) -> str:
 
 
 def post_stories(env: dict, item: dict, posted: list[str], failures: list[str]) -> None:
-    url, title = item.get("image_url_story"), item["title"]
+    url, title = ensure_jpeg(env, item.get("image_url_story")), item["title"]
     if not url:
         return
     if item.get("story_keyword") and not dm_workflow_live(env, item.get("story_dm_workflow")):
@@ -399,8 +417,9 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         if ig_id and page_token:
             try:
                 ig_post_id = (post_ig_reel(ig_id, page_token, item["video_url"], ig_caption) if item.get("video_url")
-                              else post_ig_carousel(ig_id, page_token, item["carousel_urls"], ig_caption) if item.get("carousel_urls")
-                              else post_to_instagram(ig_id, page_token, item["image_url"], ig_caption))
+                              else post_ig_carousel(ig_id, page_token, [ensure_jpeg(env, u) for u in item["carousel_urls"]], ig_caption)
+                              if item.get("carousel_urls")
+                              else post_to_instagram(ig_id, page_token, ensure_jpeg(env, item["image_url"]), ig_caption))
                 if ig_link:
                     try:
                         post_ig_comment(ig_post_id, page_token, ig_link)

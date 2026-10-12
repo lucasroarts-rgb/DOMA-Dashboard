@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Split disconnect</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,500;0,600;0,700;0,800;0,900;1,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.left{background:radial-gradient(ellipse 80% 50% at 20% 30%,rgba(80,120,255,.45),transparent 70%),linear-gradient(180deg,#0b1a48,#081129)}
+.right{background:radial-gradient(ellipse 80% 50% at 80% 30%,rgba(229,178,74,.22),transparent 70%),linear-gradient(180deg,#111a35,#0a1129)}
+.gold{background:linear-gradient(180deg,#fff0bf 0%,#f0c35e 45%,#c48a26 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.quote{font-size:40px;font-weight:800;line-height:1.2}
+</style>
+</helmet>
+<div style="width: 1080px; height: 1350px; position: relative; overflow: hidden; font-family: 'Montserrat', sans-serif; color: #ffffff; background: #081129">
+<div class="left" style="position: absolute; left: 0; top: 0; width: 560px; height: 1350px; clip-path: polygon(0 0,100% 0,88% 100%,0 100%)"></div>
+<div class="right" style="position: absolute; right: 0; top: 0; width: 600px; height: 1350px; clip-path: polygon(12% 0,100% 0,100% 100%,0 100%)"></div>
+<svg width="1080" height="1350" viewBox="0 0 1080 1350" style="position: absolute; inset: 0" aria-hidden="true"><defs><filter id="sg" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"></feGaussianBlur></filter><linearGradient id="sl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fbe39a" stop-opacity="0"></stop><stop offset=".5" stop-color="#fbe39a"></stop><stop offset="1" stop-color="#fbe39a" stop-opacity="0"></stop></linearGradient></defs><line x1="560" y1="0" x2="493" y2="1350" stroke="url(#sl)" stroke-width="8" filter="url(#sg)"></line><line x1="560" y1="0" x2="493" y2="1350" stroke="url(#sl)" stroke-width="2"></line></svg>
+<img src="/_blob/f9587cd6c521c2d288b086227f763289" alt="DOMA" style="position: absolute; left: 50%; top: 52px; transform: translateX(-50%); width: 104px; height: 104px">
+<div style="position: absolute; left: 60px; top: 230px; width: 400px">
+<div style="font-size: 22px; font-weight: 800; letter-spacing: 5px; color: #9fb4ff">EXPERIENCED<br>MANAGERS</div>
+<div style="width: 70px; height: 4px; background: #5d86ff; margin: 22px 0 26px; border-radius: 2px"></div>
+<div class="quote">“I can't find the right opportunity.”</div>
+</div>
+<div style="position: absolute; right: 60px; top: 230px; width: 400px; text-align: right">
+<div style="font-size: 22px; font-weight: 800; letter-spacing: 5px; color: #f0c35e">PRACTICES</div>
+<div style="width: 70px; height: 4px; background: #e9b84f; margin: 48px 0 26px auto; border-radius: 2px"></div>
+<div class="quote">“We can't find the right person.”</div>
+</div>
+<div style="position: absolute; left: 50%; top: 640px; transform: translateX(-50%); width: 430px; height: 430px; border-radius: 50%; background: radial-gradient(circle at 40% 35%,#1b347e,#0a1638 70%); border: 3px solid #e9b84f; box-shadow: 0 0 0 14px rgba(240,195,94,.08),0 0 80px rgba(240,195,94,.35); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center">
+<div style="font-size: 30px; font-weight: 800; letter-spacing: 3px; color: #dbe3f7">SO WHERE'S THE</div>
+<div class="gold" style="font-size: 64px; font-weight: 900; line-height: 1.05">DISCON-<br>NECT?</div>
+</div>
+<div style="position: absolute; left: 90px; right: 90px; bottom: 80px; text-align: center; font-size: 28px; font-weight: 600; font-style: italic; line-height: 1.45; color: #dbe3f7">Maybe the next step isn't another job. Maybe it's finding the right way to use the experience you've already built.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1080,"height":1350}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
