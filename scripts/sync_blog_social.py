@@ -413,7 +413,9 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
                          else post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption))
                 if link:
                     try:
-                        post_fb_comment(fb_id, page_token, link)
+                        # A bare-URL comment from the page gets hidden from viewers as spam
+                        # (10 Reports, 2026-10-12); a sentence before the link shows normally.
+                        post_fb_comment(fb_id, page_token, f"Here's the link \U0001F447\n\n{link}")
                     except SocialSyncError as comment_error:
                         print(f"WARNING: Facebook comment (link) failed for '{title}': {comment_error}", file=sys.stderr)
                 mark_posted(item["id"], facebook_posted=True)
