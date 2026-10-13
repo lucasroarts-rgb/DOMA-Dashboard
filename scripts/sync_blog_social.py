@@ -168,15 +168,9 @@ def build_caption(item: dict) -> str:
 
 
 def post_to_facebook_photo(page_id: str, token: str, image_url: str, caption: str) -> str:
-    r = requests.post(
-        f"{META_API_BASE}/{page_id}/photos",
-        data={"url": image_url, "caption": caption, "access_token": token},
-        timeout=60,
-    )
-    payload = r.json()
-    if r.status_code != 200 or "error" in payload:
-        raise SocialSyncError(f"Facebook photo post failed: {payload.get('error', {}).get('message', r.text[:200])}")
-    return str(payload.get("post_id") or payload.get("id"))
+    # A photo posted straight to /photos only showed under the page's Photos tab, not in
+    # the feed (10 Reports, 2026-10-12). Same route as the carousel: one feed post.
+    return post_fb_carousel(page_id, token, [image_url], caption)
 
 
 def post_to_instagram(ig_id: str, token: str, image_url: str, caption: str) -> str:
