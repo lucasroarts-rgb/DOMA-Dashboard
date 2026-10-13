@@ -271,11 +271,40 @@ def post_ig_reel(ig_id: str, token: str, video_url: str, caption: str) -> str:
 
 
 def post_fb_video(page_id: str, token: str, video_url: str, description: str) -> str:
-    r = requests.post(f"{META_API_BASE}/{page_id}/videos",
-                      data={"file_url": video_url, "description": description, "access_token": token}, timeout=300).json()
-    if "error" in r:
-        raise SocialSyncError(f"Facebook video post failed: {r['error'].get('message')}")
-    return r["id"]
+    # Vertical videos go through the Reels publishing API. Posted through /videos the
+    # DentalMenu reel came out as a reel nobody could open (2026-10-13).
+    import time as _time
+
+    start = requests.post(f"{META_API_BASE}/{page_id}/video_reels",
+                          data={"upload_phase": "start", "access_token": token}, timeout=60).json()
+    if "error" in start:
+        raise SocialSyncError(f"Facebook reel start failed: {start['error'].get('message')}")
+    vid = start["video_id"]
+    up = requests.post(start["upload_url"], headers={"Authorization": f"OAuth {token}", "file_url": video_url},
+                       timeout=300).json()
+    if not up.get("success"):
+        raise SocialSyncError(f"Facebook reel upload failed: {up}")
+    for _ in range(60):
+        status = requests.get(f"{META_API_BASE}/{vid}", params={"fields": "status", "access_token": token},
+                              timeout=30).json().get("status", {})
+        if status.get("uploading_phase", {}).get("status") == "complete":
+            break
+        _time.sleep(5)
+    fin = requests.post(f"{META_API_BASE}/{page_id}/video_reels",
+                        data={"upload_phase": "finish", "video_id": vid, "video_state": "PUBLISHED",
+                              "description": description, "access_token": token}, timeout=60).json()
+    if "error" in fin or not fin.get("post_id"):
+        raise SocialSyncError(f"Facebook reel publish failed: {fin.get('error', {}).get('message', fin)}")
+    # The link comment goes on the post right after this, so wait until it's live.
+    for _ in range(40):
+        status = requests.get(f"{META_API_BASE}/{vid}", params={"fields": "status", "access_token": token},
+                              timeout=30).json().get("status", {})
+        if status.get("video_status") == "error":
+            raise SocialSyncError(f"Facebook reel processing failed: {status}")
+        if status.get("publishing_phase", {}).get("status") == "complete":
+            break
+        _time.sleep(6)
+    return f"{page_id}_{fin['post_id']}"
 
 
 def post_ig_carousel(ig_id: str, token: str, image_urls: list[str], caption: str) -> str:
