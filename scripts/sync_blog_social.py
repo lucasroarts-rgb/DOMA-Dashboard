@@ -433,7 +433,11 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         failures.append(f"'{title}': waiting for the ebook page / blog post link in the item")
         return posted, failures
 
-    if not item["facebook_posted"]:
+    fb_video_paused = item.get("video_url") and (env.get("FB_VIDEO_PAUSED") or "").strip() in ("1", "true", "yes")
+    if fb_video_paused and not item["facebook_posted"]:
+        # Facebook kept hiding the DentalMenu reel (2026-10-13); videos wait here until that's understood.
+        print(f"Facebook video held for '{title}' (FB_VIDEO_PAUSED in .env).", file=sys.stderr)
+    if not item["facebook_posted"] and not fb_video_paused:
         if page_id and page_token:
             try:
                 fb_slides = item.get("carousel_urls_facebook") or item.get("carousel_urls")
