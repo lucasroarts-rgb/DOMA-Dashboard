@@ -82,6 +82,7 @@ def fetch_calendar_items() -> list[dict]:
                     "id": doc["name"].split("/")[-1],
                     "date": _field(fields, "date"),
                     "type": _field(fields, "type") or "",
+                    "owner": _field(fields, "owner") or "",
                     "title": _field(fields, "title") or "",
                     "headline": _field(fields, "headline"),
                     "direction": _field(fields, "direction"),
@@ -578,6 +579,8 @@ def main() -> int:
         item
         for item in items
         if (item["image_url"] or item.get("image_url_story")) and item["date"]
+        # Michelle's sponsor items are hers to post (Lucas, 2026-10-14: Vyne went out and was deleted).
+        and not (item["owner"].strip().lower() == "michelle" and item["type"].strip().lower() == "sponsor")
         and (item["date"] < today or (item["date"] == today and now_hm >= slots.get(item["id"], (12, 0))))
         and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
                  and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
