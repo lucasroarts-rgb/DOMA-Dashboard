@@ -585,9 +585,23 @@ def main() -> int:
         and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
                  and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
     ]
+    # One free guide per day at most (Lucas, 2026-10-14: two went out the same day).
+    # A second guide dated the same day waits and shows up as a failure, so the calendar gets fixed.
+    held: list[str] = []
+    guide_days = {i["date"] for i in items if i["type"].strip().lower() == "ebook" and i["facebook_posted"]}
+    for item in sorted(due, key=lambda i: slots.get(i["id"], (12, 0))):
+        if item["type"].strip().lower() != "ebook" or item["facebook_posted"] or item["instagram_posted"]:
+            continue
+        if item["date"] in guide_days:
+            due.remove(item)
+            held.append(f"Ebook '{item['title']}': another free guide is already on {item['date']}, move it to another day")
+        else:
+            guide_days.add(item["date"])
+    for line in held:
+        print(f"Held {line}", file=sys.stderr)
     if not due:
         print("No calendar items due for posting.")
-        return 0
+        return 1 if held else 0
 
     posted: list[str] = []
     failures: list[str] = []
