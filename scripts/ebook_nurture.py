@@ -96,7 +96,9 @@ def run(apply: bool) -> int:
         if not due:
             continue
         n = min(due)
-        if not in_window:
+        # If the script was down for days, never send two emails less than a day apart.
+        last = lead.get("last_sent_at")
+        if not in_window or (last and now - datetime.fromisoformat(last) < timedelta(days=1)):
             continue
         r = requests.get(f"{API_BASE}/contacts/{cid}", headers=ghl._headers(), timeout=30)
         if r.status_code != 200:
@@ -118,6 +120,7 @@ def run(apply: bool) -> int:
         if apply:
             ghl.add_tag_to_contact(cid, f"ebook-nurture-{n}")
             lead["sent"].append(n)
+            lead["last_sent_at"] = now.isoformat()
             save_json(STATE_PATH, state)
     return 1 if errors else 0
 
