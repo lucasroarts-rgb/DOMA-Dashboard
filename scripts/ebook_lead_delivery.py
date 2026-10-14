@@ -211,6 +211,12 @@ def main() -> int:
             ig_comment_replies.run(apply=True)
         except Exception as error:
             print(f"WARNING: Instagram comment replies failed: {error}", file=sys.stderr)
+        # E-book download -> membership nurture emails (day 2, 5, 9).
+        from scripts import ebook_nurture
+        try:
+            ebook_nurture.run(apply=True)
+        except Exception as error:
+            print(f"WARNING: e-book nurture failed: {error}", file=sys.stderr)
     return 1 if errors else 0
 
 
