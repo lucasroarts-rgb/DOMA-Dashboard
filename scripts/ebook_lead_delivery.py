@@ -217,6 +217,12 @@ def main() -> int:
             ebook_nurture.run(apply=True)
         except Exception as error:
             print(f"WARNING: e-book nurture failed: {error}", file=sys.stderr)
+        # Plug the Leaks (Archy, Oct 23): reminders for people who clicked the registration link.
+        from scripts import plug_the_leaks_reminders
+        try:
+            plug_the_leaks_reminders.run(apply=True)
+        except Exception as error:
+            print(f"WARNING: Plug the Leaks reminders failed: {error}", file=sys.stderr)
     return 1 if errors else 0
 
 
