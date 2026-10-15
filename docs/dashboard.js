@@ -1124,7 +1124,27 @@ function renderSocial() {
   const totalFollowers = (social.followers.facebook || 0) + (social.followers.instagram || 0);
   const engagementRate = totalFollowers ? (totalEngagement / totalFollowers) * 100 : null;
 
+  // Daily reach summed over the range (people reached each day, so the same
+  // person on two days counts twice). Facebook reach is page_total_media_view_unique,
+  // Meta's replacement for page_impressions_unique.
+  const sumMetric = (data, platform, metric) =>
+    (data?.metrics_daily || []).filter((m) => m.platform === platform && m.metric === metric).reduce((sum, m) => sum + m.value, 0);
+  const fbReach = sumMetric(social, "facebook", "page_total_media_view_unique");
+  const igReach = sumMetric(social, "instagram", "ig_reach");
+
   renderCards("socialCards", [
+    {
+      label: "Facebook reach",
+      value: number(fbReach),
+      delta: prev ? deltaBadge(fbReach, sumMetric(prev.social, "facebook", "page_total_media_view_unique")) : "",
+      hint: "daily reach, summed",
+    },
+    {
+      label: "Instagram reach",
+      value: number(igReach),
+      delta: prev ? deltaBadge(igReach, sumMetric(prev.social, "instagram", "ig_reach")) : "",
+      hint: "daily reach, summed",
+    },
     {
       label: "Facebook followers",
       value: number(social.followers.facebook),
@@ -1157,6 +1177,19 @@ function renderSocial() {
         { label: "Instagram", points: dates.map((d) => ({ date: d, value: igByDate.get(d) ?? null })).filter((p) => p.value !== null) },
       ]);
     }
+  }
+
+  const reachSeries = [
+    { label: "Facebook", metric: "page_total_media_view_unique", platform: "facebook" },
+    { label: "Instagram", metric: "ig_reach", platform: "instagram" },
+  ].map((r) => ({
+    label: r.label,
+    points: (social.metrics_daily || []).filter((m) => m.platform === r.platform && m.metric === r.metric).map((m) => ({ date: m.report_date, value: m.value })),
+  }));
+  if (reachSeries.some((r) => r.points.length > 1)) {
+    svgLineChart("socialReachChart", reachSeries);
+  } else {
+    chartEmpty("socialReachChart", "Reach history builds up after the daily Meta sync.");
   }
 
   renderTable(
@@ -3055,7 +3088,7 @@ function renderContentIdeas() {
   document.getElementById("contentIdeasEmpty").style.display = suggestions.available ? "none" : "block";
 
   renderTable(
-    "contentGapsTable",
+    "ideasContentGapsTable",
     suggestions.content_gaps,
     (g) => `<tr><td>${g.query}</td><td>${titleFromUrl(g.page)}</td><td>${g.position.toFixed(1)}</td><td>${number(g.impressions)}</td></tr>`,
     "No content gaps found yet - see SEO tab."
