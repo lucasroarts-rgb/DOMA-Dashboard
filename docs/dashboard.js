@@ -73,17 +73,17 @@ async function initPasswordGate() {
 }
 
 function number(value) {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
   return Number(value).toLocaleString("en-US");
 }
 
 function percent(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   return `${Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 })}%`;
 }
 
 function duration(seconds) {
-  if (!seconds) return "—";
+  if (!seconds) return "-";
   const s = Math.round(Number(seconds));
   const m = Math.floor(s / 60);
   const rem = s % 60;
@@ -91,17 +91,88 @@ function duration(seconds) {
 }
 
 function shortDate(isoDate) {
-  if (!isoDate) return "—";
+  if (!isoDate) return "-";
   const d = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(d.getTime())) return isoDate;
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short" });
 }
 
 function fullDate(isoDate) {
-  if (!isoDate) return "—";
+  if (!isoDate) return "-";
   const d = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(d.getTime())) return isoDate;
   return d.toLocaleDateString("en-US", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// One date-range format everywhere: "Jul 17 - Oct 15, 2026" (year shown
+// once when both ends share it, on both ends when they don't).
+function dateRange(startIso, endIso) {
+  if (!startIso || !endIso) return fullDate(startIso || endIso);
+  const a = new Date(String(startIso).slice(0, 10) + "T00:00:00");
+  const b = new Date(String(endIso).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return `${startIso} - ${endIso}`;
+  const sameYear = a.getFullYear() === b.getFullYear();
+  const startLabel = a.toLocaleDateString("en-US", sameYear ? { day: "2-digit", month: "short" } : { day: "2-digit", month: "short", year: "numeric" });
+  return `${startLabel} - ${fullDate(String(endIso).slice(0, 10))}`;
+}
+
+function money(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return `$${Number(value).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+// Small inline warning shown under a card value or panel title. Icon + text,
+// never color alone.
+function warnNote(text) {
+  return `<span class="card-warn" role="note"><span aria-hidden="true">&#9888;</span> ${text}</span>`;
+}
+
+// Average position: a higher number is worse, so the change is shown in
+// positions ("+0.7 worse") instead of a % that reads like growth.
+function positionDeltaBadge(curr, prev) {
+  if (curr === null || curr === undefined || prev === null || prev === undefined || !prev) return "";
+  const diff = Math.round((Number(curr) - Number(prev)) * 10) / 10;
+  if (!Number.isFinite(diff)) return "";
+  if (diff === 0) return `<span class="delta delta-flat">±0 positions</span>`;
+  const worse = diff > 0;
+  return `<span class="delta ${worse ? "delta-bad" : "delta-good"}" title="Average position went from ${prev} to ${curr}">${worse ? "+" : "-"}${Math.abs(diff)} ${worse ? "worse" : "better"}</span>`;
+}
+
+// GSC/GA4 breakdown tables (queries, countries, devices) used to be fixed at
+// 180 days. The device rows cover every click, so when they add up to the
+// range's total the breakdowns follow the selected range.
+function breakdownFollowsRange(rows, total, key) {
+  if (!rows || !rows.length || !total) return false;
+  const sum = rows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+  return Math.abs(sum - total) / total <= 0.05;
+}
+
+// Shared by Content Suggestions, the calendar chips and the SEO gap table:
+// queries the backend marks relevant === false (sponsor/offer searches that
+// land on the offers page) stay hidden until this is switched on.
+let showSponsorQueries = false;
+
+function visibleGaps(gaps) {
+  return (gaps || []).filter((g) => showSponsorQueries || g.relevant !== false);
+}
+
+function hiddenGapCount(gaps) {
+  return (gaps || []).filter((g) => g.relevant === false).length;
+}
+
+// The ebook list used to be matched on "guide" in the title, which pulled in
+// salary/management pages. Until the backend list is clean, only treat a row
+// as an ebook when its path or title says so.
+function isEbookRow(p) {
+  return /ebook/i.test(`${p.page_path || ""} ${p.page_title || ""}`);
+}
+
+function gapActionLookup() {
+  const map = new Map();
+  (dashboard.content_suggestions?.content_gaps || []).forEach((g) => {
+    if (g.action) map.set(g.query, g);
+  });
+  return map;
 }
 
 // Only used for long free-text fields pasted in verbatim (meeting minutes) -
@@ -232,7 +303,11 @@ function chartEmpty(containerId, message = "No data for this period.") {
   if (el) el.innerHTML = `<div class="chart-empty">${message}</div>`;
 }
 
-function svgLineChart(containerId, series, { formatter = number } = {}) {
+// zeroBased:false fits the y-axis to the data (used for follower counts,
+// where a 0-based axis turns a 7,674 -> 7,700 month into a flat line).
+// A series can carry its own color class (cls) so an entity keeps the same
+// color across charts, e.g. Instagram is always "b".
+function svgLineChart(containerId, series, { formatter = number, zeroBased = true, height: chartHeight = 260, width: chartWidth = 900, ariaLabel = "" } = {}) {
   const el = document.getElementById(containerId);
   if (!el) return;
   const validSeries = series.filter((s) => s.points && s.points.length > 1);
@@ -241,8 +316,8 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     return;
   }
 
-  const width = 900;
-  const height = 260;
+  const width = chartWidth;
+  const height = chartHeight;
   const left = 46;
   const right = 16;
   const top = 16;
@@ -252,11 +327,21 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
 
   const hasValue = (p) => p.value !== null && p.value !== undefined;
   const allValues = validSeries.flatMap((s) => s.points.filter(hasValue).map((p) => p.value));
-  const maxValue = Math.max(1, ...allValues);
+  let maxValue = Math.max(1, ...allValues);
+  let minValue = 0;
+  if (!zeroBased && allValues.length) {
+    const lo = Math.min(...allValues);
+    const hi = Math.max(...allValues);
+    const pad = Math.max(1, Math.ceil((hi - lo) * 0.15));
+    minValue = Math.max(0, lo - pad);
+    maxValue = hi + pad;
+  }
+  const span = Math.max(1, maxValue - minValue);
   const pointCount = validSeries[0].points.length;
+  const clsOf = (s, i) => s.cls || (i === 0 ? "a" : "b");
 
   const x = (i) => left + (pointCount <= 1 ? 0 : (i / (pointCount - 1)) * plotW);
-  const y = (v) => top + plotH - (v / maxValue) * plotH;
+  const y = (v) => top + plotH - ((v - minValue) / span) * plotH;
 
   // Points with no synced value (null) break the line into segments instead
   // of drawing a misleading flat 0 - e.g. GSC clicks before a property has
@@ -280,18 +365,18 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
   const grid = ticks
     .map((t) => {
       const yy = top + plotH - t * plotH;
-      return `<line x1="${left}" y1="${yy}" x2="${width - right}" y2="${yy}" class="chart-grid"/><text x="${left - 8}" y="${yy + 4}" class="chart-axis" text-anchor="end">${formatter(maxValue * t)}</text>`;
+      return `<line x1="${left}" y1="${yy}" x2="${width - right}" y2="${yy}" class="chart-grid"/><text x="${left - 8}" y="${yy + 4}" class="chart-axis" text-anchor="end">${formatter(span >= 10 ? Math.round(minValue + span * t) : Math.round((minValue + span * t) * 10) / 10)}</text>`;
     })
     .join("");
 
-  const labelEvery = Math.max(1, Math.ceil(pointCount / 8));
+  const labelEvery = Math.max(1, Math.ceil(pointCount / (width < 700 ? 5 : 8)));
   const labels = validSeries[0].points
     .map((p, i) => (i % labelEvery === 0 || i === pointCount - 1 ? `<text x="${x(i)}" y="${height - 8}" class="chart-axis" text-anchor="middle">${shortDate(p.date)}</text>` : ""))
     .join("");
 
   const lines = validSeries
     .map((s, seriesIndex) => {
-      const cls = seriesIndex === 0 ? "a" : "b";
+      const cls = clsOf(s, seriesIndex);
       return segmentsOf(s.points)
         .map((indices) => {
           const points = indices.map((i) => `${x(i).toFixed(1)},${y(s.points[i].value).toFixed(1)}`).join(" ");
@@ -304,7 +389,7 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
   const dotEvery = pointCount > 60 ? Math.ceil(pointCount / 60) : 1;
   const dots = validSeries
     .map((s, seriesIndex) => {
-      const cls = seriesIndex === 0 ? "a" : "b";
+      const cls = clsOf(s, seriesIndex);
       return s.points
         .map((p, i) => (hasValue(p) && (i % dotEvery === 0 || i === pointCount - 1) ? `<circle cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="2.6" class="chart-dot ${cls}"/>` : ""))
         .join("");
@@ -315,11 +400,11 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
     .map((s, i) => {
       const last = [...s.points].reverse().find(hasValue) || s.points[s.points.length - 1];
       const valueLabel = hasValue(last) ? formatter(last.value) : "No data yet";
-      return `<span><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${valueLabel}</strong> <span class="legend-date">(${fullDate(last.date)})</span></span>`;
+      return `<span><i class="${clsOf(s, i)}"></i>${s.label}: <strong>${valueLabel}</strong> <span class="legend-date">(${fullDate(last.date)})</span></span>`;
     })
     .join("");
 
-  el.innerHTML = `<div class="chart-legend">${legend}</div><div class="chart-scroll"><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img">${grid}${lines}${dots}<line class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${top + plotH}" style="display:none"/>${labels}<rect class="chart-overlay" x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="transparent"/></svg></div>`;
+  el.innerHTML = `<div class="chart-legend">${legend}</div><div class="chart-scroll"><svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escAttr(ariaLabel || validSeries.map((s) => s.label).join(", ") + " per day")}">${grid}${lines}${dots}<line class="chart-crosshair" x1="0" y1="${top}" x2="0" y2="${top + plotH}" style="display:none"/>${labels}<rect class="chart-overlay" x="${left}" y="${top}" width="${plotW}" height="${plotH}" fill="transparent"/></svg></div>`;
 
   // Custom hover tooltip: find the nearest point by mouse x-position and show
   // every series' exact value for that date, instead of relying on the tiny
@@ -350,7 +435,7 @@ function svgLineChart(containerId, series, { formatter = number } = {}) {
         const point = s.points[index];
         if (!point) return "";
         const valueLabel = point.value === null || point.value === undefined ? "No data yet" : formatter(point.value);
-        return `<div class="chart-tooltip-row"><i class="${i === 0 ? "a" : "b"}"></i>${s.label}: <strong>${valueLabel}</strong></div>`;
+        return `<div class="chart-tooltip-row"><i class="${clsOf(s, i)}"></i>${s.label}: <strong>${valueLabel}</strong></div>`;
       })
       .join("");
     const dateLabel = fullDate(validSeries[0].points[index]?.date);
@@ -683,7 +768,7 @@ function computeIssues() {
   // time the dashboard loads.
   (dashboard.sync_status || [])
     .filter((s) => s.status !== "ok" && s.source !== "ghl_email")
-    .forEach((s) => issues.push({ severity: "error", text: `${s.source}: ${s.status}${s.detail ? " — " + s.detail : ""}` }));
+    .forEach((s) => issues.push({ severity: "error", text: `${s.source}: ${s.status}${s.detail ? " - " + s.detail : ""}` }));
 
   // Index coverage - redirects, noindex, "crawled but not indexed" etc are
   // exactly the kind of thing easy to miss without checking Search Console by hand.
@@ -771,19 +856,19 @@ function renderOverview() {
         : `${number(gsc.impressions)} impressions`,
       delta: prev && !isGscStale() ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
     },
-    { label: "Average position", value: gsc.position || "—", hint: "lower is better", delta: prev && !isGscStale() ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
+    { label: "Average position", value: gsc.position || "-", hint: "lower is better", delta: prev && !isGscStale() ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
     {
       label: "Sessions (GA4)",
       value: number(ga4.sessions),
       hint: ga4SpansConsentChange()
-        ? `${number(ga4.active_users)} active users · undercounted ${fullDate(GA4_UNDERCOUNT_START)} - ${fullDate(GA4_UNDERCOUNT_END)}`
+        ? `${number(ga4.active_users)} active users · undercounted ${dateRange(GA4_UNDERCOUNT_START, GA4_UNDERCOUNT_END)}`
         : `${number(ga4.active_users)} active users`,
       delta: prev && !ga4ComparisonUnreliable() ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
     },
     {
       label: "New leads (GoHighLevel)",
       value: number(ghl.total_leads),
-      hint: `${dashboard.start_date} to ${dashboard.end_date}`,
+      hint: dateRange(dashboard.start_date, dashboard.end_date),
       delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "",
     },
   ]);
@@ -809,8 +894,25 @@ function renderSeo() {
     { label: "Clicks", value: number(gsc.clicks), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
     { label: "Impressions", value: number(gsc.impressions), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
     { label: "Average CTR", value: percent(gsc.ctr), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
-    { label: "Average position", value: gsc.position || "—", hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.position, prev.search_console.position, { lowerIsBetter: true }) : "" },
+    { label: "Average position", value: gsc.position || "-", hint: staleHint || "lower is better", delta: prev && !stale ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
+    ...(gsc.nonbrand
+      ? [
+          {
+            label: "Non-brand clicks",
+            value: number(gsc.nonbrand.clicks),
+            delta: prev && !stale && prev.search_console?.nonbrand ? deltaBadge(gsc.nonbrand.clicks, prev.search_console.nonbrand.clicks) : "",
+            hint: `${gsc.clicks ? percent((gsc.nonbrand.clicks / gsc.clicks) * 100) : "-"} of clicks · ${number(gsc.nonbrand.impressions)} impressions${gsc.nonbrand.position ? `, avg. position ${gsc.nonbrand.position}` : ""}`,
+          },
+        ]
+      : []),
   ]);
+  const brandNote = document.getElementById("seoBrandNote");
+  if (brandNote) {
+    brandNote.hidden = !gsc.nonbrand;
+    brandNote.textContent = gsc.nonbrand
+      ? "Brand searches (DOMA, Dental Office Managers Alliance, Kyle Summerford, the site name) come from people who already know DOMA. Non-brand clicks show whether new people are finding the site through search."
+      : "";
+  }
 
   if (!gsc.available) {
     chartEmpty("seoChart", "No Search Console data yet - either scripts/sync_gsc.py hasn't run, or the property is still processing (new/re-verified properties take Google 1-2 days).");
@@ -819,6 +921,13 @@ function renderSeo() {
       { label: "Clicks", points: gsc.daily.map((d) => ({ date: d.report_date, value: d.clicks })) },
     ]);
   }
+
+  // The 180-day notes stay until the rows actually follow the range picker.
+  const gscFollows = breakdownFollowsRange(gsc.devices, gsc.clicks, "clicks");
+  ["seoQueriesNote", "seoCountriesNote", "seoDevicesNote"].forEach((id) => {
+    const note = document.getElementById(id);
+    if (note) note.hidden = gscFollows;
+  });
 
   renderTable(
     "seoQueriesTable",
@@ -838,11 +947,11 @@ function renderSeo() {
     document.getElementById("indexCoverageCards").innerHTML = "";
   }
   const humanizeIndexingState = (state) =>
-    !state || state === "INDEXING_STATE_UNSPECIFIED" ? "—" : state.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
+    !state || state === "INDEXING_STATE_UNSPECIFIED" ? "-" : state.replace(/_/g, " ").toLowerCase().replace(/^./, (c) => c.toUpperCase());
   renderTable(
     "seoCountriesTable",
     gsc.countries,
-    (c) => `<tr><td>${(c.country || "").toUpperCase()}</td><td>${number(c.clicks)}</td><td>${number(c.impressions)}</td><td>${percent(c.ctr)}</td><td>${c.position}</td></tr>`
+    (c) => `<tr><td>${c.country_name || (c.country || "").toUpperCase()}</td><td>${number(c.clicks)}</td><td>${number(c.impressions)}</td><td>${percent(c.ctr)}</td><td>${c.position}</td></tr>`
   );
 
   const DEVICE_LABELS = { DESKTOP: "Desktop", MOBILE: "Mobile", TABLET: "Tablet" };
@@ -854,11 +963,35 @@ function renderSeo() {
 
   const gaps = gsc.content_gaps;
   document.getElementById("contentGapsEmpty").style.display = gaps.available ? "none" : "block";
+  const actions = gapActionLookup();
+  const seoGaps = (gaps.gaps || []).map((g) => {
+    const extra = actions.get(g.query);
+    return { ...g, action: g.action || extra?.action, relevant: g.relevant ?? extra?.relevant };
+  });
+  renderSponsorToggle("contentGapsToggle", seoGaps);
   renderTable(
     "contentGapsTable",
-    gaps.gaps || [],
-    (g) => `<tr><td>${g.query}</td><td><a href="${g.page}" target="_blank" rel="noopener">${g.page.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${g.position}</td><td>${number(g.impressions)}</td><td>${number(g.clicks)}</td></tr>`
+    visibleGaps(seoGaps),
+    (g) => `<tr><td>${escapeHtml(g.query)}</td><td class="gap-action">${g.action ? escapeHtml(g.action) : "-"}</td><td><a href="${escAttr(g.page)}" target="_blank" rel="noopener">${escapeHtml(g.page.replace(/^https?:\/\/[^/]+/, "") || "/")}</a></td><td>${g.position}</td><td>${number(g.impressions)}</td><td>${number(g.clicks)}</td></tr>`
   );
+
+  const byPage = gsc.queries_by_page;
+  const byPagePanel = document.getElementById("seoQueriesByPagePanel");
+  if (byPagePanel) byPagePanel.hidden = !(byPage && byPage.length);
+  if (byPage && byPage.length) {
+    renderTable(
+      "seoQueriesByPageTable",
+      byPage,
+      (p) => {
+        const path = String(p.page || "").replace(/^https?:\/\/[^/]+/, "") || "/";
+        const queries = (p.queries || [])
+          .slice(0, 5)
+          .map((q) => `<li>${escapeHtml(q.query)} <span class="muted-inline">${number(q.clicks)} clicks · pos. ${q.position ?? "-"}</span></li>`)
+          .join("");
+        return `<tr><td><a href="${escAttr(p.page)}" target="_blank" rel="noopener">${escapeHtml(path)}</a></td><td>${number(p.clicks)}</td><td>${number(p.impressions)}</td><td>${queries ? `<ul class="query-list">${queries}</ul>` : "-"}</td></tr>`;
+      }
+    );
+  }
 
   const onpage = gsc.onpage_audit;
   document.getElementById("onpageEmpty").style.display = onpage.available ? "none" : "block";
@@ -892,13 +1025,13 @@ function renderSeo() {
   renderTable(
     "pagespeedTable",
     pagespeed?.pages || [],
-    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td><td><span class="delta ${scoreClass(p.performance_score)}">${p.performance_score ?? "—"}</span></td><td>${p.lcp_ms ? (p.lcp_ms / 1000).toFixed(1) + "s" : "—"}</td><td>${p.cls != null ? p.cls.toFixed(3) : "—"}</td><td>${p.accessibility_score ?? "—"}</td><td>${p.top_opportunities?.[0] ? `${p.top_opportunities[0].title} (${Math.round(p.top_opportunities[0].savings_ms)}ms)` : "—"}</td></tr>`
+    (p) => `<tr><td><a href="${p.url}" target="_blank" rel="noopener">${p.url.replace(/^https?:\/\/[^/]+/, "") || "/"}</a></td><td><span class="delta ${scoreClass(p.performance_score)}">${p.performance_score ?? "-"}</span></td><td>${p.lcp_ms ? (p.lcp_ms / 1000).toFixed(1) + "s" : "-"}</td><td>${p.cls != null ? p.cls.toFixed(3) : "-"}</td><td>${p.accessibility_score ?? "-"}</td><td>${p.top_opportunities?.[0] ? `${p.top_opportunities[0].title} (${Math.round(p.top_opportunities[0].savings_ms)}ms)` : "-"}</td></tr>`
   );
 
   renderTable(
     "indexCoverageTable",
     coverage.issues || [],
-    (i) => `<tr><td><a href="${i.url}" target="_blank" rel="noopener">${i.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${i.coverage_state}</td><td>${humanizeIndexingState(i.indexing_state)}</td><td>${i.last_crawl_time ? fullDate(i.last_crawl_time.slice(0, 10)) : "—"}</td></tr>`,
+    (i) => `<tr><td><a href="${i.url}" target="_blank" rel="noopener">${i.url.replace(/^https?:\/\/[^/]+/, "")}</a></td><td>${i.coverage_state}</td><td>${humanizeIndexingState(i.indexing_state)}</td><td>${i.last_crawl_time ? fullDate(i.last_crawl_time.slice(0, 10)) : "-"}</td></tr>`,
     "Every checked URL is indexed cleanly - nothing needs attention."
   );
 }
@@ -915,7 +1048,7 @@ function renderCompetitors() {
   renderTable(
     "competitorsTable",
     competitors.domains || [],
-    (d) => `<tr><td>${d.role === "self" ? `<strong>${d.domain}</strong>` : d.domain}</td><td>${d.domain_rating ?? "—"}</td><td>${number(d.organic_traffic)}</td><td>${number(d.organic_keywords)}</td><td>${number(d.backlinks)}</td><td>${number(d.referring_domains)}</td></tr>`
+    (d) => `<tr><td>${d.role === "self" ? `<strong>${d.domain}</strong>` : d.domain}</td><td>${d.domain_rating ?? "-"}</td><td>${number(d.organic_traffic)}</td><td>${number(d.organic_keywords)}</td><td>${number(d.backlinks)}</td><td>${number(d.referring_domains)}</td></tr>`
   );
 
   const sevClass = (s) => (s === "Error" ? "delta-bad" : s === "Warning" ? "delta-flat" : "");
@@ -930,11 +1063,17 @@ function renderCompetitors() {
   renderTable(
     "serpCompetitorsTable",
     serp.competitors || [],
-    (c) => `<tr><td>${c.domain}</td><td>${number(c.appearances)}</td><td>${c.avg_position ?? "—"}</td><td>${c.best_position ?? "—"}</td><td>${number(c.queries_beating_doma)}</td></tr>`
+    (c) => `<tr><td>${c.domain}</td><td>${number(c.appearances)}</td><td>${c.avg_position ?? "-"}</td><td>${c.best_position ?? "-"}</td><td>${number(c.queries_beating_doma)}</td></tr>`
   );
 
   const content = dashboard.competitor_content || { available: false, recent_pages: [], totals: [] };
   document.getElementById("competitorContentEmpty").style.display = content.available ? "none" : "block";
+  const trackedEl = document.getElementById("competitorTrackedList");
+  const trackedNames = (content.totals || []).map((t) => t.competitor_name).filter(Boolean);
+  if (trackedEl && trackedNames.length) {
+    const list = trackedNames.length > 1 ? `${trackedNames.slice(0, -1).join(", ")} and ${trackedNames.at(-1)}` : trackedNames[0];
+    trackedEl.textContent = `${trackedNames.length} competitor${trackedNames.length === 1 ? "" : "s"} (${list})`;
+  }
   if (content.available) {
     renderCards(
       "competitorContentCards",
@@ -943,11 +1082,51 @@ function renderCompetitors() {
   } else {
     document.getElementById("competitorContentCards").innerHTML = "";
   }
+  // New pages (first time a URL shows up in a competitor's sitemap) instead
+  // of lastmod: Dental A Team re-stamps every podcast page daily, which
+  // flooded the old "recently updated" list. Falls back to lastmod rows
+  // until the backend sends new_pages.
+  const hasNewPages = Array.isArray(content.new_pages);
+  const contentTitle = document.getElementById("competitorContentTitle");
+  if (contentTitle) {
+    contentTitle.innerHTML = hasNewPages
+      ? `New pages from competitors <span class="h2-note">(last 30 days, first time each URL appeared in their sitemap)</span>`
+      : `Recently updated competitor pages <span class="h2-note">(by the competitor's own sitemap date, which some of them re-stamp daily)</span>`;
+  }
+  const dateHeader = document.getElementById("competitorContentDateHeader");
+  if (dateHeader) dateHeader.textContent = hasNewPages ? "First seen" : "Updated";
   renderTable(
     "competitorContentTable",
-    content.recent_pages || [],
-    (p) => `<tr><td>${p.competitor_name}</td><td><a href="${p.url}" target="_blank" rel="noopener">${titleFromUrl(p.url)}</a></td><td>${p.lastmod ? fullDate(p.lastmod.slice(0, 10)) : "—"}</td></tr>`
+    hasNewPages ? content.new_pages : content.recent_pages || [],
+    (p) => {
+      const when = hasNewPages ? p.first_seen_at : p.lastmod;
+      return `<tr><td>${escapeHtml(p.competitor_name || "")}</td><td><a href="${escAttr(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title || titleFromUrl(p.url))}</a></td><td>${when ? fullDate(String(when).slice(0, 10)) : "-"}</td></tr>`;
+    },
+    hasNewPages ? "No new competitor pages in the last 30 days." : "No data for this period."
   );
+
+  const speed = content.pagespeed;
+  const speedPanel = document.getElementById("competitorSpeedPanel");
+  if (speedPanel) speedPanel.hidden = !(speed && speed.length);
+  if (speed && speed.length) {
+    const scoreCls = (v) => (v == null ? "" : v >= 90 ? "delta-good" : v >= 50 ? "delta-flat" : "delta-bad");
+    renderTable(
+      "competitorSpeedTable",
+      [...speed].sort((x, y) => (y.performance_score ?? -1) - (x.performance_score ?? -1)),
+      (r) => `<tr><td>${escapeHtml(r.competitor_name || "")}</td><td><a href="${escAttr(r.url)}" target="_blank" rel="noopener">${escapeHtml(String(r.url || "").replace(/^https?:\/\/(www\.)?/, ""))}</a></td><td><span class="delta ${scoreCls(r.performance_score)}">${r.performance_score ?? "-"}</span></td><td>${r.lcp_ms ? (r.lcp_ms / 1000).toFixed(1) + "s" : "-"}</td><td>${r.checked_at ? fullDate(String(r.checked_at).slice(0, 10)) : "-"}</td></tr>`
+    );
+  }
+
+  const podcasts = content.podcasts;
+  const podcastPanel = document.getElementById("competitorPodcastPanel");
+  if (podcastPanel) podcastPanel.hidden = !(podcasts && podcasts.length);
+  if (podcasts && podcasts.length) {
+    renderTable(
+      "competitorPodcastTable",
+      [...podcasts].sort((x, y) => String(y.published_at || "").localeCompare(String(x.published_at || ""))).slice(0, 30),
+      (e) => `<tr><td>${escapeHtml(e.competitor_name || "")}</td><td>${e.url ? `<a href="${escAttr(e.url)}" target="_blank" rel="noopener">${escapeHtml(e.title || "(untitled)")}</a>` : escapeHtml(e.title || "(untitled)")}</td><td>${e.published_at ? fullDate(String(e.published_at).slice(0, 10)) : "-"}</td></tr>`
+    );
+  }
 
   const tech = dashboard.competitor_tech || { available: false, entries: [] };
   document.getElementById("competitorTechEmpty").style.display = tech.available ? "none" : "block";
@@ -962,7 +1141,7 @@ function renderCompetitors() {
   renderTable(
     "competitorWaybackTable",
     wayback.entries || [],
-    (w) => `<tr><td>${w.competitor_name}</td><td>${number(w.total_snapshots)}</td><td>${w.last_snapshot ? fullDate(`${w.last_snapshot.slice(0, 4)}-${w.last_snapshot.slice(4, 6)}-${w.last_snapshot.slice(6, 8)}`) : "—"}</td><td>${number(w.snapshots_last_90d)}</td></tr>`
+    (w) => `<tr><td>${w.competitor_name}</td><td>${number(w.total_snapshots)}</td><td>${w.last_snapshot ? fullDate(`${w.last_snapshot.slice(0, 4)}-${w.last_snapshot.slice(4, 6)}-${w.last_snapshot.slice(6, 8)}`) : "-"}</td><td>${number(w.snapshots_last_90d)}</td></tr>`
   );
 
   const adSpy = dashboard.ad_spy || { available: false, entries: [], by_competitor: [] };
@@ -978,18 +1157,24 @@ function renderCompetitors() {
   renderTable(
     "adSpyTable",
     adSpy.entries || [],
-    (e) => `<tr><td>${e.competitor}</td><td>${e.platform}</td><td>${e.date_found ? fullDate(e.date_found) : "—"}</td><td>${e.format || "—"}</td><td>${e.hook ? (e.link ? `<a href="${e.link}" target="_blank" rel="noopener">${e.hook}</a>` : e.hook) : "—"}</td><td>${e.offer || "—"}</td><td>${e.cta || "—"}</td><td>${e.strategic_hypothesis || "—"}</td></tr>`
+    (e) => `<tr><td>${e.competitor}</td><td>${e.platform}</td><td>${e.date_found ? fullDate(e.date_found) : "-"}</td><td>${e.format || "-"}</td><td>${e.hook ? (e.link ? `<a href="${e.link}" target="_blank" rel="noopener">${e.hook}</a>` : e.hook) : "-"}</td><td>${e.offer || "-"}</td><td>${e.cta || "-"}</td><td>${e.strategic_hypothesis || "-"}</td></tr>`
   );
 }
 
 function renderBlog() {
   const ga4 = dashboard.ga4;
   const prev = dashboard.previous;
+  // Same GA4 consent undercount the Overview warns about: the backend flags
+  // it per range (undercount_overlap); the local date check is the fallback.
+  const undercount = ga4.undercount_overlap ?? ga4SpansConsentChange();
+  const unfairDelta = ga4ComparisonUnreliable() || (ga4.undercount_overlap === true && prev?.ga4?.undercount_overlap === false);
+  const undercountHint = undercount ? warnNote(`GA4 undercounted ${dateRange(GA4_UNDERCOUNT_START, GA4_UNDERCOUNT_END)}, so this is low and the % change is hidden`) : "";
+  const gaDelta = (curr, before) => (prev && !unfairDelta ? deltaBadge(curr, before) : "");
   renderCards("blogCards", [
-    { label: "Sessions", value: number(ga4.sessions), delta: prev ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "" },
-    { label: "Active users", value: number(ga4.active_users), delta: prev ? deltaBadge(ga4.active_users, prev.ga4.active_users) : "" },
-    { label: "New users", value: number(ga4.new_users), delta: prev ? deltaBadge(ga4.new_users, prev.ga4.new_users) : "" },
-    { label: "Engaged sessions", value: number(ga4.engaged_sessions), delta: prev ? deltaBadge(ga4.engaged_sessions, prev.ga4.engaged_sessions) : "" },
+    { label: "Sessions", value: number(ga4.sessions), delta: gaDelta(ga4.sessions, prev?.ga4?.sessions), hint: undercountHint },
+    { label: "Active users", value: number(ga4.active_users), delta: gaDelta(ga4.active_users, prev?.ga4?.active_users) },
+    { label: "New users", value: number(ga4.new_users), delta: gaDelta(ga4.new_users, prev?.ga4?.new_users) },
+    { label: "Engaged sessions", value: number(ga4.engaged_sessions), delta: gaDelta(ga4.engaged_sessions, prev?.ga4?.engaged_sessions), hint: undercountHint },
   ]);
 
   if (!ga4.available) {
@@ -1006,7 +1191,7 @@ function renderBlog() {
     "blogPagesTable",
     ga4.top_pages,
     (p) =>
-      `<tr title="${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time on page"><td>${p.page_title || p.page_path}</td><td>${number(p.sessions)}</td><td>${percent(p.bounce_rate)}</td></tr>`
+      `<tr title="${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time on page"><td>${p.page_path === "/" ? "Home" : escapeHtml(p.page_title || p.page_path)}</td><td>${number(p.sessions)}</td><td>${percent(p.bounce_rate)}</td></tr>`
   );
   renderTable(
     "blogCountriesTable",
@@ -1015,11 +1200,16 @@ function renderBlog() {
   );
 
   const deviceTotal = (ga4.devices || []).reduce((sum, d) => sum + d.sessions, 0);
+  const ga4Follows = breakdownFollowsRange(ga4.devices, ga4.sessions, "sessions");
+  ["blogCountriesNote", "blogDevicesNote"].forEach((id) => {
+    const note = document.getElementById(id);
+    if (note) note.hidden = ga4Follows;
+  });
   const DEVICE_LABELS_GA = { desktop: "Desktop", mobile: "Mobile", tablet: "Tablet" };
   renderTable(
     "blogDeviceTable",
     ga4.devices,
-    (d) => `<tr><td>${DEVICE_LABELS_GA[d.device] || d.device}</td><td>${number(d.active_users)}</td><td>${number(d.sessions)}</td><td>${deviceTotal ? percent((d.sessions / deviceTotal) * 100) : "—"}</td></tr>`
+    (d) => `<tr><td>${DEVICE_LABELS_GA[d.device] || d.device}</td><td>${number(d.active_users)}</td><td>${number(d.sessions)}</td><td>${deviceTotal ? percent((d.sessions / deviceTotal) * 100) : "-"}</td></tr>`
   );
 
   const GA_GENDER_LABELS = { female: "Female", male: "Male" };
@@ -1029,12 +1219,12 @@ function renderBlog() {
   renderTable(
     "blogGenderTable",
     ga4.demographics?.gender || [],
-    (g) => `<tr><td>${GA_GENDER_LABELS[g.value] || g.value}</td><td>${number(g.active_users)}</td><td>${genderTotal ? percent((g.active_users / genderTotal) * 100) : "—"}</td></tr>`
+    (g) => `<tr><td>${GA_GENDER_LABELS[g.value] || g.value}</td><td>${number(g.active_users)}</td><td>${genderTotal ? percent((g.active_users / genderTotal) * 100) : "-"}</td></tr>`
   );
   renderTable(
     "blogAgeTable",
     ga4.demographics?.age || [],
-    (a) => `<tr><td>${a.value}</td><td>${number(a.active_users)}</td><td>${ageTotal ? percent((a.active_users / ageTotal) * 100) : "—"}</td></tr>`
+    (a) => `<tr><td>${a.value}</td><td>${number(a.active_users)}</td><td>${ageTotal ? percent((a.active_users / ageTotal) * 100) : "-"}</td></tr>`
   );
 
   const content = dashboard.content;
@@ -1047,10 +1237,45 @@ function renderBlog() {
     // "is this post doing anything" - views/time/impressions/position moved
     // into the row's title tooltip instead of taking up 4 more columns.
     (p) => {
-      const detail = `${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time, ${number(p.impressions)} impressions, position ${p.position || "—"}`;
-      return `<tr title="${detail}"><td><a href="${p.url}" target="_blank" rel="noopener">${p.title || titleFromUrl(p.url)}</a></td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${number(p.sessions)}</td><td>${number(p.clicks)}</td></tr>`;
+      const detail = `${number(p.page_views)} views, ${duration(p.avg_engagement_seconds)} avg. time, ${number(p.impressions)} impressions, position ${p.position || "-"}`;
+      // sessions/clicks null = no data for that post yet (shown as "-"),
+      // a real 0 stays 0.
+      return `<tr title="${escAttr(detail)}"><td><a href="${escAttr(p.url)}" target="_blank" rel="noopener">${escapeHtml(p.title || titleFromUrl(p.url))}</a></td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${number(p.sessions)}</td><td>${number(p.clicks)}</td></tr>`;
     }
   );
+
+  // GA4 "AI Assistant" channel (ChatGPT, Perplexity, Gemini...) per day.
+  const aiDaily = ga4.ai_assistant_daily;
+  const hasEmail = ga4.email_sessions !== undefined && ga4.email_sessions !== null;
+  const extrasPanel = document.getElementById("blogExtrasGrid");
+  if (extrasPanel) extrasPanel.hidden = !(Array.isArray(aiDaily) || hasEmail);
+  const aiTotal = (aiDaily || []).reduce((sum, d) => sum + (Number(d.sessions) || 0), 0);
+  const aiTotalEl = document.getElementById("blogAiTotal");
+  if (aiTotalEl) aiTotalEl.textContent = Array.isArray(aiDaily) ? `${number(aiTotal)} sessions in this range` : "";
+  if (Array.isArray(aiDaily) && aiDaily.length > 1) {
+    svgLineChart("blogAiChart", [{ label: "AI assistant sessions", cls: "c", points: aiDaily.map((d) => ({ date: d.report_date, value: d.sessions })) }], { height: 200, width: 520 });
+  } else {
+    chartEmpty("blogAiChart", "No AI assistant sessions recorded in this range.");
+  }
+  const emailEl = document.getElementById("blogEmailSessions");
+  if (emailEl) {
+    emailEl.innerHTML = hasEmail
+      ? `<div class="community-stat"><div class="community-stat-value">${number(ga4.email_sessions)}</div><div class="community-stat-label">sessions from email</div></div>
+         <p class="panel-intro">GHL emails go out without UTM tags, so most clicks from them land in Direct or Unassigned. This number only counts the links that do carry a tag.</p>`
+      : `<div class="empty">Email sessions appear after the next GA4 sync.</div>`;
+  }
+
+  const conv = ga4.conversions_by_page;
+  const convPanel = document.getElementById("blogConversionsPanel");
+  if (convPanel) convPanel.hidden = !Array.isArray(conv);
+  if (Array.isArray(conv)) {
+    renderTable(
+      "blogConversionsTable",
+      conv,
+      (r) => `<tr><td>${r.page_path === "/" ? "Home" : escapeHtml(r.title || r.page_path || "")}</td><td>${number(r.sessions)}</td><td>${number(r.key_events)}</td><td>${r.sessions ? percent((Number(r.key_events) / Number(r.sessions)) * 100) : "-"}</td></tr>`,
+      "No key events recorded in this range."
+    );
+  }
 }
 
 let communityListenersAttached = false;
@@ -1060,7 +1285,7 @@ function ensureCommunityListeners() {
   communityListenersAttached = true;
   document.getElementById("communityEditBtn")?.addEventListener("click", async () => {
     const current = document.getElementById("communityMemberCount").textContent;
-    const input = prompt("Update DOMA Free Community member count (read from the GHL Communities panel):", current === "—" ? "" : current);
+    const input = prompt("Update DOMA Free Community member count (read from the GHL Communities panel):", current === "-" ? "" : current);
     if (input === null) return;
     const count = parseInt(input, 10);
     if (Number.isNaN(count) || count < 0) {
@@ -1081,8 +1306,16 @@ function ensureCommunityListeners() {
       const countEl = document.getElementById("communityMemberCount");
       const updatedEl = document.getElementById("communityUpdatedAt");
       if (!countEl) return;
-      countEl.textContent = data ? number(data.member_count) : "—";
-      updatedEl.textContent = data?.updated_at ? `Updated ${new Date(data.updated_at).toLocaleString("en-US")}` : "Not set yet";
+      countEl.textContent = data ? number(data.member_count) : "-";
+      if (!data?.updated_at) {
+        updatedEl.textContent = "Not set yet";
+        return;
+      }
+      const updated = new Date(data.updated_at);
+      const age = daysBetween(updated.toISOString(), new Date().toISOString());
+      updatedEl.innerHTML =
+        `Updated ${fullDate(updated.toISOString().slice(0, 10))}` +
+        (age !== null && age > 30 ? ` ${warnNote(`count is ${age} days old, update it from GHL Communities`)}` : "");
     });
   });
 }
@@ -1091,13 +1324,19 @@ function renderLeads() {
   ensureCommunityListeners();
   const ghl = dashboard.ghl;
   const prev = dashboard.previous;
+  const bySource = ghl.by_source || [];
+  // Raw GHL source names are messy ("02. Partner With Us!", "payment_link",
+  // one per ebook form), so the backend groups them (Starter Kit, Ebooks,
+  // Partner, Social DM...). Falls back to raw sources until by_group exists.
+  const byGroup = Array.isArray(ghl.by_group) && ghl.by_group.length ? ghl.by_group : null;
+  const topRow = byGroup ? byGroup[0] : bySource[0];
   renderCards("leadsCards", [
-    { label: "New leads", value: number(ghl.total_leads), delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "" },
-    { label: "Active sources", value: number(ghl.by_source.length) },
+    { label: "New leads", value: number(ghl.total_leads), delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "", hint: dateRange(dashboard.start_date, dashboard.end_date) },
+    { label: byGroup ? "Source groups" : "Active sources", value: number(byGroup ? byGroup.length : bySource.length), hint: byGroup ? `${number(bySource.length)} raw sources` : "" },
     {
       label: "Top source share",
-      value: ghl.by_source.length ? percent((ghl.by_source[0].lead_count / ghl.total_leads) * 100) : "—",
-      hint: ghl.by_source.length ? ghl.by_source[0].source : "",
+      value: topRow && ghl.total_leads ? percent((topRow.lead_count / ghl.total_leads) * 100) : "-",
+      hint: topRow ? escapeHtml(byGroup ? topRow.group : topRow.source) : "",
     },
   ]);
 
@@ -1109,11 +1348,75 @@ function renderLeads() {
     ]);
   }
 
-  svgHBarChart("leadsSourceBars", ghl.by_source, { labelKey: "source", valueKey: "lead_count" });
+  const sourceTitle = document.getElementById("leadsSourceTitle");
+  if (sourceTitle) sourceTitle.textContent = byGroup ? "Leads by source group" : "Leads by source";
+  svgHBarChart("leadsSourceBars", byGroup || bySource, { labelKey: byGroup ? "group" : "source", valueKey: "lead_count", maxBars: byGroup ? 10 : 6 });
   renderTable(
     "leadsSourceTable",
-    ghl.by_source,
-    (s) => `<tr><td>${s.source}</td><td>${number(s.lead_count)}</td><td>${percent((s.lead_count / ghl.total_leads) * 100)}</td></tr>`
+    [...bySource].sort((x, y) => String(x.group || "").localeCompare(String(y.group || "")) || y.lead_count - x.lead_count),
+    (s) => `<tr><td>${escapeHtml(s.source || "")}</td><td>${escapeHtml(s.group || "-")}</td><td>${number(s.lead_count)}</td><td>${ghl.total_leads ? percent((s.lead_count / ghl.total_leads) * 100) : "-"}</td></tr>`
+  );
+
+  renderOrders(ghl, prev);
+}
+
+// GHL orders/memberships (payments). Aggregates only, never customer names.
+function renderOrders(ghl, prev) {
+  const section = document.getElementById("leadsOrdersSection");
+  if (!section) return;
+  const orders = ghl.orders;
+  const empty = document.getElementById("ordersEmpty");
+  const body = document.getElementById("ordersBody");
+  if (!orders || orders.available === false) {
+    if (empty) empty.style.display = "block";
+    if (body) body.hidden = true;
+    return;
+  }
+  if (empty) empty.style.display = "none";
+  if (body) body.hidden = false;
+
+  const prevOrders = prev?.ghl?.orders;
+  const leadToOrder = ghl.total_leads ? (orders.total_orders / ghl.total_leads) * 100 : null;
+  const pending = Number(orders.pending) || 0;
+  renderCards("ordersCards", [
+    {
+      label: "Orders",
+      value: number(orders.total_orders),
+      delta: prevOrders ? deltaBadge(orders.total_orders, prevOrders.total_orders) : "",
+      hint: `${number(orders.completed)} completed${leadToOrder !== null ? ` · ${percent(leadToOrder)} of new leads` : ""}`,
+    },
+    {
+      label: "Revenue",
+      value: money(orders.revenue),
+      delta: prevOrders ? deltaBadge(orders.revenue, prevOrders.revenue) : "",
+      hint: orders.refunded ? `${money(orders.refunded)} refunded` : "",
+    },
+    { label: "Active subscriptions", value: number(orders.active_subscriptions) },
+    { label: "MRR", value: money(orders.mrr), hint: "monthly recurring revenue" },
+    {
+      label: "Pending",
+      value: number(pending),
+      hint: pending > 0 ? warnNote("pending orders usually mean a failed charge, check GHL Payments") : "no failed charges",
+    },
+  ]);
+
+  const daily = orders.daily || [];
+  if (daily.length > 1) {
+    svgLineChart("ordersChart", [{ label: "Orders", points: daily.map((d) => ({ date: d.report_date, value: d.orders })) }], { height: 180 });
+  } else {
+    chartEmpty("ordersChart", "Not enough order history in this range for a chart.");
+  }
+  renderTable(
+    "ordersProductTable",
+    orders.by_product || [],
+    (r) => `<tr><td>${escapeHtml(r.product || "(no product)")}</td><td>${number(r.orders)}</td><td>${money(r.revenue)}</td></tr>`,
+    "No orders in this range."
+  );
+  renderTable(
+    "ordersSourceTable",
+    orders.by_lead_source || [],
+    (r) => `<tr><td>${escapeHtml(r.source_group || "(unknown)")}</td><td>${number(r.orders)}</td></tr>`,
+    "No orders in this range."
   );
 }
 
@@ -1121,8 +1424,12 @@ function renderSocial() {
   const social = dashboard.social;
   const prev = dashboard.previous;
   const totalEngagement = social.posts.reduce((sum, p) => sum + p.engagement_total, 0);
-  const totalFollowers = (social.followers.facebook || 0) + (social.followers.instagram || 0);
-  const engagementRate = totalFollowers ? (totalEngagement / totalFollowers) * 100 : null;
+  // Engagement per reach (posts that report reach only), a fairer rate than
+  // engagement over total followers.
+  const reachedPosts = social.posts.filter((p) => Number(p.reach) > 0);
+  const reachedEngagement = reachedPosts.reduce((sum, p) => sum + (Number(p.engagement_total) || 0), 0);
+  const reachedTotal = reachedPosts.reduce((sum, p) => sum + Number(p.reach), 0);
+  const engagementRate = reachedTotal ? (reachedEngagement / reachedTotal) * 100 : null;
 
   // Daily reach summed over the range (people reached each day, so the same
   // person on two days counts twice). Facebook reach is page_total_media_view_unique,
@@ -1159,43 +1466,56 @@ function renderSocial() {
     {
       label: "Total engagement",
       value: number(totalEngagement),
-      hint: engagementRate !== null ? `${percent(engagementRate)} of combined followers` : "likes + comments + shares",
+      hint: engagementRate !== null ? `${percent(engagementRate)} of post reach (${number(reachedPosts.length)} posts with reach data)` : "likes + comments + shares",
     },
   ]);
 
-  if (!social.available) {
-    chartEmpty("socialFollowersChart", "No Facebook/Instagram data yet. Run scripts/sync_meta_organic.py.");
-  } else {
-    const fbByDate = new Map(social.followers_daily.filter((d) => d.platform === "facebook").map((d) => [d.report_date, d.follower_count]));
-    const igByDate = new Map(social.followers_daily.filter((d) => d.platform === "instagram").map((d) => [d.report_date, d.follower_count]));
-    const dates = [...new Set([...fbByDate.keys(), ...igByDate.keys()])].sort();
-    if (dates.length < 2) {
-      chartEmpty("socialFollowersChart", "Follower history builds up day by day - check back after a few daily syncs.");
-    } else {
-      svgLineChart("socialFollowersChart", [
-        { label: "Facebook", points: dates.map((d) => ({ date: d, value: fbByDate.get(d) ?? null })).filter((p) => p.value !== null) },
-        { label: "Instagram", points: dates.map((d) => ({ date: d, value: igByDate.get(d) ?? null })).filter((p) => p.value !== null) },
-      ]);
+  // Two small charts instead of one shared axis: Facebook (~7.7k) and
+  // Instagram (~1.2k) on one 0-based scale both read as flat lines.
+  const followerCharts = [
+    { id: "socialFollowersFbChart", platform: "facebook", label: "Facebook followers", cls: "a" },
+    { id: "socialFollowersIgChart", platform: "instagram", label: "Instagram followers", cls: "b" },
+  ];
+  followerCharts.forEach((c) => {
+    if (!social.available) {
+      chartEmpty(c.id, "No Facebook/Instagram data yet. Run scripts/sync_meta_organic.py.");
+      return;
     }
-  }
+    const points = (social.followers_daily || [])
+      .filter((d) => d.platform === c.platform && d.follower_count !== null && d.follower_count !== undefined)
+      .sort((x, y) => (x.report_date < y.report_date ? -1 : 1))
+      .map((d) => ({ date: d.report_date, value: d.follower_count }));
+    if (points.length < 2) {
+      chartEmpty(c.id, "Follower history builds up day by day - check back after a few daily syncs.");
+      return;
+    }
+    const change = points[points.length - 1].value - points[0].value;
+    const changeEl = document.getElementById(`${c.id}Change`);
+    if (changeEl) changeEl.textContent = `${change > 0 ? "+" : ""}${number(change)} since ${fullDate(points[0].date)}`;
+    svgLineChart(c.id, [{ label: c.label, cls: c.cls, points }], { zeroBased: false, height: 220, width: 520 });
+  });
 
-  const reachSeries = [
-    { label: "Facebook", metric: "page_total_media_view_unique", platform: "facebook" },
-    { label: "Instagram", metric: "ig_reach", platform: "instagram" },
-  ].map((r) => ({
-    label: r.label,
-    points: (social.metrics_daily || []).filter((m) => m.platform === r.platform && m.metric === r.metric).map((m) => ({ date: m.report_date, value: m.value })),
-  }));
-  if (reachSeries.some((r) => r.points.length > 1)) {
-    svgLineChart("socialReachChart", reachSeries);
-  } else {
-    chartEmpty("socialReachChart", "Reach history builds up after the daily Meta sync.");
-  }
+  // Same split as the follower charts: Facebook reach (~1k/day) would flatten
+  // Instagram (~50/day) on a shared axis.
+  [
+    { id: "socialReachFbChart", label: "Facebook reach", metric: "page_total_media_view_unique", platform: "facebook", cls: "a" },
+    { id: "socialReachIgChart", label: "Instagram reach", metric: "ig_reach", platform: "instagram", cls: "b" },
+  ].forEach((r) => {
+    const points = (social.metrics_daily || [])
+      .filter((m) => m.platform === r.platform && m.metric === r.metric)
+      .sort((x, y) => (x.report_date < y.report_date ? -1 : 1))
+      .map((m) => ({ date: m.report_date, value: m.value }));
+    if (points.length > 1) {
+      svgLineChart(r.id, [{ label: r.label, cls: r.cls, points }], { height: 220, width: 520 });
+    } else {
+      chartEmpty(r.id, "Reach history builds up after the daily Meta sync.");
+    }
+  });
 
   renderTable(
     "socialPostsTable",
     social.posts,
-    (p) => `<tr><td>${p.platform === "facebook" ? "Facebook" : "Instagram"}</td><td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">${(p.caption || "(no caption)").slice(0, 60)}</a>` : (p.caption || "(no caption)").slice(0, 60)}</td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${p.reach ? number(p.reach) : "—"}</td><td>${number(p.likes)}</td><td>${number(p.comments)}</td><td>${number(p.shares)}</td></tr>`
+    (p) => `<tr><td>${p.platform === "facebook" ? "Facebook" : "Instagram"}</td><td>${p.permalink ? `<a href="${p.permalink}" target="_blank" rel="noopener">${(p.caption || "(no caption)").slice(0, 60)}</a>` : (p.caption || "(no caption)").slice(0, 60)}</td><td>${fullDate((p.published_at || "").slice(0, 10))}</td><td>${p.reach ? number(p.reach) : "-"}</td><td>${number(p.likes)}</td><td>${number(p.comments)}</td><td>${number(p.shares)}</td><td>${p.reach ? percent(((Number(p.engagement_total) || 0) / p.reach) * 100) : "-"}</td></tr>`
   );
 
   const GENDER_LABELS = { F: "Female", M: "Male", U: "Not specified" };
@@ -1213,13 +1533,13 @@ function renderSocial() {
   renderTable(
     "socialGenderTable",
     igGender,
-    (g) => `<tr><td>${GENDER_LABELS[g.value] || g.value}</td><td>${number(g.follower_count)}</td><td>${genderTotal ? percent((g.follower_count / genderTotal) * 100) : "—"}</td></tr>`
+    (g) => `<tr><td>${GENDER_LABELS[g.value] || g.value}</td><td>${number(g.follower_count)}</td><td>${genderTotal ? percent((g.follower_count / genderTotal) * 100) : "-"}</td></tr>`
   );
   svgHBarChart("socialCountryBars", igCountry, { labelKey: "value", valueKey: "follower_count", maxBars: 8 });
   renderTable(
     "socialCountryTable",
     igCountry.slice(0, 15),
-    (c) => `<tr><td>${c.value}</td><td>${number(c.follower_count)}</td><td>${countryTotal ? percent((c.follower_count / countryTotal) * 100) : "—"}</td></tr>`
+    (c) => `<tr><td>${c.value}</td><td>${number(c.follower_count)}</td><td>${countryTotal ? percent((c.follower_count / countryTotal) * 100) : "-"}</td></tr>`
   );
 
   const bestTimes = social.best_times || { available: false, by_day: [], by_period: [] };
@@ -1982,6 +2302,10 @@ function renderWeeklyRecap() {
         (sum, m) => sum + (m.action_items || []).filter((i) => teamEffectiveStatus(i) === "done").length,
         0
       );
+      const progressItems = meetings.reduce(
+        (sum, m) => sum + (m.action_items || []).filter((i) => teamEffectiveStatus(i) === "in_progress").length,
+        0
+      );
       const meetingsHtml = [...meetings]
         .sort((a, b) => (a.meeting_date < b.meeting_date ? 1 : -1))
         .map((m) => {
@@ -2010,8 +2334,8 @@ function renderWeeklyRecap() {
         <div class="panel weekly-recap-week${collapsed ? " collapsed" : ""}" data-week="${weekStart}">
           <button type="button" class="weekly-recap-header">
             <span class="status-chevron">${collapsed ? "▸" : "▾"}</span>
-            <h3>Week of ${fullDate(weekStart)} &ndash; ${fullDate(weekEnd)}</h3>
-            <span class="status-count">${meetings.length} meeting${meetings.length === 1 ? "" : "s"} &middot; ${doneItems}/${totalItems} items done</span>
+            <h3>Week of ${dateRange(weekStart, weekEnd)}</h3>
+            <span class="status-count">${meetings.length} meeting${meetings.length === 1 ? "" : "s"} &middot; ${doneItems}/${totalItems} items done${progressItems ? ` &middot; ${progressItems} in progress` : ""}</span>
           </button>
           <div class="weekly-recap-body">${meetingsHtml}</div>
         </div>`;
@@ -2280,18 +2604,22 @@ function renderCalendarSuggestions() {
   const container = document.getElementById("calendarSuggestions");
   if (!container) return;
   const suggestions = dashboard.content_suggestions || { content_gaps: [], top_ebooks: [] };
-  const gapChips = (suggestions.content_gaps || [])
+  const gapChips = visibleGaps(suggestions.content_gaps)
     .slice(0, 6)
     .map(
       (g) =>
-        `<button type="button" class="calendar-suggestion-chip" data-title="${g.query}" data-type="Blog">${g.query}<span class="cal-suggestion-meta">${number(g.impressions)} impressions, no ranking content yet</span></button>`
+        `<button type="button" class="calendar-suggestion-chip" data-title="${escAttr(g.query)}" data-type="Blog">${escapeHtml(g.query)}<span class="cal-suggestion-meta">${g.action ? `${escapeHtml(g.action)} · ` : ""}${number(g.impressions)} impressions, position ${Number(g.position).toFixed(1)}</span></button>`
     );
+  // "Repurpose into a blog post" only makes sense for real ebooks.
   const ebookChips = (suggestions.top_ebooks || [])
+    .filter(isEbookRow)
     .slice(0, 4)
     .map(
       (e) =>
         `<button type="button" class="calendar-suggestion-chip" data-title="Blog post based on: ${e.page_title || titleFromUrl(e.page_path)}" data-type="Blog">${e.page_title || titleFromUrl(e.page_path)}<span class="cal-suggestion-meta">${number(e.sessions)} sessions - repurpose into a blog post</span></button>`
     );
+  const toggle = document.getElementById("calendarGapsToggle");
+  if (toggle) renderSponsorToggle("calendarGapsToggle", suggestions.content_gaps);
   container.innerHTML = [...gapChips, ...ebookChips].join("") || `<div class="empty">No suggestions yet - sync Search Console/GA4 data first.</div>`;
 }
 
@@ -3007,14 +3335,14 @@ function changelogStatusPill(status) {
 function changelogRowHtml(item) {
   const linkCell = item.link
     ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="changelog-link" title="${item.link}">View &#8599;</a>`
-    : `<span class="changelog-link-empty">—</span>`;
+    : `<span class="changelog-link-empty">-</span>`;
   const commentCount = (item.comments || []).length;
   return `
     <tr class="changelog-row" data-id="${item.id}">
       <td class="changelog-date">${fullDate(item.date)}</td>
       <td><span class="checklist-topic">${item.category || "General"}</span></td>
       <td class="changelog-title">${item.title}${item.detail ? `<span class="changelog-detail">${item.detail}</span>` : ""}</td>
-      <td class="changelog-impact">${item.impact || "—"}</td>
+      <td class="changelog-impact">${item.impact || "-"}</td>
       <td>${changelogStatusPill(item.status)}</td>
       <td>${linkCell}</td>
       <td><button type="button" class="changelog-comment-toggle" title="Comment">&#128172;${commentCount ? ` ${commentCount}` : ""}</button></td>
@@ -3083,19 +3411,50 @@ function renderChangelog() {
     .join("");
 }
 
+// "Show sponsor/offer queries" checkbox. Renders nothing when the backend
+// hasn't flagged any query as not relevant (or hasn't sent the flag yet).
+function renderSponsorToggle(containerId, gaps) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const hidden = hiddenGapCount(gaps);
+  if (!hidden) {
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = `<label class="gap-toggle"><input type="checkbox" data-sponsor-toggle ${showSponsorQueries ? "checked" : ""}> Show sponsor/offer queries (${hidden})</label>`;
+}
+
+let sponsorToggleAttached = false;
+function ensureSponsorToggleListener() {
+  if (sponsorToggleAttached) return;
+  sponsorToggleAttached = true;
+  document.addEventListener("change", (event) => {
+    if (!event.target.matches("[data-sponsor-toggle]")) return;
+    showSponsorQueries = event.target.checked;
+    // The re-render replaces the checkbox; keep keyboard focus where it was.
+    const host = event.target.closest("[id]");
+    safeRender("SEO", renderSeo);
+    safeRender("Content Suggestions", renderContentIdeas);
+    safeRender("Calendar suggestions", renderCalendarSuggestions);
+    if (host) document.querySelector(`#${host.id} [data-sponsor-toggle]`)?.focus();
+  });
+}
+
 function renderContentIdeas() {
+  ensureSponsorToggleListener();
   const suggestions = dashboard.content_suggestions || { available: false, content_gaps: [], top_ebooks: [], top_blog_posts: [], best_post_times: { available: false, by_day: [], by_period: [] } };
   document.getElementById("contentIdeasEmpty").style.display = suggestions.available ? "none" : "block";
 
+  renderSponsorToggle("ideasGapsToggle", suggestions.content_gaps);
   renderTable(
     "ideasContentGapsTable",
-    suggestions.content_gaps,
-    (g) => `<tr><td>${g.query}</td><td>${titleFromUrl(g.page)}</td><td>${g.position.toFixed(1)}</td><td>${number(g.impressions)}</td></tr>`,
+    visibleGaps(suggestions.content_gaps),
+    (g) => `<tr><td>${escapeHtml(g.query)}</td><td class="gap-action">${g.action ? escapeHtml(g.action) : "-"}</td><td>${escapeHtml(titleFromUrl(g.page))}</td><td>${Number(g.position).toFixed(1)}</td><td>${number(g.impressions)}</td></tr>`,
     "No content gaps found yet - see SEO tab."
   );
   renderTable(
     "topEbooksTable",
-    suggestions.top_ebooks,
+    (suggestions.top_ebooks || []).filter(isEbookRow),
     (p) => `<tr><td>${p.page_title || titleFromUrl(p.page_path)}</td><td>${number(p.sessions)}</td><td>${number(p.page_views)}</td></tr>`,
     "No ebook page data yet."
   );
@@ -3166,7 +3525,7 @@ function renderAll() {
   const comparisonEl = document.getElementById("comparisonNote");
   if (comparisonEl) {
     comparisonEl.textContent = dashboard.previous_start_date
-      ? `vs ${fullDate(dashboard.previous_start_date)} – ${fullDate(dashboard.previous_end_date)}`
+      ? `vs ${dateRange(dashboard.previous_start_date, dashboard.previous_end_date)}`
       : "";
   }
 }
