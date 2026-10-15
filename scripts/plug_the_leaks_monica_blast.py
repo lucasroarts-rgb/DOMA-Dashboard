@@ -10,6 +10,7 @@ Run by the one-time Windows task DOMA_PlugTheLeaks_Monica_Email (2026-10-15 10:0
 
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,17 +48,25 @@ def main() -> int:
     done = set(state["tagged"]) | ALREADY
     contacts = [c for c in all_contacts(ghl) if c.get("email") and c["id"] not in done]
     print(f"{datetime.now(timezone.utc).isoformat()} sending to {len(contacts)} contacts", flush=True)
-    for i, c in enumerate(contacts, 1):
+    def tag(c):
+        # One call takes about a second, so 5 run at once (well under GHL's 100 per 10 s).
         try:
             ghl.add_tag_to_contact(c["id"], TAG)
-            state["tagged"].append(c["id"])
+            return c["id"], None
         except Exception as error:  # keep going; failures are listed in the state file
-            state["failed"][c["id"]] = str(error)[:200]
             time.sleep(2)
-        if i % 50 == 0:
-            save_json(STATE_PATH, state)
-            print(f"{i}/{len(contacts)}", flush=True)
-        time.sleep(0.15)
+            return c["id"], str(error)[:200]
+
+    with ThreadPoolExecutor(5) as pool:
+        for i, (cid, error) in enumerate(pool.map(tag, contacts), 1):
+            if error:
+                state["failed"][cid] = error
+            else:
+                state["tagged"].append(cid)
+                state["failed"].pop(cid, None)
+            if i % 50 == 0:
+                save_json(STATE_PATH, state)
+                print(f"{i}/{len(contacts)}", flush=True)
     save_json(STATE_PATH, state)
     print(f"done: {len(state['tagged'])} tagged, {len(state['failed'])} failed", flush=True)
     return 0
