@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=ac588fb005">
+<link rel="stylesheet" href="styles.css?v=eff4ce5eee">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -551,6 +551,15 @@
           </div>
         </details>
       </div>
+      <div class="panel">
+        <h2>Ebooks ranked by leads <span class="h2-note">(free guides that brought the most new leads in this period)</span></h2>
+        <div class="table-wrap">
+          <table id="leadsEbookRankTable">
+            <thead><tr><th>#</th><th>Ebook</th><th>Leads</th><th>Share of ebook leads</th><th>Previous period</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
       <div class="panel" id="leadsOrdersSection">
         <h2>Orders &amp; memberships <span class="h2-note">(GoHighLevel payments, totals only)</span></h2>
         <div id="ordersEmpty" class="empty" style="display:none">Order data appears after the next GoHighLevel sync.</div>
@@ -893,8 +902,8 @@
 
 </div>
 <div id="chartTooltip" class="chart-tooltip"></div>
-<script src="data.js?v=20261015194845" onerror="void 0"></script>
+<script src="data.js?v=20261015202959" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js?v=fc62d249b5"></script>
-<script src="dashboard.js?v=f94a64d947"></script>
+<script src="dashboard.js?v=ad1f04dbed"></script>
 </body>
 </html>
