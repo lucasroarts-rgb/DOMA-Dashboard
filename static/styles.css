@@ -577,3 +577,9 @@ tr:hover td{background:rgba(128,128,128,.06)}
 .inline-details summary:focus-visible,.gap-toggle input:focus-visible{outline:2px solid var(--teal-2);outline-offset:2px}
 .sub-h{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px}
 .table-caption{caption-side:top;text-align:left;font-size:12px;color:var(--muted);font-weight:700;padding:0 0 8px}
+
+/* sortable tables: every header sorts its column (see applyTableSort in dashboard.js) */
+table:not(.no-sort) thead th{cursor:pointer;user-select:none}
+table:not(.no-sort) thead th:hover{color:var(--ink)}
+table:not(.no-sort) thead th[aria-sort="descending"]::after{content:" \25BC";font-size:9px}
+table:not(.no-sort) thead th[aria-sort="ascending"]::after{content:" \25B2";font-size:9px}

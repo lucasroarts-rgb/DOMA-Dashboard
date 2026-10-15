@@ -601,6 +601,69 @@ function renderTable(tableId, rows, renderRow, emptyMessage = "No data for this 
   tbody.innerHTML = rows.map(renderRow).join("");
 }
 
+/* ---------- sortable tables ---------- */
+
+// Clicking any table header sorts that column (first click: highest first,
+// second click: lowest first). The choice is kept per table and re-applied
+// whenever a render replaces the rows, so it survives range changes.
+const tableSortState = new WeakMap();
+let applyingSort = false;
+
+function cellSortValue(cell) {
+  const text = (cell?.dataset?.sort ?? cell?.textContent ?? "").trim();
+  if (!text || text === "-" || text === "—") return null;
+  const numeric = text.replace(/[$,%+\s]/g, "").match(/^-?\d+(\.\d+)?/);
+  if (numeric && /^[-+$]?\d/.test(text.replace(/\s/g, ""))) return parseFloat(numeric[0]);
+  const asDate = Date.parse(text);
+  if (!Number.isNaN(asDate) && /\d{4}/.test(text)) return asDate;
+  return text.toLowerCase();
+}
+
+function applyTableSort(table) {
+  const state = tableSortState.get(table);
+  const tbody = table.tBodies[0];
+  if (!state || !tbody) return;
+  const rows = [...tbody.rows].filter((r) => !r.querySelector("td.empty, td[colspan]"));
+  if (rows.length < 2) return;
+  rows.sort((a, b) => {
+    const x = cellSortValue(a.cells[state.col]);
+    const y = cellSortValue(b.cells[state.col]);
+    if (x === null && y === null) return 0;
+    if (x === null) return 1; // empty cells always last
+    if (y === null) return -1;
+    const cmp = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+    return state.dir === "asc" ? cmp : -cmp;
+  });
+  // MutationObserver callbacks run later than this function, so a flag alone
+  // can't stop the observer from re-sorting forever; only touch the DOM when
+  // the order actually changes.
+  const current = [...tbody.rows].filter((r) => !r.querySelector("td.empty, td[colspan]"));
+  if (rows.some((r, i) => r !== current[i])) {
+    applyingSort = true;
+    rows.forEach((r) => tbody.appendChild(r));
+    applyingSort = false;
+  }
+  [...table.tHead.rows[0].cells].forEach((th, i) => th.setAttribute("aria-sort", i === state.col ? (state.dir === "asc" ? "ascending" : "descending") : "none"));
+}
+
+document.addEventListener("click", (event) => {
+  const th = event.target.closest("thead th");
+  const table = th?.closest("table");
+  if (!th || !table || table.classList.contains("no-sort")) return;
+  const col = th.cellIndex;
+  const prev = tableSortState.get(table);
+  const dir = prev && prev.col === col && prev.dir === "desc" ? "asc" : "desc";
+  tableSortState.set(table, { col, dir });
+  applyTableSort(table);
+});
+
+// Renders replace tbody rows; put the saved order back right after.
+new MutationObserver((mutations) => {
+  if (applyingSort) return;
+  const tables = new Set(mutations.map((m) => m.target.closest?.("table")).filter((t) => t && tableSortState.has(t)));
+  tables.forEach(applyTableSort);
+}).observe(document.documentElement, { childList: true, subtree: true });
+
 /* ---------- issues / data health panel ---------- */
 
 // Google Search Console normally trails real time by 2-3 days, so only call it
@@ -1357,7 +1420,32 @@ function renderLeads() {
     (s) => `<tr><td>${escapeHtml(s.source || "")}</td><td>${escapeHtml(s.group || "-")}</td><td>${number(s.lead_count)}</td><td>${ghl.total_leads ? percent((s.lead_count / ghl.total_leads) * 100) : "-"}</td></tr>`
   );
 
+  renderEbookRanking(bySource, prev?.ghl?.by_source || []);
   renderOrders(ghl, prev);
+}
+
+// Free guides ranked by the leads their GHL form brought in. Form names come
+// in a few spellings ("Ebook - X", "Ebook -X", hyphenated slugs), so they're
+// cleaned up for display and matched to the previous period by that name.
+function ebookName(source) {
+  return String(source || "")
+    .replace(/^ebook\s*-\s*/i, "")
+    .replace(/(\w)-(?=\w)/g, "$1 ")
+    .trim();
+}
+
+function renderEbookRanking(bySource, prevBySource) {
+  const isEbook = (s) => s.group === "Ebooks" || /^ebook\b/i.test(s.source || "");
+  const prevByName = new Map(prevBySource.filter(isEbook).map((s) => [ebookName(s.source), s.lead_count]));
+  const rows = bySource.filter(isEbook).map((s) => ({ name: ebookName(s.source), leads: s.lead_count, prev: prevByName.get(ebookName(s.source)) ?? 0 }));
+  rows.sort((x, y) => y.leads - x.leads);
+  const total = rows.reduce((sum, r) => sum + r.leads, 0);
+  renderTable(
+    "leadsEbookRankTable",
+    rows,
+    (r, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(r.name)}</td><td>${number(r.leads)}</td><td>${total ? percent((r.leads / total) * 100) : "-"}</td><td>${number(r.prev)}</td></tr>`,
+    "No ebook leads in this period."
+  );
 }
 
 // GHL orders/memberships (payments). Aggregates only, never customer names.

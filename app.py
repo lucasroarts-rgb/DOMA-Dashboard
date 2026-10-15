@@ -1901,7 +1901,8 @@ LEAD_SOURCE_GROUPS = [
     # partner/affiliate forms (the affiliate "Success Kit" form is a partner lead)
     ("Partner / Affiliate", re.compile(r"partner|affiliate", re.I)),
     # every guide form ("Ebook - ...", "...-eBook Form"), AI Guides and the insurance benefits guide
-    ("Ebooks", re.compile(r"e-?book|ai guides|maximizing dental insurance", re.I)),
+    # \b keeps "Facebook Messenger" out ("Fac-ebook" matched the bare pattern)
+    ("Ebooks", re.compile(r"\be-?book|ai guides|maximizing dental insurance", re.I)),
     # DMs that the GHL automations turn into contacts
     ("Social DM", re.compile(r"instagram|facebook messenger|messenger|\bdm\b", re.I)),
     # Wix community, community funnel/portal, "Join The Community"
