@@ -47,6 +47,7 @@ O usuário disse que os resultados de SEO e Google estavam péssimos. Eram dois 
 - O sync falhava sem registro no `sync_log`. Por isso o dashboard mostrava 0 cliques em 7 dias e queda de 35% em 30 dias. Por dia, os cliques estavam em alta (+26%) e a posição média melhorou (14,6 para 12,7).
 - **Falta o usuário agir:** rodar `.venv\Scripts\python.exe scripts\gsc_oauth_setup.py` (login no Google com acesso à propriedade) e colar o `GSC_OAUTH_REFRESH_TOKEN` novo no `.env`. Depois rodar `scripts\sync_gsc.py` uma vez e conferir.
 - No Google Cloud, em "OAuth consent screen", confirmar status "In production". Em "Testing" o token expira em 7 dias e o problema volta.
+- 15/10: caiu de novo em 12/10. Agora o `sync_gsc.py` tem plano B: se o token OAuth falhar, usa a conta de serviço (`doma-dashboard-sync@planar-maxim-305714`) na propriedade de prefixo `https://dentalofficemanagers.com/` (na de domínio o Google não deixa adicionar conta de serviço). Números quase iguais, porque www, http e app.* redirecionam pra lá. A propriedade de prefixo só tem uns 57 dias de dado. Enquanto o token estiver vencido, o `sync_log` grava `gsc_auth` como erro e o digest de SEO continua avisando. Pra voltar pro domínio: consent screen em "In production" e rodar `gsc_oauth_setup.py` uma vez.
 
 **B. GA4 perdeu a maioria dos visitantes em 11/09.**
 
@@ -127,3 +128,7 @@ Duas abas novas no dashboard, ambas em Firestore ao vivo, como o Useful Links.
 - Texto gerado passa pela skill `no-ai-text` em silêncio: sem travessão, sem abertura nem fechamento de garganta, sem "não é X, é Y".
 - Quando o usuário diz "você decide a melhor forma", decidir e avisar o que foi decidido, em vez de perguntar de novo.
 - Não marcar pendência como resolvida sem verificar ao vivo. Dizer claramente quando algo foi inferência.
+
+## GA4: evento de lead (15/10)
+
+Os formulários do GHL ficam em iframe, então o GA4 não via nenhum envio e a tabela "Conversions by page" ficava vazia. Criada pela Admin API (conta de serviço agora é Editor) a regra `generate_lead` = page_view com "thank-you" na URL, marcada como evento-chave. Conta só daqui pra frente.

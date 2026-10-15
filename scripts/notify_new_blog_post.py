@@ -161,9 +161,17 @@ def build_email_fields(env: dict, post: dict) -> dict:
         "preheader": preheader,
         "post_title": title,
         "post_excerpt": excerpt,
-        "post_url": post["link"],
+        "post_url": _with_email_utm(post["link"], post.get("slug") or ""),
         "featured_image": fetch_featured_image_url(env, post),
     }
+
+
+def _with_email_utm(url: str, slug: str) -> str:
+    """The new-article email went out with the bare post link, so GA4 filed
+    those visits under Direct/Unassigned and the Email channel showed ~126
+    sessions in 90 days despite sends to ~7,000 contacts (2026-10-15)."""
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}utm_source=ghl&utm_medium=email&utm_campaign=new_post_{slug[:60]}"
 
 
 def push_custom_values(ghl: GhlClient, fields: dict) -> None:
