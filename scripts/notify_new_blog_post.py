@@ -44,6 +44,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -53,6 +54,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.env_utils import load_env_file  # noqa: E402
 from scripts.ebook_pipeline.ghl_client import GhlClient, GhlError  # noqa: E402
+from scripts.ghl_engagement import NEW_CONTACT_DAYS, engaged_contact_ids  # noqa: E402
 
 STATE_PATH = ROOT / "data" / "blog_notify_state.json"
 PROGRESS_PATH = ROOT / "data" / "blog_notify_progress.json"
@@ -202,14 +204,33 @@ def save_progress(post_id: int | None, tagged: set[str]) -> None:
     PROGRESS_PATH.write_text(json.dumps({"post_id": post_id, "tagged": sorted(tagged)}), encoding="utf-8")
 
 
-def send_to_all_contacts(ghl: GhlClient, post_id: int | None = None) -> tuple[int, int]:
+def is_new_contact(contact: dict, cutoff: datetime) -> bool:
+    added = contact.get("dateAdded")
+    return bool(added) and datetime.fromisoformat(added.replace("Z", "+00:00")) >= cutoff
+
+
+def send_to_all_contacts(ghl: GhlClient, post_id: int | None = None, everyone: bool = False) -> tuple[int, int]:
+    """Tags the contacts that should get the post. Since 2026-10-10 that is only the
+    engaged ones (opened, clicked or replied in the last 90 days, see
+    ghl_engagement.py) plus contacts added in the last NEW_CONTACT_DAYS: Gmail spam
+    reports rose on the days this went to the whole list. everyone=True restores
+    the old send-to-all behavior."""
     count = 0
     errors = 0
+    skipped = 0
+    engaged = set() if everyone else engaged_contact_ids()
+    new_cutoff = datetime.now(timezone.utc) - timedelta(days=NEW_CONTACT_DAYS)
+    if not everyone:
+        print(f"  Sending to {len(engaged)} engaged contacts plus contacts added since {new_cutoff.date()}.")
     tagged = load_progress(post_id)
     if tagged:
         print(f"  Resuming post {post_id}: skipping {len(tagged)} contacts already tagged.")
-    for contact_id in ghl.iter_all_contact_ids():
+    for contact in ghl.iter_all_contacts():
+        contact_id = contact["id"]
         if contact_id in tagged:
+            continue
+        if not everyone and contact_id not in engaged and not is_new_contact(contact, new_cutoff):
+            skipped += 1
             continue
         try:
             ghl.add_tag_to_contact(contact_id, NOTIFY_TAG)
@@ -223,7 +244,7 @@ def send_to_all_contacts(ghl: GhlClient, post_id: int | None = None) -> tuple[in
             save_progress(post_id, tagged)
         time.sleep(0.12)  # ~8 req/sec, safe under GHL's burst limit
     save_progress(post_id, tagged)
-    print(f"Done. Tagged {count} contacts ({errors} failures).")
+    print(f"Done. Tagged {count} contacts ({errors} failures, {skipped} not engaged and left out).")
     return count, errors
 
 
@@ -264,7 +285,8 @@ def main() -> int:
     parser.add_argument("--post-id", type=int, default=None, help="WP post id; defaults to most recent published post")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--test-email", help="Tag only this one contact (safe, use first)")
-    group.add_argument("--all", action="store_true", help="Tag every contact for one post (manual real send)")
+    group.add_argument("--all", action="store_true", help="Tag the engaged contacts for one post (manual real send)")
+    parser.add_argument("--everyone", action="store_true", help="With --all: ignore engagement and tag every contact")
     group.add_argument("--auto", action="store_true", help="Check for new posts since last run, send if found (unattended mode)")
     args = parser.parse_args()
 
@@ -284,7 +306,7 @@ def main() -> int:
     if args.test_email:
         return send_to_email(ghl, args.test_email)
 
-    send_to_all_contacts(ghl)
+    send_to_all_contacts(ghl, everyone=args.everyone)
     return 0
 
 

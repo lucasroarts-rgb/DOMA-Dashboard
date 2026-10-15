@@ -75,14 +75,41 @@ def fetch_facebook_snapshot(page_id: str, token: str) -> dict[str, Any]:
     return _get(page_id, token, fields="followers_count,fan_count")
 
 
+FACEBOOK_DAILY_METRICS = (
+    "page_post_engagements",
+    "page_views_total",
+    "page_total_media_view_unique",  # reach
+    "page_media_view",  # views
+    "page_daily_follows_unique",
+    "page_daily_unfollows_unique",
+)
+METRIC_ERRORS: list[str] = []
+
+
+def _facebook_post_reach(post_id: str, token: str) -> int:
+    try:
+        payload = _get(f"{post_id}/insights", token, metric="post_total_media_view_unique")
+    except MetaOrganicSyncError as error:
+        METRIC_ERRORS.append(f"facebook post reach: {error}")
+        return 0
+    for series in payload.get("data", []):
+        for point in series.get("values", []):
+            return int(point.get("value") or 0)
+    return 0
+
+
 def fetch_facebook_daily_metrics(page_id: str, token: str) -> list[tuple[str, str, float]]:
     since = (date.today() - timedelta(days=LOOKBACK_DAYS)).isoformat()
     until = date.today().isoformat()
     rows: list[tuple[str, str, float]] = []
-    for metric in ("page_post_engagements", "page_views_total"):
+    # page_impressions_unique and the other old reach metrics return error #100
+    # since Meta's 2025-2026 deprecation; page_total_media_view_unique is the
+    # daily reach that replaced them (checked 2026-10-15, 213 to 870 a day).
+    for metric in FACEBOOK_DAILY_METRICS:
         try:
             payload = _get(f"{page_id}/insights", token, metric=metric, period="day", since=since, until=until)
-        except MetaOrganicSyncError:
+        except MetaOrganicSyncError as error:
+            METRIC_ERRORS.append(f"facebook {metric}: {error}")
             continue  # metric may not be available for every Page - skip, don't fail the whole sync
         for series in payload.get("data", []):
             for point in series.get("values", []):
@@ -114,7 +141,7 @@ def fetch_facebook_posts(page_id: str, token: str) -> list[dict[str, Any]]:
                 "likes": likes,
                 "comments": comments,
                 "shares": shares,
-                "reach": 0,
+                "reach": _facebook_post_reach(post["id"], token),
                 "engagement_total": likes + comments + shares,
             }
         )
@@ -295,6 +322,9 @@ def main() -> int:
     store_posts(fb_posts + ig_posts)
     store_demographics(ig_demographics, platform="instagram")
 
+    log_sync(dashboard_app, "meta_organic", "ok", f"FB {fb_followers} followers, {len(fb_posts)} posts; IG {ig_followers} followers, {len(ig_posts)} posts")
+    if METRIC_ERRORS:
+        log_sync(dashboard_app, "meta_metrics", "error", "; ".join(METRIC_ERRORS)[:900])
     print(
         f"Meta organic sync complete: Facebook {fb_followers} followers "
         f"({len(fb_posts)} posts), Instagram {ig_followers} followers ({len(ig_posts)} posts)."

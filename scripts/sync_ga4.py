@@ -14,6 +14,9 @@ DOMA wants whole-site organic/blog traffic, not just one funnel page.
 
 from __future__ import annotations
 
+from typing import Any
+
+import re
 import sys
 from pathlib import Path
 
@@ -25,7 +28,8 @@ from scripts.env_utils import load_env_file, log_sync  # noqa: E402
 from scripts import sitemap_utils  # noqa: E402
 
 LOOKBACK_DAYS = 180
-TOP_PAGE_LIMIT = 30
+TOP_PAGE_LIMIT = 250  # rows asked from GA4 (path x title)
+TOP_PAGE_KEEP = 100  # pages kept after adding the rows up per path
 MAX_RECENT_POSTS = 15
 
 
@@ -126,17 +130,28 @@ def fetch_top_pages(client, property_id: str) -> list[tuple[str, str, int, int]]
         limit=TOP_PAGE_LIMIT,
     )
     response = client.run_report(request)
-    rows: list[tuple[str, str, int, int, int, float, float]] = []
+    # One page can come back as several rows (one per title it had over the
+    # window), and ga4_top_pages is keyed by path - storing them one by one
+    # let the smaller row overwrite the bigger one. Add the rows up per path,
+    # keep the title with the most sessions, then keep the top pages.
+    by_path: dict[str, dict[str, Any]] = {}
     for row in response.rows:
         page_path = row.dimension_values[0].value
         page_title = row.dimension_values[1].value
         sessions = int(row.metric_values[0].value or 0)
-        active_users = int(row.metric_values[1].value or 0)
-        page_views = int(row.metric_values[2].value or 0)
-        engagement_duration = float(row.metric_values[3].value or 0)
-        bounce_rate = round(float(row.metric_values[4].value or 0) * 100, 1)
-        avg_engagement_seconds = round(engagement_duration / page_views, 1) if page_views else 0.0
-        rows.append((page_path, page_title, sessions, active_users, page_views, avg_engagement_seconds, bounce_rate))
+        agg = by_path.setdefault(page_path, {"title": page_title, "title_sessions": -1, "sessions": 0, "users": 0, "views": 0, "duration": 0.0, "bounced": 0.0})
+        if sessions > agg["title_sessions"]:
+            agg["title"], agg["title_sessions"] = page_title, sessions
+        agg["sessions"] += sessions
+        agg["users"] += int(row.metric_values[1].value or 0)
+        agg["views"] += int(row.metric_values[2].value or 0)
+        agg["duration"] += float(row.metric_values[3].value or 0)
+        agg["bounced"] += float(row.metric_values[4].value or 0) * sessions
+    rows: list[tuple[str, str, int, int, int, float, float]] = []
+    for page_path, agg in sorted(by_path.items(), key=lambda item: item[1]["sessions"], reverse=True)[:TOP_PAGE_KEEP]:
+        avg_engagement_seconds = round(agg["duration"] / agg["views"], 1) if agg["views"] else 0.0
+        bounce_rate = round(agg["bounced"] / agg["sessions"] * 100, 1) if agg["sessions"] else 0.0
+        rows.append((page_path, agg["title"], agg["sessions"], agg["users"], agg["views"], avg_engagement_seconds, bounce_rate))
     return rows
 
 
@@ -202,7 +217,87 @@ def fetch_demographics(client, property_id: str) -> list[tuple[str, str, int]]:
     return rows
 
 
-def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[tuple[str, str, int, int, int, float]]:
+def fetch_page_conversions(client, property_id: str) -> list[tuple[str, str, int, float]]:
+    """Sessions and key events (guide sign-ups, membership) per landing page
+    per day, so the dashboard can rank pages by what they convert in any
+    range. Paged with offset: a day x page report runs past one 100k page
+    only on a much bigger site, but the loop keeps it correct anyway."""
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    rows: list[tuple[str, str, int, float]] = []
+    offset = 0
+    while True:
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="date"), Dimension(name="landingPage")],
+            metrics=[Metric(name="sessions"), Metric(name="keyEvents")],
+            date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+            limit=100000,
+            offset=offset,
+        )
+        response = client.run_report(request)
+        for row in response.rows:
+            raw_date = row.dimension_values[0].value
+            page = row.dimension_values[1].value or "(not set)"
+            if page == "(not set)":
+                continue
+            path = page.split("?", 1)[0]
+            # landingPage drops the trailing slash pagePath keeps; match pagePath
+            if not path.endswith("/") and "." not in path.rsplit("/", 1)[-1]:
+                path += "/"
+            rows.append((
+                f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}",
+                path,
+                int(row.metric_values[0].value or 0),
+                float(row.metric_values[1].value or 0),
+            ))
+        offset += len(response.rows)
+        if not response.rows or offset >= response.row_count:
+            break
+    # landingPage can differ only by query string; add those rows up
+    merged: dict[tuple[str, str], list] = {}
+    for report_date, page, sessions, key_events in rows:
+        agg = merged.setdefault((report_date, page), [0, 0.0])
+        agg[0] += sessions
+        agg[1] += key_events
+    return [(d, page, agg[0], agg[1]) for (d, page), agg in merged.items()]
+
+
+def store_page_conversions(rows: list[tuple[str, str, int, float]]) -> None:
+    with dashboard_app.db() as con:
+        if rows:
+            con.execute("DELETE FROM ga4_page_conversions_daily WHERE report_date >= ?", (min(r[0] for r in rows),))
+        con.executemany(
+            "INSERT OR REPLACE INTO ga4_page_conversions_daily (report_date, page_path, sessions, key_events) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+
+
+def store_wp_inventory(site_url: str) -> tuple[int, int]:
+    """Real post list and free-guide landing pages from WordPress, used by
+    Content Suggestions to filter top blog posts and top ebooks. Each list
+    is replaced only when the fetch returned something, so a WP hiccup
+    keeps yesterday's list instead of emptying the tab."""
+    posts = sitemap_utils.fetch_all_posts(site_url)
+    guides = sitemap_utils.fetch_free_guide_pages(site_url)
+    with dashboard_app.db() as con:
+        if posts:
+            con.execute("DELETE FROM wp_posts")
+            con.executemany(
+                "INSERT OR REPLACE INTO wp_posts (page_path, title, published_at, synced_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                posts,
+            )
+        if guides:
+            con.execute("DELETE FROM free_guide_pages")
+            con.executemany(
+                "INSERT OR REPLACE INTO free_guide_pages (page_path, title, synced_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                [(path, re.sub(r"^\s*e-?book\s*-\s*|\s*-\s*free (guide|ebook)( \| doma)?\s*$", "", title or "", flags=re.I) or title)
+                 for path, title in guides],
+            )
+    return len(posts), len(guides)
+
+
+def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[tuple[str, str, int, int, int, float, str | None]]:
     """GA4 metrics for the most recently published blog posts specifically -
     fetch_top_pages only returns the top 30 by session count, so a
     brand-new post with modest traffic so far would never show up there."""
@@ -216,10 +311,10 @@ def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[t
     )
     from urllib.parse import urlparse
 
-    recent_posts = sitemap_utils.fetch_recent_posts(site_url, limit=MAX_RECENT_POSTS)
+    recent_posts = sitemap_utils.fetch_recent_posts_with_titles(site_url, limit=MAX_RECENT_POSTS)
     if not recent_posts:
         return []
-    paths = [urlparse(url).path for url, _ in recent_posts]
+    paths = [urlparse(url).path for url, _, _ in recent_posts]
 
     request = RunReportRequest(
         property=f"properties/{property_id}",
@@ -233,8 +328,8 @@ def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[t
     response = client.run_report(request)
     by_path = {row.dimension_values[0].value: row for row in response.rows}
 
-    rows: list[tuple[str, str, int, int, int, float]] = []
-    for url, lastmod in recent_posts:
+    rows: list[tuple[str, str, int, int, int, float, str | None]] = []
+    for url, lastmod, title in recent_posts:
         path = urlparse(url).path
         match = by_path.get(path)
         sessions = int(match.metric_values[0].value or 0) if match else 0
@@ -242,7 +337,7 @@ def fetch_recent_post_metrics(client, property_id: str, site_url: str) -> list[t
         active_users = int(match.metric_values[2].value or 0) if match else 0
         engagement_duration = float(match.metric_values[3].value or 0) if match else 0.0
         avg_engagement_seconds = round(engagement_duration / page_views, 1) if page_views else 0.0
-        rows.append((url, lastmod, sessions, page_views, active_users, avg_engagement_seconds))
+        rows.append((url, lastmod, sessions, page_views, active_users, avg_engagement_seconds, title))
     return rows
 
 
@@ -316,12 +411,12 @@ def store_devices(rows: list[tuple[str, int, int]]) -> None:
         )
 
 
-def store_recent_post_metrics(rows: list[tuple[str, str, int, int, int, float]]) -> None:
+def store_recent_post_metrics(rows: list[tuple[str, str, int, int, int, float, str | None]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM content_posts_ga4")
         con.executemany(
-            "INSERT INTO content_posts_ga4 (url, published_at, sessions, page_views, active_users, avg_engagement_seconds, synced_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            "INSERT INTO content_posts_ga4 (url, published_at, sessions, page_views, active_users, avg_engagement_seconds, title, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
             rows,
         )
 
@@ -374,7 +469,23 @@ def main() -> int:
     # fetch_recent_post_metrics() fetches the sitemap over plain HTTP -
     # GSC_SITE_URL is `sc-domain:...` for a Domain property (not a URL).
     site_url = env.get("WP_URL") or env.get("GSC_SITE_URL")
+    try:
+        conversions = fetch_page_conversions(client, property_id)
+        store_page_conversions(conversions)
+        log_sync(dashboard_app, "ga4_conversions", "ok", f"{len(conversions)} day/page rows")
+        print(f"GA4 key events by landing page complete: {len(conversions)} day/page rows.")
+    except Exception as error:  # noqa: BLE001 - best-effort, must not break the core GA4 sync
+        log_sync(dashboard_app, "ga4_conversions", "skipped", str(error))
+        print(f"WARNING: GA4 key events by page skipped ({error})", file=sys.stderr)
+
     if site_url:
+        try:
+            post_count, guide_count = store_wp_inventory(site_url)
+            log_sync(dashboard_app, "wp_inventory", "ok", f"{post_count} posts, {guide_count} free-guide pages")
+            print(f"WordPress inventory complete: {post_count} posts, {guide_count} free-guide pages.")
+        except Exception as error:  # noqa: BLE001 - best-effort
+            log_sync(dashboard_app, "wp_inventory", "skipped", str(error))
+            print(f"WARNING: WordPress inventory skipped ({error})", file=sys.stderr)
         try:
             recent_posts = fetch_recent_post_metrics(client, property_id, site_url)
             store_recent_post_metrics(recent_posts)

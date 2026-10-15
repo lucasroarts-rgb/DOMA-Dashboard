@@ -9,8 +9,10 @@ so it is safe to publish to a public GitHub Pages site.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -86,6 +88,14 @@ def main() -> int:
     index_html = index_html.replace("/static/dashboard.js", "dashboard.js")
     index_html = index_html.replace("/static/firebase-team-sync.js", "firebase-team-sync.js")
     index_html = index_html.replace("/static/assets/", "assets/")
+    # Cache busting: a fixed ?v= let browsers keep yesterday's data.js after
+    # every sync. data.js gets the build time (it changes every run); the
+    # code/css files get a content hash, so they only bust when they change.
+    build_stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    for asset in ("styles.css", "dashboard.js", "firebase-team-sync.js"):
+        digest = hashlib.sha1((STATIC_DIR / asset).read_bytes()).hexdigest()[:10]
+        index_html = re.sub(rf'"{re.escape(asset)}(\?v=[^"]*)?"', f'"{asset}?v={digest}"', index_html)
+    index_html = re.sub(r'"data\.js(\?v=[^"]*)?"', f'"data.js?v={build_stamp}"', index_html)
     (DOCS_DIR / "index.html").write_text(index_html, encoding="utf-8")
     (DOCS_DIR / "styles.css").write_text(
         (STATIC_DIR / "styles.css").read_text(encoding="utf-8"), encoding="utf-8"

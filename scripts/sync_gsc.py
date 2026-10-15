@@ -83,21 +83,56 @@ def _client(env: dict[str, str]):
             token_uri="https://oauth2.googleapis.com/token",
             scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
         )
-    else:
-        from google.oauth2 import service_account
+        # The OAuth app's consent screen is in "Testing", so Google revokes
+        # this token every ~7 days (it died in September, on 2026-10-05 and
+        # 2026-10-12). Instead of the whole GSC tab freezing until someone
+        # re-runs gsc_oauth_setup.py, fall back to the service account on the
+        # URL-prefix property (https://dentalofficemanagers.com/), which it
+        # can read. Numbers are close to the Domain property: www, http and
+        # app.* all 301 to that prefix. The fallback is logged as a gsc_auth
+        # error so the SEO digest keeps flagging the expired token.
+        from google.auth.exceptions import RefreshError
+        from google.auth.transport.requests import Request
 
-        key_file = env.get("GA4_SERVICE_ACCOUNT_FILE")
-        if not key_file:
-            raise GscSyncError("Missing GA4_SERVICE_ACCOUNT_FILE in .env (or set GSC_OAUTH_REFRESH_TOKEN instead)")
-        key_path = ROOT / key_file
-        if not key_path.exists():
-            raise GscSyncError(f"Service account file not found: {key_path}")
-        creds = service_account.Credentials.from_service_account_file(
-            str(key_path), scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
-        )
+        try:
+            creds.refresh(Request())
+        except RefreshError as error:
+            global FALLBACK_NOTE
+            fallback_url = env.get("GSC_FALLBACK_SITE_URL") or _url_prefix_for(site_url)
+            FALLBACK_NOTE = (
+                f"OAuth token expired ({error.args[0] if error.args else error}); using the service account "
+                f"on {fallback_url}. Re-run scripts/gsc_oauth_setup.py, or set the OAuth consent screen to "
+                f"'In production' in Google Cloud so the token stops expiring."
+            )
+            creds, site_url = _service_account_creds(env), fallback_url
+    else:
+        creds = _service_account_creds(env)
 
     service = build("searchconsole", "v1", credentials=creds)
     return service, site_url
+
+
+FALLBACK_NOTE = ""
+
+
+def _url_prefix_for(site_url: str) -> str:
+    if site_url.startswith("sc-domain:"):
+        return f"https://{site_url.split(':', 1)[1]}/"
+    return site_url
+
+
+def _service_account_creds(env: dict[str, str]):
+    from google.oauth2 import service_account
+
+    key_file = env.get("GA4_SERVICE_ACCOUNT_FILE")
+    if not key_file:
+        raise GscSyncError("Missing GA4_SERVICE_ACCOUNT_FILE in .env (or set GSC_OAUTH_REFRESH_TOKEN instead)")
+    key_path = ROOT / key_file
+    if not key_path.exists():
+        raise GscSyncError(f"Service account file not found: {key_path}")
+    return service_account.Credentials.from_service_account_file(
+        str(key_path), scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+    )
 
 
 def _date_range() -> tuple[str, str]:
@@ -164,6 +199,83 @@ def fetch_top_countries(service, site_url: str) -> list[tuple[str, int, int, flo
         position = round(float(row.get("position", 0.0)), 1)
         rows.append((country, clicks, impressions, ctr, position))
     return rows
+
+
+API_ROW_LIMIT = 25000  # max rows per Search Analytics request
+MAX_API_PAGES = 40  # safety cap: 1M rows per breakdown
+PAGE_QUERY_DAYS = 90
+
+# dimension -> per-day table filled by store_daily_breakdown
+DAILY_BREAKDOWNS = {
+    "query": ("search_console_query_daily", "query"),
+    "country": ("gsc_country_daily", "country"),
+    "device": ("gsc_device_daily", "device"),
+    "page": ("gsc_page_daily", "page"),
+}
+
+
+def _query_all(service, site_url: str, body: dict) -> list[dict]:
+    """Every row of a Search Analytics query, paging with startRow until a
+    page comes back short (the API caps one response at 25,000 rows)."""
+    rows: list[dict] = []
+    for page in range(MAX_API_PAGES):
+        response = service.searchanalytics().query(
+            siteUrl=site_url, body={**body, "rowLimit": API_ROW_LIMIT, "startRow": page * API_ROW_LIMIT}
+        ).execute()
+        batch = response.get("rows", [])
+        rows += batch
+        if len(batch) < API_ROW_LIMIT:
+            break
+    return rows
+
+
+def fetch_daily_breakdown(service, site_url: str, dimension: str) -> list[tuple[str, str, int, int, float]]:
+    """[date, <dimension>] rows for the whole lookback, so the dashboard can
+    rank queries/countries/devices/pages for whatever range is picked."""
+    start_date, end_date = _date_range()
+    rows = _query_all(service, site_url, {"startDate": start_date, "endDate": end_date, "dimensions": ["date", dimension]})
+    return [
+        (row["keys"][0], row["keys"][1], int(row.get("clicks", 0)), int(row.get("impressions", 0)), round(float(row.get("position", 0.0)), 2))
+        for row in rows
+    ]
+
+
+def store_daily_breakdown(dimension: str, rows: list[tuple[str, str, int, int, float]]) -> None:
+    table, key = DAILY_BREAKDOWNS[dimension]
+    if not rows:
+        return
+    with dashboard_app.db() as con:
+        # the synced window is rebuilt as a whole: GSC revises recent days
+        con.execute(f"DELETE FROM {table} WHERE report_date >= ?", (min(r[0] for r in rows),))
+        con.executemany(
+            f"INSERT OR REPLACE INTO {table} (report_date, {key}, clicks, impressions, position) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+
+def fetch_page_queries(service, site_url: str) -> list[tuple[str, str, int, int, float]]:
+    """[page, query] over the last PAGE_QUERY_DAYS days, one snapshot. Links
+    each top page to the searches that bring it impressions; a per-day
+    version would be several hundred thousand rows for little gain."""
+    _, end_date = _date_range()
+    start_date = (date.fromisoformat(end_date) - timedelta(days=PAGE_QUERY_DAYS)).isoformat()
+    rows = _query_all(service, site_url, {"startDate": start_date, "endDate": end_date, "dimensions": ["page", "query"]})
+    return [
+        (row["keys"][0], row["keys"][1], int(row.get("clicks", 0)), int(row.get("impressions", 0)), round(float(row.get("position", 0.0)), 1))
+        for row in rows
+    ]
+
+
+def store_page_queries(rows: list[tuple[str, str, int, int, float]]) -> None:
+    if not rows:
+        return
+    with dashboard_app.db() as con:
+        con.execute("DELETE FROM gsc_page_queries")
+        con.executemany(
+            "INSERT OR REPLACE INTO gsc_page_queries (page, query, clicks, impressions, position, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            rows,
+        )
 
 
 def fetch_device_breakdown(service, site_url: str) -> list[tuple[str, int, int, float, float]]:
@@ -255,7 +367,7 @@ def fetch_content_gaps(service, site_url: str) -> list[tuple[str, str, float, in
     return gaps[:30]
 
 
-def fetch_recent_post_performance(service, site_url: str, real_site_url: str) -> list[tuple[str, str, int, int, float, float]]:
+def fetch_recent_post_performance(service, site_url: str, real_site_url: str) -> list[tuple[str, str, int, int, float, float, str | None]]:
     """Search performance for the most recently published posts specifically
     (not just whatever happens to be in the global top-clicks list) - a
     3-week-old post can have real impressions/clicks that never show up in
@@ -263,7 +375,7 @@ def fetch_recent_post_performance(service, site_url: str, real_site_url: str) ->
     GSC's siteUrl (used for the search query); `real_site_url` is the actual
     https:// site (used to fetch the sitemap) - not the same value when the
     GSC property is a Domain property (`sc-domain:...`)."""
-    recent_posts = sitemap_utils.fetch_recent_posts(real_site_url, limit=MAX_RECENT_POSTS)
+    recent_posts = sitemap_utils.fetch_recent_posts_with_titles(real_site_url, limit=MAX_RECENT_POSTS)
     if not recent_posts:
         return []
 
@@ -272,14 +384,14 @@ def fetch_recent_post_performance(service, site_url: str, real_site_url: str) ->
     response = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
     by_page = {row["keys"][0]: row for row in response.get("rows", [])}
 
-    rows: list[tuple[str, str, int, int, float, float]] = []
-    for url, lastmod in recent_posts:
+    rows: list[tuple[str, str, int, int, float, float, str | None]] = []
+    for url, lastmod, title in recent_posts:
         match = by_page.get(url)
         clicks = int(match.get("clicks", 0)) if match else 0
         impressions = int(match.get("impressions", 0)) if match else 0
         ctr = round(float(match.get("ctr", 0.0)) * 100, 2) if match else 0.0
         position = round(float(match.get("position", 0.0)), 1) if match else 0.0
-        rows.append((url, lastmod, clicks, impressions, ctr, position))
+        rows.append((url, lastmod, clicks, impressions, ctr, position, title))
     return rows
 
 
@@ -359,12 +471,12 @@ def store_content_gaps(rows: list[tuple[str, str, float, int, int]]) -> None:
         )
 
 
-def store_recent_post_performance(rows: list[tuple[str, str, int, int, float, float]]) -> None:
+def store_recent_post_performance(rows: list[tuple[str, str, int, int, float, float, str | None]]) -> None:
     with dashboard_app.db() as con:
         con.execute("DELETE FROM content_posts_gsc")
         con.executemany(
-            "INSERT INTO content_posts_gsc (url, published_at, clicks, impressions, ctr, position, synced_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            "INSERT INTO content_posts_gsc (url, published_at, clicks, impressions, ctr, position, title, synced_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
             rows,
         )
 
@@ -407,8 +519,32 @@ def main() -> int:
     store_top_queries(top_queries)
     store_top_countries(countries)
     store_device_breakdown(devices)
+    if FALLBACK_NOTE:
+        log_sync(dashboard_app, "gsc_auth", "error", FALLBACK_NOTE)
+    elif env.get("GSC_OAUTH_REFRESH_TOKEN"):
+        # clears the "token expired" alert once the token works again
+        log_sync(dashboard_app, "gsc_auth", "ok", f"OAuth token valid ({site_url})")
     log_sync(dashboard_app, "gsc", "ok", f"{len(daily)} daily rows, {len(top_queries)} top queries, {len(countries)} countries, {len(devices)} devices")
     print(f"Search Console sync complete: {len(daily)} daily rows, {len(top_queries)} top queries, {len(countries)} countries, {len(devices)} devices.")
+
+    for dimension in DAILY_BREAKDOWNS:
+        try:
+            breakdown = fetch_daily_breakdown(service, site_url, dimension)
+            store_daily_breakdown(dimension, breakdown)
+            log_sync(dashboard_app, f"gsc_{dimension}_daily", "ok", f"{len(breakdown)} day/{dimension} rows")
+            print(f"Search Console per-day {dimension} rows: {len(breakdown)}.")
+        except Exception as error:  # noqa: BLE001 - best-effort, the summary falls back to the 180-day tables
+            log_sync(dashboard_app, f"gsc_{dimension}_daily", "skipped", str(error))
+            print(f"WARNING: per-day {dimension} breakdown skipped ({error})", file=sys.stderr)
+
+    try:
+        page_queries = fetch_page_queries(service, site_url)
+        store_page_queries(page_queries)
+        log_sync(dashboard_app, "gsc_page_queries", "ok", f"{len(page_queries)} page/query rows")
+        print(f"Search Console page/query snapshot: {len(page_queries)} rows.")
+    except Exception as error:  # noqa: BLE001 - best-effort
+        log_sync(dashboard_app, "gsc_page_queries", "skipped", str(error))
+        print(f"WARNING: page/query snapshot skipped ({error})", file=sys.stderr)
 
     try:
         urls = fetch_urls_to_inspect(real_site_url)

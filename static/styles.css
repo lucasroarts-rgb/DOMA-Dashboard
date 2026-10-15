@@ -24,6 +24,8 @@
   --series-b:#d95926;
   --series-c:#199e70;
   --series-other:#4d4d57;
+  --warn-ink:#f0b429;
+  --warn-soft:rgba(240,180,41,.12);
   --glow:0 0 0 1px rgba(255,255,255,.06), 0 20px 50px rgba(0,0,0,.45);
   --glow-bg:
     radial-gradient(ellipse 60rem 40rem at 50% -10%, rgba(212,175,55,.16), transparent 60%),
@@ -32,7 +34,7 @@
 
 :root[data-theme="light"]{
   --ink:#182033;
-  --muted:#6f7890;
+  --muted:#626b82; /* was #6f7890 (4.4:1 on white, just under WCAG AA) */
   --muted-2:#97a0b8;
   --line:#e8eaf1;
   --line-strong:#d7dbe8;
@@ -51,6 +53,8 @@
   --series-b:#eb6834;
   --series-c:#1baf7a;
   --series-other:#c3c2b7;
+  --warn-ink:#8a5a00;
+  --warn-soft:#fff6e0;
   --glow:0 14px 40px rgba(21,27,45,.08);
   --glow-bg:
     radial-gradient(ellipse 60rem 40rem at 50% -10%, rgba(212,175,55,.10), transparent 60%);
@@ -555,3 +559,21 @@ tr:hover td{background:rgba(128,128,128,.06)}
   .donut-wrap{gap:16px}
   .donut-svg{width:140px;height:140px}
 }
+
+/* 2026-10-15 review fixes: warnings, sponsor toggle, small charts, orders */
+[hidden]{display:none !important}
+.card-warn{display:inline-block;margin-top:4px;padding:2px 7px;border-radius:6px;background:var(--warn-soft);color:var(--warn-ink);font-size:11.5px;font-weight:650;line-height:1.4}
+.chart-box-sm{min-height:160px}
+.brand-note{margin:-4px 0 16px;font-size:12.5px}
+.gap-toggle-wrap:empty{display:none}
+.gap-toggle-wrap{margin:-6px 0 10px}
+.gap-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);font-weight:650;cursor:pointer;min-height:32px}
+.gap-toggle input{width:16px;height:16px;accent-color:var(--teal)}
+.gap-action{font-weight:650;color:var(--ink)}
+.query-list{margin:0;padding-left:16px;font-size:12.5px;line-height:1.55}
+.muted-inline{color:var(--muted);font-size:11.5px;margin-left:4px;white-space:nowrap}
+.inline-details{margin-top:14px}
+.inline-details summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:700;padding:8px 0;min-height:32px}
+.inline-details summary:focus-visible,.gap-toggle input:focus-visible{outline:2px solid var(--teal-2);outline-offset:2px}
+.sub-h{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin:4px 0 8px}
+.table-caption{caption-side:top;text-align:left;font-size:12px;color:var(--muted);font-weight:700;padding:0 0 8px}

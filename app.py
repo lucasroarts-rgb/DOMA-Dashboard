@@ -13,10 +13,12 @@ leads) is tracked. See README.md before removing this comment.
 from __future__ import annotations
 
 import base64
+import html
 import hmac
 import io
 import mimetypes
 import os
+import re
 import sqlite3
 import tempfile
 from contextlib import contextmanager
@@ -549,6 +551,130 @@ def init_db() -> None:
         UNIQUE(platform, post_id)
     );
 
+    -- Per-day GSC breakdowns (2026-10-15) so the SEO tab's top lists follow
+    -- the chosen range instead of a fixed 180-day snapshot. The old
+    -- search_console_queries / gsc_countries / gsc_devices tables stay as a
+    -- fallback while these are empty.
+    CREATE TABLE IF NOT EXISTS search_console_query_daily (
+        report_date TEXT NOT NULL,
+        query TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, query)
+    );
+
+    CREATE TABLE IF NOT EXISTS gsc_country_daily (
+        report_date TEXT NOT NULL,
+        country TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, country)
+    );
+
+    CREATE TABLE IF NOT EXISTS gsc_device_daily (
+        report_date TEXT NOT NULL,
+        device TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, device)
+    );
+
+    CREATE TABLE IF NOT EXISTS gsc_page_daily (
+        report_date TEXT NOT NULL,
+        page TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, page)
+    );
+
+    -- [page, query] over the last 90 days, one snapshot (not per day): a
+    -- [date, page, query] pull is several hundred thousand rows for little gain.
+    CREATE TABLE IF NOT EXISTS gsc_page_queries (
+        page TEXT NOT NULL,
+        query TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        impressions INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (page, query)
+    );
+
+    -- Every published WordPress post (path + real title), so "blog post"
+    -- means an actual post, not anything under /post/ (speaker directory and
+    -- events also live there).
+    CREATE TABLE IF NOT EXISTS wp_posts (
+        page_path TEXT PRIMARY KEY,
+        title TEXT,
+        published_at TEXT,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Free-guide landing pages = WP pages that embed a GoHighLevel form (same
+    -- rule as C:\\DOMA-blog-migration\\75_resources_free_guides.py).
+    CREATE TABLE IF NOT EXISTS free_guide_pages (
+        page_path TEXT PRIMARY KEY,
+        title TEXT,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS ga4_page_conversions_daily (
+        report_date TEXT NOT NULL,
+        page_path TEXT NOT NULL,
+        sessions INTEGER NOT NULL DEFAULT 0,
+        key_events REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, page_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS competitor_pagespeed (
+        competitor_name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        performance_score INTEGER,
+        lcp_ms REAL,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (url)
+    );
+
+    CREATE TABLE IF NOT EXISTS competitor_podcast_episodes (
+        competitor_name TEXT NOT NULL,
+        title TEXT NOT NULL,
+        published_at TEXT,
+        url TEXT NOT NULL,
+        synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (competitor_name, url)
+    );
+
+    -- GoHighLevel payments, aggregates only (no contact data). source_group
+    -- is the buyer's lead-source group, looked up in memory during the sync.
+    CREATE TABLE IF NOT EXISTS ghl_orders_daily (
+        report_date TEXT NOT NULL,
+        product TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_group TEXT NOT NULL DEFAULT 'Other',
+        orders INTEGER NOT NULL DEFAULT 0,
+        amount REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, product, status, source_group)
+    );
+
+    CREATE TABLE IF NOT EXISTS ghl_refunds_daily (
+        report_date TEXT NOT NULL,
+        product TEXT NOT NULL,
+        refunded REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, product)
+    );
+
+    CREATE TABLE IF NOT EXISTS ghl_subscriptions_snapshot (
+        snapshot_date TEXT NOT NULL,
+        product TEXT NOT NULL,
+        status TEXT NOT NULL,
+        count INTEGER NOT NULL DEFAULT 0,
+        monthly_amount REAL NOT NULL DEFAULT 0,
+        PRIMARY KEY (snapshot_date, product, status)
+    );
+
     CREATE TABLE IF NOT EXISTS sync_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source TEXT NOT NULL,
@@ -573,6 +699,9 @@ def init_db() -> None:
             con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN title_tag_count INTEGER NOT NULL DEFAULT 1")
         if "meta_desc_tag_count" not in onpage_columns:
             con.execute("ALTER TABLE seo_onpage_audit ADD COLUMN meta_desc_tag_count INTEGER NOT NULL DEFAULT 1")
+        for table in ("content_posts_gsc", "content_posts_ga4"):
+            if "title" not in {row["name"] for row in con.execute(f"PRAGMA table_info({table})").fetchall()}:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN title TEXT")
         action_item_columns = {row["name"] for row in con.execute("PRAGMA table_info(team_action_items)").fetchall()}
         if "topic" not in action_item_columns:
             con.execute("ALTER TABLE team_action_items ADD COLUMN topic TEXT")
@@ -641,20 +770,32 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         for row in daily_rows
     ]
 
-    query_rows = con.execute(
-        "SELECT query, clicks, impressions, ctr, position FROM search_console_queries "
-        "ORDER BY clicks DESC LIMIT 25"
-    ).fetchall()
-    top_queries = [
-        {
-            "query": row[0],
-            "clicks": int(row[1] or 0),
-            "impressions": int(row[2] or 0),
-            "ctr": float(row[3] or 0),
-            "position": float(row[4] or 0),
-        }
-        for row in query_rows
-    ]
+    top_queries = _gsc_range_breakdown(con, "search_console_query_daily", "query", start_date, end_date, 25)
+    if top_queries is None:
+        top_queries = [
+            {"query": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
+            for row in con.execute(
+                "SELECT query, clicks, impressions, ctr, position FROM search_console_queries ORDER BY clicks DESC LIMIT 25"
+            ).fetchall()
+        ]
+    countries = _gsc_range_breakdown(con, "gsc_country_daily", "country", start_date, end_date, 15)
+    if countries is None:
+        countries = [
+            {"country": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
+            for row in con.execute(
+                "SELECT country, clicks, impressions, ctr, position FROM gsc_countries ORDER BY clicks DESC LIMIT 15"
+            ).fetchall()
+        ]
+    for row in countries:
+        row["country_name"] = COUNTRY_NAMES.get(str(row["country"]).upper(), str(row["country"]).upper())
+    devices = _gsc_range_breakdown(con, "gsc_device_daily", "device", start_date, end_date, 10)
+    if devices is None:
+        devices = [
+            {"device": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
+            for row in con.execute(
+                "SELECT device, clicks, impressions, ctr, position FROM gsc_devices ORDER BY clicks DESC"
+            ).fetchall()
+        ]
 
     return {
         "available": impressions > 0,
@@ -669,19 +810,135 @@ def search_console_summary(con: sqlite3.Connection, start_date: str, end_date: s
         "content_gaps": content_gap_summary(con),
         "onpage_audit": seo_onpage_summary(con),
         "pagespeed": pagespeed_summary(con),
-        "countries": [
-            {"country": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
-            for row in con.execute(
-                "SELECT country, clicks, impressions, ctr, position FROM gsc_countries ORDER BY clicks DESC LIMIT 15"
-            ).fetchall()
-        ],
-        "devices": [
-            {"device": row[0], "clicks": int(row[1] or 0), "impressions": int(row[2] or 0), "ctr": float(row[3] or 0), "position": float(row[4] or 0)}
-            for row in con.execute(
-                "SELECT device, clicks, impressions, ctr, position FROM gsc_devices ORDER BY clicks DESC"
-            ).fetchall()
-        ],
+        "countries": countries,
+        "devices": devices,
+        "nonbrand": _gsc_nonbrand(con, start_date, end_date, clicks, impressions),
+        "queries_by_page": _gsc_queries_by_page(con, start_date, end_date),
     }
+
+
+# Brand searches inflate clicks without saying anything about SEO growth.
+# Matched case-insensitively against the GSC query text: the DOMA name and
+# its long forms, the domain typed as words, Kyle Summerford (founder) and
+# Dental Manager Connect (DOMA's old name).
+BRAND_QUERY_RE = re.compile(
+    r"\bdoma\b|dental\s*office\s*managers?\s*(alliance|association)|dentalofficemanagers"
+    r"|kyle\s+summerford|summerford|dental\s+manager\s+connect",
+    re.IGNORECASE,
+)
+
+# GSC reports countries as lowercase ISO-3166 alpha-3 codes.
+COUNTRY_NAMES = {
+    "USA": "United States", "CAN": "Canada", "GBR": "United Kingdom", "AUS": "Australia", "IND": "India",
+    "PHL": "Philippines", "PAK": "Pakistan", "NGA": "Nigeria", "KEN": "Kenya", "ZAF": "South Africa",
+    "MEX": "Mexico", "BRA": "Brazil", "ARG": "Argentina", "DEU": "Germany", "FRA": "France", "ESP": "Spain",
+    "ITA": "Italy", "NLD": "Netherlands", "IRL": "Ireland", "NZL": "New Zealand", "ROU": "Romania",
+    "POL": "Poland", "PRT": "Portugal", "GRC": "Greece", "HRV": "Croatia", "EST": "Estonia", "CHE": "Switzerland",
+    "SWE": "Sweden", "NOR": "Norway", "DNK": "Denmark", "FIN": "Finland", "BEL": "Belgium", "AUT": "Austria",
+    "ISR": "Israel", "EGY": "Egypt", "DZA": "Algeria", "MAR": "Morocco", "GHA": "Ghana", "ARE": "United Arab Emirates",
+    "SAU": "Saudi Arabia", "TUR": "Turkey", "CHN": "China", "JPN": "Japan", "KOR": "South Korea", "SGP": "Singapore",
+    "MYS": "Malaysia", "IDN": "Indonesia", "VNM": "Vietnam", "THA": "Thailand", "BGD": "Bangladesh", "LKA": "Sri Lanka",
+    "NPL": "Nepal", "PRI": "Puerto Rico", "BRB": "Barbados", "JAM": "Jamaica", "TTO": "Trinidad and Tobago",
+    "DOM": "Dominican Republic", "COL": "Colombia", "PER": "Peru", "CHL": "Chile", "VEN": "Venezuela",
+    "ECU": "Ecuador", "UKR": "Ukraine", "RUS": "Russia", "ATA": "Antarctica", "ZZZ": "Unknown region",
+    "GUY": "Guyana", "LCA": "Saint Lucia", "BHS": "Bahamas", "BLZ": "Belize", "CRI": "Costa Rica", "PAN": "Panama",
+    "GTM": "Guatemala", "HND": "Honduras", "SLV": "El Salvador", "CUB": "Cuba", "HTI": "Haiti", "BMU": "Bermuda",
+    "CYM": "Cayman Islands", "VIR": "U.S. Virgin Islands", "GUM": "Guam", "ETH": "Ethiopia", "UGA": "Uganda",
+    "TZA": "Tanzania", "ZWE": "Zimbabwe", "ZMB": "Zambia", "CMR": "Cameroon", "TUN": "Tunisia", "JOR": "Jordan",
+    "LBN": "Lebanon", "IRQ": "Iraq", "IRN": "Iran", "KWT": "Kuwait", "QAT": "Qatar", "OMN": "Oman", "BHR": "Bahrain",
+    "HKG": "Hong Kong", "TWN": "Taiwan", "CZE": "Czechia", "HUN": "Hungary", "SVK": "Slovakia", "SVN": "Slovenia",
+    "SRB": "Serbia", "BGR": "Bulgaria", "LTU": "Lithuania", "LVA": "Latvia", "ISL": "Iceland", "CYP": "Cyprus",
+    "MLT": "Malta", "LUX": "Luxembourg", "ALB": "Albania", "BIH": "Bosnia and Herzegovina", "MKD": "North Macedonia",
+    "GEO": "Georgia", "ARM": "Armenia", "AZE": "Azerbaijan", "KAZ": "Kazakhstan", "UZB": "Uzbekistan", "AFG": "Afghanistan",
+    "MMR": "Myanmar", "KHM": "Cambodia", "URY": "Uruguay", "PRY": "Paraguay", "BOL": "Bolivia", "NIC": "Nicaragua",
+}
+
+
+def _gsc_range_breakdown(con: sqlite3.Connection, table: str, key: str, start_date: str, end_date: str, limit: int) -> list[dict[str, Any]] | None:
+    """Top rows of a per-day GSC table summed over the range. Returns None
+    while the table is empty, so the caller can fall back to the old
+    180-day snapshot table."""
+    if not con.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone():
+        return None
+    rows = con.execute(
+        f"SELECT {key}, SUM(clicks), SUM(impressions), SUM(position * impressions) FROM {table} "
+        f"WHERE report_date BETWEEN ? AND ? GROUP BY {key} ORDER BY SUM(clicks) DESC, SUM(impressions) DESC LIMIT ?",
+        (start_date, end_date, limit),
+    ).fetchall()
+    out = []
+    for value, clicks, impressions, weighted in rows:
+        clicks, impressions = int(clicks or 0), int(impressions or 0)
+        out.append({
+            key: value,
+            "clicks": clicks,
+            "impressions": impressions,
+            "ctr": round(clicks / impressions * 100, 2) if impressions else 0.0,
+            "position": round(float(weighted or 0) / impressions, 1) if impressions else 0.0,
+        })
+    return out
+
+
+def _gsc_nonbrand(con: sqlite3.Connection, start_date: str, end_date: str, total_clicks: int, total_impressions: int) -> dict[str, Any] | None:
+    """Clicks/impressions without brand searches. GSC hides rare (anonymized)
+    queries from the per-query report, and those are almost never brand, so
+    non-brand = site total minus brand queries, not the sum of the visible
+    non-brand queries (that would undercount by the anonymized share).
+    Position is impression-weighted over the visible non-brand queries."""
+    if not con.execute("SELECT 1 FROM search_console_query_daily LIMIT 1").fetchone():
+        return None
+    brand_clicks = brand_impressions = 0
+    nb_impressions = 0
+    nb_weighted = 0.0
+    for query, clicks, impressions, weighted in con.execute(
+        "SELECT query, SUM(clicks), SUM(impressions), SUM(position * impressions) FROM search_console_query_daily "
+        "WHERE report_date BETWEEN ? AND ? GROUP BY query",
+        (start_date, end_date),
+    ):
+        if BRAND_QUERY_RE.search(query or ""):
+            brand_clicks += int(clicks or 0)
+            brand_impressions += int(impressions or 0)
+        else:
+            nb_impressions += int(impressions or 0)
+            nb_weighted += float(weighted or 0)
+    clicks = max(total_clicks - brand_clicks, 0)
+    impressions = max(total_impressions - brand_impressions, 0)
+    return {
+        "clicks": clicks,
+        "impressions": impressions,
+        "ctr": round(clicks / impressions * 100, 2) if impressions else 0.0,
+        "position": round(nb_weighted / nb_impressions, 1) if nb_impressions else 0.0,
+        "brand_clicks": brand_clicks,
+    }
+
+
+def _gsc_queries_by_page(con: sqlite3.Connection, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """Top 10 pages by impressions in the range (gsc_page_daily), each with
+    its top 5 queries. The queries come from the 90-day [page, query]
+    snapshot (gsc_page_queries), not the range: see the table comment."""
+    pages = con.execute(
+        "SELECT page, SUM(clicks), SUM(impressions), SUM(position * impressions) FROM gsc_page_daily "
+        "WHERE report_date BETWEEN ? AND ? GROUP BY page ORDER BY SUM(impressions) DESC LIMIT 10",
+        (start_date, end_date),
+    ).fetchall()
+    out = []
+    for page, clicks, impressions, weighted in pages:
+        impressions = int(impressions or 0)
+        queries = [
+            {"query": q, "clicks": int(c or 0), "impressions": int(i or 0), "position": round(float(p or 0), 1)}
+            for q, c, i, p in con.execute(
+                "SELECT query, clicks, impressions, position FROM gsc_page_queries WHERE page = ? "
+                "ORDER BY impressions DESC LIMIT 5",
+                (page,),
+            )
+        ]
+        out.append({
+            "page": page,
+            "clicks": int(clicks or 0),
+            "impressions": impressions,
+            "position": round(float(weighted or 0) / impressions, 1) if impressions else 0.0,
+            "queries": queries,
+        })
+    return out
 
 
 # Coverage states from the URL Inspection API that mean the page is fine
@@ -769,14 +1026,28 @@ def content_suggestions_summary(con: sqlite3.Connection) -> dict[str, Any]:
             for row in rows
         ]
 
-    # Slugs alone aren't consistent ("the-10-reports-..." has no "ebook" in
-    # its URL, only in its title's "Free Guide" suffix) - match either field,
-    # excluding thank-you/conversion pages that also mention "free".
-    top_ebooks = _top_pages(
-        "(page_path LIKE ? OR page_title LIKE ? OR page_title LIKE ?) AND page_path NOT LIKE '%thank-you%'",
-        ("%ebook%", "%ebook%", "%guide%"),
-    )
-    top_blog_posts = _top_pages("page_path LIKE ?", ("/post/%",))
+    # Free guides = WP pages with a GHL form (free_guide_pages, filled by
+    # sync_ga4). Matching "guide" in the title pulled in the management guide,
+    # the salary guide, D4260 and a sponsor review (review of 2026-10-15).
+    # The title match stays only as a fallback until that table is filled.
+    if con.execute("SELECT 1 FROM free_guide_pages LIMIT 1").fetchone():
+        top_ebooks = _top_pages("page_path IN (SELECT page_path FROM free_guide_pages)", ())
+    else:
+        top_ebooks = _top_pages(
+            "(page_path LIKE ? OR page_title LIKE ? OR page_title LIKE ?) AND page_path NOT LIKE '%thank-you%'",
+            ("%ebook%", "%ebook%", "%guide%"),
+        )
+    # Real posts only: /post/speaker-directory/* and /post/events/* are other
+    # post types that share the /post/ prefix.
+    if con.execute("SELECT 1 FROM wp_posts LIMIT 1").fetchone():
+        top_blog_posts = _top_pages("page_path IN (SELECT page_path FROM wp_posts)", ())
+    else:
+        top_blog_posts = _top_pages(
+            "page_path LIKE '/post/%' AND page_path NOT LIKE '/post/speaker-directory/%' AND page_path NOT LIKE '/post/events/%'", ()
+        )
+    titles = _page_titles(con)
+    for row in top_ebooks + top_blog_posts:
+        row["page_title"] = titles.get(row["page_path"]) or clean_page_title(row["page_path"], row["page_title"])
     best_post_times = _instagram_best_times(_fetch_recent_social_posts(con))
 
     return {
@@ -797,12 +1068,82 @@ def content_gap_summary(con: sqlite3.Connection) -> dict[str, Any]:
         "SELECT query, page, position, impressions, clicks FROM gsc_content_gaps "
         "ORDER BY impressions DESC LIMIT 30"
     ).fetchall()
-    gaps = [
-        {"query": row[0], "page": row[1], "position": float(row[2] or 0), "impressions": int(row[3] or 0), "clicks": int(row[4] or 0)}
-        for row in rows
-    ]
+    titles = _page_titles(con)
+    gaps = []
+    for query, page, position, impressions, clicks in rows:
+        position, impressions, clicks = float(position or 0), int(impressions or 0), int(clicks or 0)
+        path = urlsplit(page or "").path or "/"
+        path = path if path.endswith("/") else path + "/"  # GSC mixes /offers and /offers/
+        gaps.append({
+            "query": query,
+            "page": page,
+            "position": position,
+            "impressions": impressions,
+            "clicks": clicks,
+            "relevant": _gap_is_relevant(query, path),
+            "action": _gap_action(path, position, clicks, impressions, titles),
+        })
+    # relevant gaps first, so the top 10 in Content Suggestions is real pauta
+    gaps.sort(key=lambda g: (not g["relevant"], -g["impressions"]))
     checked_at_row = con.execute("SELECT MAX(synced_at) FROM gsc_content_gaps").fetchone()
     return {"available": bool(gaps), "gaps": gaps, "checked_at": checked_at_row[0] if checked_at_row else None}
+
+
+# Pages that rank for vendor searches because sponsors are listed there, not
+# because DOMA wrote about the topic: /offers/ (sponsor deals), the partner
+# pages, and sponsor review posts ("...-review", "...-review-2026").
+SPONSOR_PATH_RE = re.compile(r"^/(offers|partner|influence-alliance|sponsors?)(/|$)|-review(-\d{4})?/?$", re.IGNORECASE)
+# Searches for a vendor's marketing package or price ("dental cmo pricing",
+# "all in one dental marketing package") are not DOMA topics.
+VENDOR_QUERY_RE = re.compile(r"\b(pricing|prices?|packages?|marketing|cmo|agency|gift cards?)\b", re.IGNORECASE)
+# Listing pages: when one of these is the best page, no page targets the query.
+LISTING_PATHS = {"/", "/home/", "/blog/", "/events/", "/offers/", "/forms/", "/speaker-directory/", "/podcast/", "/courses/"}
+
+
+def _gap_is_relevant(query: str, path: str) -> bool:
+    return not (SPONSOR_PATH_RE.search(path) or VENDOR_QUERY_RE.search(query or ""))
+
+
+def _gap_action(path: str, position: float, clicks: int, impressions: int, titles: dict[str, str]) -> str:
+    """What to do with a gap. Past position 10, a listing page as best page
+    means nothing targets the query (new post); a dedicated page gets
+    strengthened, also past 30, since it still beats starting over."""
+    if position <= 10:
+        ctr = clicks / impressions * 100 if impressions else 0.0
+        return "Improve title/meta" if ctr < 2 else "Keep"
+    targeted = path not in LISTING_PATHS and "/category/" not in path and "/tag/" not in path
+    if not targeted:
+        return "New post"
+    return f"Strengthen {titles.get(path) or title_from_path(path)}"
+
+
+def _page_titles(con: sqlite3.Connection) -> dict[str, str]:
+    """path -> best known title: WordPress title first, then the cleaned GA4 one."""
+    titles = {row[0]: clean_page_title(row[0], row[1]) for row in con.execute("SELECT page_path, page_title FROM ga4_top_pages")}
+    titles.update({row[0]: row[1] for row in con.execute("SELECT page_path, title FROM free_guide_pages WHERE title IS NOT NULL")})
+    titles.update({row[0]: row[1] for row in con.execute("SELECT page_path, title FROM wp_posts WHERE title IS NOT NULL")})
+    return titles
+
+
+def title_from_path(path: str) -> str:
+    slug = [part for part in (path or "").split("/") if part]
+    if not slug:
+        return "Home"
+    return re.sub(r"[-_]+", " ", slug[-1]).strip().capitalize()
+
+
+# GA4 keeps the <title> a page had when it was visited, site suffix included.
+# "/" was once "Dental AI Event Anaheim 2026 | ...", so it is always "Home".
+TITLE_SUFFIX_RE = re.compile(r"\s*(-\s*Dental Office Managers Alliance\s*)?\|\s*DOMA\s*$", re.IGNORECASE)
+
+
+def clean_page_title(path: str, title: str | None) -> str | None:
+    if path in ("/", "/home/"):
+        return "Home"
+    if not title:
+        return title
+    cleaned = TITLE_SUFFIX_RE.sub("", html.unescape(title)).strip()
+    return cleaned or title
 
 
 # Findings a human should look at - anything short of "healthy" on any of
@@ -919,7 +1260,9 @@ def pagespeed_summary(con: sqlite3.Connection) -> dict[str, Any]:
                 "tbt_ms": row[7],
                 "fcp_ms": row[8],
                 "speed_index_ms": row[9],
-                "console_errors": json.loads(row[10]) if row[10] else [],
+                # Lighthouse sometimes records blank entries; a list of empty
+                # strings used to raise a "throws console errors" alert.
+                "console_errors": [e for e in (json.loads(row[10]) if row[10] else []) if str(e).strip()],
                 "top_opportunities": json.loads(row[11]) if row[11] else [],
                 "checked_at": row[12],
             }
@@ -1131,26 +1474,43 @@ def ahrefs_issues_summary(con: sqlite3.Connection) -> dict[str, Any]:
 
 def competitor_content_summary(con: sqlite3.Connection, per_competitor: int = 8) -> dict[str, Any]:
     """Most recently updated/published pages per tracked competitor, sorted
-    by the competitor's own sitemap `lastmod` (a real timestamp from their
-    site) rather than `first_seen_at` (just "when our crawler noticed it,"
-    which is meaningless on the very first sync - everything looks equally
-    "new"). `lastmod` is missing on some sites, so those pages sort last
-    within their own competitor rather than being dropped. Capped per
-    competitor (not a single global top-N) so a competitor with a much
-    larger/more-recently-touched sitemap can't crowd out the other one."""
+    by the competitor's own sitemap `lastmod` rather than `first_seen_at`.
+    `lastmod` is missing on some sites, so those pages sort last within
+    their own competitor rather than being dropped. Capped per competitor so
+    one big sitemap can't crowd out the others.
+
+    Bulk-stamped lastmods are dropped: when more than BULK_LASTMOD_MIN URLs
+    of one competitor share the same lastmod day, that day is a sitemap
+    rebuild (Dental A Team stamps every podcast page with the fetch day), not
+    real edits. This is a bit wider than "lastmod = fetch day": Weave stamped
+    136 pages with the day before our fetch.
+
+    `new_pages` is the cleaner signal: pages first seen after the
+    competitor's baseline, see _competitor_baseline_days."""
     rows = con.execute(
         """
+        WITH bulk AS (
+            SELECT competitor_name, substr(lastmod, 1, 10) AS day FROM competitor_pages
+            WHERE lastmod IS NOT NULL AND lastmod <> ''
+            GROUP BY competitor_name, substr(lastmod, 1, 10) HAVING COUNT(*) > ?
+        )
         SELECT competitor_name, domain, url, lastmod, first_seen_at FROM (
-            SELECT *, ROW_NUMBER() OVER (
-                PARTITION BY competitor_name
-                ORDER BY (lastmod IS NULL OR lastmod = ''), lastmod DESC
+            SELECT p.*, ROW_NUMBER() OVER (
+                PARTITION BY p.competitor_name
+                -- a lastmod in the future (Dental A Team stamps 2020 podcasts with
+                -- next month's date) or before 2000 (1970 epoch) counts as missing
+                ORDER BY (p.lastmod IS NULL OR p.lastmod = '' OR substr(p.lastmod, 1, 10) > date('now')
+                          OR substr(p.lastmod, 1, 4) < '2000'), p.lastmod DESC
             ) AS rn
-            FROM competitor_pages
+            FROM competitor_pages p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM bulk b WHERE b.competitor_name = p.competitor_name AND b.day = substr(p.lastmod, 1, 10)
+            )
         )
         WHERE rn <= ?
         ORDER BY competitor_name, rn
         """,
-        (per_competitor,),
+        (BULK_LASTMOD_MIN, per_competitor),
     ).fetchall()
     pages = [
         {"competitor_name": row[0], "domain": row[1], "url": row[2], "lastmod": row[3], "first_seen_at": row[4]}
@@ -1163,9 +1523,72 @@ def competitor_content_summary(con: sqlite3.Connection, per_competitor: int = 8)
     return {
         "available": bool(pages) or bool(totals),
         "recent_pages": pages,
+        "new_pages": _competitor_new_pages(con),
         "totals": [{"competitor_name": row[0], "total_pages_tracked": row[1]} for row in totals],
+        "pagespeed": [
+            {"competitor_name": r[0], "url": r[1], "performance_score": r[2], "lcp_ms": r[3], "checked_at": r[4]}
+            for r in con.execute(
+                "SELECT competitor_name, url, performance_score, lcp_ms, checked_at FROM competitor_pagespeed "
+                "ORDER BY performance_score DESC"
+            )
+        ],
+        "podcasts": [
+            {"competitor_name": r[0], "title": r[1], "published_at": r[2], "url": r[3]}
+            for r in con.execute(
+                "SELECT competitor_name, title, published_at, url FROM ("
+                " SELECT *, ROW_NUMBER() OVER (PARTITION BY competitor_name ORDER BY published_at DESC) AS rn"
+                " FROM competitor_podcast_episodes) WHERE rn <= 5 ORDER BY competitor_name, published_at DESC"
+            )
+        ],
         "checked_at": checked_at_row[0] if checked_at_row else None,
     }
+
+
+BULK_LASTMOD_MIN = 20
+# A day on which one competitor gained more than this many "new" URLs is a
+# crawl change on our side (MAX_URLS went from 800 to 4000 on 2026-10-15 and
+# Dental A Team got 1,100 old pages at once), not new content.
+BULK_DISCOVERY_MIN = 50
+NEW_PAGES_DAYS = 30
+
+
+def _competitor_baseline_days(con: sqlite3.Connection) -> dict[str, set[str]]:
+    """Days whose first-seen pages are baseline, per competitor: the first
+    sync day, plus any day with a bulk discovery (see BULK_DISCOVERY_MIN)."""
+    days: dict[str, set[str]] = {}
+    for name, day, count, first_day in con.execute(
+        "SELECT competitor_name, date(first_seen_at), COUNT(*), "
+        "(SELECT MIN(date(first_seen_at)) FROM competitor_pages p2 WHERE p2.competitor_name = p.competitor_name) "
+        "FROM competitor_pages p GROUP BY competitor_name, date(first_seen_at)"
+    ):
+        if day == first_day or count > BULK_DISCOVERY_MIN:
+            days.setdefault(name, set()).add(day)
+    return days
+
+
+def _competitor_new_pages(con: sqlite3.Connection, limit: int = 40) -> list[dict[str, Any]]:
+    """Pages first seen in the last NEW_PAGES_DAYS days, outside baseline days, newest first."""
+    baseline = _competitor_baseline_days(con)
+    since = (date.today() - timedelta(days=NEW_PAGES_DAYS)).isoformat()
+    out = []
+    for name, domain, url, lastmod, first_seen in con.execute(
+        "SELECT competitor_name, domain, url, lastmod, first_seen_at FROM competitor_pages "
+        "WHERE date(first_seen_at) >= ? ORDER BY first_seen_at DESC",
+        (since,),
+    ):
+        if first_seen[:10] in baseline.get(name, set()):
+            continue
+        out.append({
+            "competitor_name": name,
+            "domain": domain,
+            "url": url,
+            "title": title_from_path(urlsplit(url).path),
+            "first_seen_at": first_seen,
+            "lastmod": lastmod,
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 def serp_competitors_summary(con: sqlite3.Connection) -> dict[str, Any]:
@@ -1197,41 +1620,45 @@ def serp_competitors_summary(con: sqlite3.Connection) -> dict[str, Any]:
 
 
 def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
-    """Latest blog posts (from the sitemap) joined with their GA4 + Search
+    """Latest blog posts (WordPress REST API) joined with their GA4 + Search
     Console performance - answers "how is the post I published last week
     actually doing" without needing it to already be a top-30/top-50 entry
-    elsewhere."""
+    elsewhere. A post missing from one side comes back with null for that
+    side's numbers (not 0), so the UI can show "-" instead of a fake zero."""
     ga4_rows = {
-        row[0]: {"sessions": int(row[2] or 0), "page_views": int(row[3] or 0), "active_users": int(row[4] or 0), "avg_engagement_seconds": float(row[5] or 0)}
+        row[0]: {"sessions": int(row[2] or 0), "page_views": int(row[3] or 0), "avg_engagement_seconds": float(row[5] or 0), "title": row[6]}
         for row in con.execute(
-            "SELECT url, published_at, sessions, page_views, active_users, avg_engagement_seconds FROM content_posts_ga4"
+            "SELECT url, published_at, sessions, page_views, active_users, avg_engagement_seconds, title FROM content_posts_ga4"
         ).fetchall()
     }
     gsc_rows = {
-        row[0]: {"clicks": int(row[2] or 0), "impressions": int(row[3] or 0), "ctr": float(row[4] or 0), "position": float(row[5] or 0)}
+        row[0]: {"clicks": int(row[2] or 0), "impressions": int(row[3] or 0), "position": float(row[5] or 0), "title": row[6]}
         for row in con.execute(
-            "SELECT url, published_at, clicks, impressions, ctr, position FROM content_posts_gsc"
+            "SELECT url, published_at, clicks, impressions, ctr, position, title FROM content_posts_gsc"
         ).fetchall()
     }
     published_dates = {
         row[0]: row[1]
         for row in con.execute("SELECT url, published_at FROM content_posts_gsc UNION SELECT url, published_at FROM content_posts_ga4").fetchall()
     }
+    wp_titles = {row[0]: row[1] for row in con.execute("SELECT page_path, title FROM wp_posts WHERE title IS NOT NULL")}
 
     posts = []
     for url, published_at in published_dates.items():
-        ga4 = ga4_rows.get(url, {})
-        gsc = gsc_rows.get(url, {})
+        ga4 = ga4_rows.get(url)
+        gsc = gsc_rows.get(url)
+        title = (ga4 or {}).get("title") or (gsc or {}).get("title") or wp_titles.get(urlsplit(url).path)
         posts.append(
             {
                 "url": url,
+                "title": title,
                 "published_at": published_at,
-                "sessions": ga4.get("sessions", 0),
-                "page_views": ga4.get("page_views", 0),
-                "avg_engagement_seconds": ga4.get("avg_engagement_seconds", 0),
-                "clicks": gsc.get("clicks", 0),
-                "impressions": gsc.get("impressions", 0),
-                "position": gsc.get("position", 0),
+                "sessions": ga4["sessions"] if ga4 else None,
+                "page_views": ga4["page_views"] if ga4 else None,
+                "avg_engagement_seconds": ga4["avg_engagement_seconds"] if ga4 else None,
+                "clicks": gsc["clicks"] if gsc else None,
+                "impressions": gsc["impressions"] if gsc else None,
+                "position": gsc["position"] if gsc else None,
             }
         )
     posts.sort(key=lambda p: p["published_at"] or "", reverse=True)
@@ -1277,7 +1704,7 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
     top_pages = [
         {
             "page_path": row[0],
-            "page_title": row[1],
+            "page_title": clean_page_title(row[0], row[1]),
             "sessions": int(row[2] or 0),
             "active_users": int(row[3] or 0),
             "page_views": int(row[4] or 0),
@@ -1320,31 +1747,81 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
             ).fetchall()
         ],
         "last_synced_at": last_synced_at,
+        "conversions_by_page": _ga4_conversions_by_page(con, start_date, end_date),
+        "ai_assistant_daily": [
+            {"report_date": r[0], "sessions": int(r[1] or 0)}
+            for r in con.execute(
+                "SELECT report_date, sessions FROM ga4_channel_daily WHERE channel_group = 'AI Assistant' "
+                "AND report_date BETWEEN ? AND ? ORDER BY report_date",
+                (start_date, end_date),
+            )
+        ],
+        "email_sessions": int(con.execute(
+            "SELECT COALESCE(SUM(sessions), 0) FROM ga4_channel_daily WHERE channel_group = 'Email' AND report_date BETWEEN ? AND ?",
+            (start_date, end_date),
+        ).fetchone()[0]),
+        "undercount_overlap": start_date <= GA4_UNDERCOUNT_END and end_date >= GA4_UNDERCOUNT_START,
     }
+
+
+# The cookie banner (2026-09-11) only let GA4 count visitors who clicked
+# Accept until Consent Mode was fixed on 2026-10-05. Same window as
+# GA4_UNDERCOUNT_START/END in static/dashboard.js; keep the two in sync.
+GA4_UNDERCOUNT_START = "2026-09-11"
+GA4_UNDERCOUNT_END = "2026-10-04"
+
+
+def _ga4_conversions_by_page(con: sqlite3.Connection, start_date: str, end_date: str, limit: int = 15) -> list[dict[str, Any]]:
+    """Key events (guide sign-ups, membership) by landing page for the range,
+    so a page is judged by what it converts and not only by sessions."""
+    rows = con.execute(
+        "SELECT page_path, SUM(sessions), SUM(key_events) FROM ga4_page_conversions_daily "
+        "WHERE report_date BETWEEN ? AND ? AND page_path NOT IN ('(not set)', '') "
+        "GROUP BY page_path HAVING SUM(key_events) > 0 ORDER BY SUM(key_events) DESC, SUM(sessions) DESC LIMIT ?",
+        (start_date, end_date, limit),
+    ).fetchall()
+    titles = _page_titles(con)
+    return [
+        {
+            "page_path": path,
+            "page_title": titles.get(path) or title_from_path(path),
+            "sessions": int(sessions or 0),
+            "key_events": round(float(key_events or 0), 1),
+            "rate": round(float(key_events or 0) / sessions * 100, 1) if sessions else 0.0,
+        }
+        for path, sessions, key_events in rows
+    ]
 
 
 def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
     import json
+
+    # The 2026-07-20 ActiveCampaign CSV import is the old list moved into GHL,
+    # not new leads, so it stays out of every lead count.
     total_row = con.execute(
         "SELECT COALESCE(SUM(lead_count),0), MAX(synced_at) FROM ghl_leads_daily "
-        "WHERE report_date BETWEEN ? AND ?",
+        "WHERE report_date BETWEEN ? AND ? AND source <> 'Imported (ActiveCampaign CSV)'",
         (start_date, end_date),
     ).fetchone()
     total_leads, last_synced_at = int(total_row[0] or 0), total_row[1]
 
     daily_rows = con.execute(
         "SELECT report_date, SUM(lead_count) FROM ghl_leads_daily "
-        "WHERE report_date BETWEEN ? AND ? GROUP BY report_date ORDER BY report_date",
+        "WHERE report_date BETWEEN ? AND ? AND source <> 'Imported (ActiveCampaign CSV)' GROUP BY report_date ORDER BY report_date",
         (start_date, end_date),
     ).fetchall()
     daily = [{"report_date": row[0], "lead_count": int(row[1] or 0)} for row in daily_rows]
 
     source_rows = con.execute(
         "SELECT source, SUM(lead_count) FROM ghl_leads_daily "
-        "WHERE report_date BETWEEN ? AND ? GROUP BY source ORDER BY SUM(lead_count) DESC",
+        "WHERE report_date BETWEEN ? AND ? AND source <> 'Imported (ActiveCampaign CSV)' GROUP BY source ORDER BY SUM(lead_count) DESC",
         (start_date, end_date),
     ).fetchall()
-    by_source = [{"source": row[0], "lead_count": int(row[1] or 0)} for row in source_rows]
+    by_source = [{"source": row[0], "lead_count": int(row[1] or 0), "group": lead_source_group(row[0])} for row in source_rows]
+    group_totals: dict[str, int] = {}
+    for row in by_source:
+        group_totals[row["group"]] = group_totals.get(row["group"], 0) + row["lead_count"]
+    by_group = [{"group": g, "lead_count": n} for g, n in sorted(group_totals.items(), key=lambda kv: -kv[1])]
 
     email_rows = con.execute(
         """
@@ -1407,9 +1884,101 @@ def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         "total_leads": total_leads,
         "daily": daily,
         "by_source": by_source,
+        "by_group": by_group,
+        "orders": ghl_orders_summary(con, start_date, end_date),
         "email_available": len(email_campaigns) > 0,
         "email_campaigns": email_campaigns,
         "last_synced_at": last_synced_at,
+    }
+
+
+# Lead source labels from GoHighLevel are form/funnel names typed by hand
+# ("02. Partner With Us!", "Ebook -Creating...", "payment_link"), so the
+# Leads tab groups them by type. Checked in order; first match wins.
+LEAD_SOURCE_GROUPS = [
+    # free starter kit form, incl. the home page pop-up version
+    ("Free Starter Kit", re.compile(r"starter kit", re.I)),
+    # partner/affiliate forms (the affiliate "Success Kit" form is a partner lead)
+    ("Partner / Affiliate", re.compile(r"partner|affiliate", re.I)),
+    # every guide form ("Ebook - ...", "...-eBook Form"), AI Guides and the insurance benefits guide
+    ("Ebooks", re.compile(r"e-?book|ai guides|maximizing dental insurance", re.I)),
+    # DMs that the GHL automations turn into contacts
+    ("Social DM", re.compile(r"instagram|facebook messenger|messenger|\bdm\b", re.I)),
+    # Wix community, community funnel/portal, "Join The Community"
+    ("Community", re.compile(r"community", re.I)),
+    # GHL payment links and membership checkouts
+    ("Purchase", re.compile(r"payment_link|membership|order form|checkout", re.I)),
+    ("Email / Phone", re.compile(r"inbound email|phone|sms|\bcall\b", re.I)),
+]
+
+
+def lead_source_group(source: str | None) -> str:
+    """Group for a raw GHL lead source label; events, imports and blanks are Other."""
+    for group, pattern in LEAD_SOURCE_GROUPS:
+        if pattern.search(source or ""):
+            return group
+    return "Other"
+
+
+def ghl_orders_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
+    """GoHighLevel orders for the range (live mode only, see sync_ghl.py).
+    Revenue counts completed orders; refunds come from transactions on the
+    day of the refund charge. Subscriptions are the latest snapshot taken on
+    or before the end of the range."""
+    totals = con.execute(
+        "SELECT COALESCE(SUM(orders), 0), "
+        "COALESCE(SUM(CASE WHEN status = 'completed' THEN orders END), 0), "
+        "COALESCE(SUM(CASE WHEN status = 'pending' THEN orders END), 0), "
+        "COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) "
+        "FROM ghl_orders_daily WHERE report_date BETWEEN ? AND ?",
+        (start_date, end_date),
+    ).fetchone()
+    refunded = con.execute(
+        "SELECT COALESCE(SUM(refunded), 0) FROM ghl_refunds_daily WHERE report_date BETWEEN ? AND ?",
+        (start_date, end_date),
+    ).fetchone()[0]
+    snapshot = con.execute(
+        "SELECT MAX(snapshot_date) FROM ghl_subscriptions_snapshot WHERE snapshot_date <= ?", (end_date,)
+    ).fetchone()[0]
+    active = con.execute(
+        "SELECT COALESCE(SUM(count), 0), COALESCE(SUM(monthly_amount), 0) FROM ghl_subscriptions_snapshot "
+        "WHERE snapshot_date = ? AND status IN ('active', 'trialing')",
+        (snapshot,),
+    ).fetchone()
+    return {
+        "available": bool(con.execute("SELECT 1 FROM ghl_orders_daily LIMIT 1").fetchone()),
+        "total_orders": int(totals[0]),
+        "completed": int(totals[1]),
+        "pending": int(totals[2]),
+        "revenue": round(float(totals[3]), 2),
+        "refunded": round(float(refunded or 0), 2),
+        "by_product": [
+            {"product": r[0], "orders": int(r[1]), "revenue": round(float(r[2] or 0), 2)}
+            for r in con.execute(
+                "SELECT product, SUM(orders), SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END) FROM ghl_orders_daily "
+                "WHERE report_date BETWEEN ? AND ? GROUP BY product ORDER BY SUM(orders) DESC",
+                (start_date, end_date),
+            )
+        ],
+        "daily": [
+            {"report_date": r[0], "orders": int(r[1]), "revenue": round(float(r[2] or 0), 2)}
+            for r in con.execute(
+                "SELECT report_date, SUM(orders), SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END) FROM ghl_orders_daily "
+                "WHERE report_date BETWEEN ? AND ? GROUP BY report_date ORDER BY report_date",
+                (start_date, end_date),
+            )
+        ],
+        "active_subscriptions": int(active[0]),
+        "mrr": round(float(active[1]), 2),
+        "subscriptions_snapshot_date": snapshot,
+        "by_lead_source": [
+            {"source_group": r[0], "orders": int(r[1])}
+            for r in con.execute(
+                "SELECT source_group, SUM(orders) FROM ghl_orders_daily WHERE report_date BETWEEN ? AND ? "
+                "GROUP BY source_group ORDER BY SUM(orders) DESC",
+                (start_date, end_date),
+            )
+        ],
     }
 
 
@@ -1417,9 +1986,11 @@ def social_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> d
     followers: dict[str, Any] = {}
     for platform in ("facebook", "instagram"):
         row = con.execute(
+            # newest value up to the end of the range - without the date bound
+            # the previous period got today's number too and the delta was always 0%
             "SELECT follower_count, synced_at FROM social_followers_daily "
-            "WHERE platform = ? ORDER BY report_date DESC LIMIT 1",
-            (platform,),
+            "WHERE platform = ? AND report_date <= ? ORDER BY report_date DESC LIMIT 1",
+            (platform, end_date),
         ).fetchone()
         followers[platform] = int(row[0]) if row else 0
 
@@ -1575,10 +2146,30 @@ def previous_period_range(start_date: str, end_date: str) -> tuple[str, str]:
     return previous_start.isoformat(), previous_end.isoformat()
 
 
+def _align_search_console_window(current: dict[str, Any], previous: dict[str, Any], start_date: str, end_date: str) -> None:
+    """Search Console data lags ~2-3 days, so a window that ends today always
+    holds fewer days than the full window it's compared with. That built a
+    standing negative bias (about -15%, and -38% on 2026-10-15 while the sync
+    was down). Same-length windows ending on the newest day with data fix it."""
+    with db() as con:
+        last_day = con.execute("SELECT MAX(report_date) FROM search_console_daily").fetchone()[0]
+        if not last_day or last_day >= end_date:
+            return
+        span = (date.fromisoformat(end_date) - date.fromisoformat(start_date)).days + 1
+        gsc_end = date.fromisoformat(last_day)
+        gsc_start = gsc_end - timedelta(days=span - 1)
+        prev_start, prev_end = previous_period_range(gsc_start.isoformat(), gsc_end.isoformat())
+        current["search_console"] = search_console_summary(con, gsc_start.isoformat(), gsc_end.isoformat())
+        previous["search_console"] = search_console_summary(con, prev_start, prev_end)
+    current["search_console"]["window_start"], current["search_console"]["window_end"] = gsc_start.isoformat(), gsc_end.isoformat()
+    current["search_console"]["previous_window_start"], current["search_console"]["previous_window_end"] = prev_start, prev_end
+
+
 def dashboard_with_comparison(start_date: str, end_date: str) -> dict[str, Any]:
     previous_start, previous_end = previous_period_range(start_date, end_date)
     current = full_dashboard(start_date, end_date)
     previous = full_dashboard(previous_start, previous_end)
+    _align_search_console_window(current, previous, start_date, end_date)
     return {
         **current,
         "previous_start_date": previous_start,
