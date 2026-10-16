@@ -583,3 +583,42 @@ table:not(.no-sort) thead th{cursor:pointer;user-select:none}
 table:not(.no-sort) thead th:hover{color:var(--ink)}
 table:not(.no-sort) thead th[aria-sort="descending"]::after{content:" \25BC";font-size:9px}
 table:not(.no-sort) thead th[aria-sort="ascending"]::after{content:" \25B2";font-size:9px}
+
+/* Partners tab: sponsor and partner request pipeline (2026-10-15) */
+.partner-board{display:grid;grid-template-columns:repeat(5,minmax(210px,1fr));gap:12px;align-items:start;overflow-x:auto;padding-bottom:4px;margin-bottom:16px}
+.partner-column{background:linear-gradient(180deg, var(--panel-2), var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:12px;border-top:3px solid var(--line-strong);min-width:0}
+.partner-column[data-column="vetting"],.partner-column[data-column="packet_sent"],.partner-column[data-column="call"]{border-top-color:var(--teal-2)}
+.partner-column[data-column="closed"]{border-top-color:var(--green)}
+.partner-column h3{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.partner-column-list{display:flex;flex-direction:column;gap:10px}
+.partner-column-empty{color:var(--muted);font-size:12.5px;padding:8px 2px}
+.partner-card{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px;font-size:12.5px;line-height:1.5;min-width:0}
+.partner-card.stage-declined{opacity:.75}
+.partner-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:6px}
+.partner-company{margin:0;font-size:14px;font-weight:750;line-height:1.35;overflow-wrap:anywhere}
+.partner-company a{color:var(--ink);text-decoration:none}
+.partner-company a:hover{color:var(--teal-2);text-decoration:underline}
+.partner-badge{flex:0 0 auto;font-size:11px;font-weight:750;padding:1px 8px;border-radius:999px;color:var(--ink);white-space:nowrap}
+.partner-badge-signed{background:var(--green-soft);border:1px solid var(--green)}
+.partner-badge-declined{background:var(--red-soft);border:1px solid var(--red)}
+.partner-source,.partner-history,.partner-age{color:var(--muted);font-size:11.5px;margin-top:4px;overflow-wrap:anywhere}
+.partner-age{color:var(--ink);font-weight:650}
+.partner-dup{margin-top:5px;font-size:11.5px;color:var(--ink);background:var(--teal-soft);border-radius:6px;padding:3px 7px}
+.partner-next{margin-top:6px;color:var(--ink);overflow-wrap:anywhere}
+.partner-next span{font-weight:750}
+.partner-notes{margin-top:4px;color:var(--muted);white-space:pre-line;overflow-wrap:anywhere}
+.partner-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px;padding-top:8px;border-top:1px solid var(--line)}
+.partner-actions .lib-status-select{flex:1 1 100%;min-height:32px}
+.partner-ghl{margin-right:auto}
+.partner-ghl{font-size:12px;font-weight:700;color:var(--ink);text-decoration:underline;text-decoration-color:var(--teal-2);text-underline-offset:3px;padding:6px 2px}
+.partner-ghl:hover{text-decoration-thickness:2px}
+.partner-actions .checklist-edit,.partner-actions .checklist-delete{margin-left:0;align-self:center;min-width:32px;min-height:32px}
+.partner-show-closed{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:4px}
+.panel-sub{font-size:12.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:4px 0 12px}
+#sponsorClicksChart{margin-bottom:16px}
+#sponsorClicksChart .hbar-row{grid-template-columns:140px 1fr auto}
+.sop-row .checklist-context{white-space:pre-line}
+@media(max-width:900px){.partner-board{grid-template-columns:1fr;overflow-x:visible}}
+@media (max-width:560px){#sponsorClicksChart .hbar-row{grid-template-columns:96px 1fr auto}}
+.hbar-more{color:var(--muted);font-size:12px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}

@@ -32,6 +32,7 @@ const COMMUNITY_STATS_DOC_ID = "doma_free_community";
 const CHANGELOG_COLLECTION = "site_changelog";
 const LIBRARY_COLLECTION = "library_articles";
 const SOP_COLLECTION = "sop_items";
+const PARTNER_COLLECTION = "partner_requests";
 
 function watch(collectionName, onChange, mapEntry) {
   return onSnapshot(
@@ -279,6 +280,41 @@ window.domaSops = {
   },
   async deleteSop(itemId) {
     await deleteDoc(doc(db, SOP_COLLECTION, itemId));
+  },
+};
+
+// Partners tab - sponsor and partner request pipeline (2026-10-15). GHL
+// contacts tagged partner-request are imported by scripts/sync_partner_requests.py
+// (doc id ghl-<contactId>); the team can also add one by hand. A stage change
+// stamps stage_dates.<stage> (merge keeps the earlier stages' dates). Removing a
+// request only hides it, so the next import does not bring it back.
+window.domaPartners = {
+  async addRequest(fields) {
+    const now = Date.now();
+    const ref = await addDoc(collection(db, PARTNER_COLLECTION), nullify({
+      ...fields,
+      source: "manual",
+      stage: fields.stage || "new",
+      stage_dates: { [fields.stage || "new"]: now },
+      hidden: false,
+      created_at: now,
+      updated_at: now,
+    }));
+    return ref.id;
+  },
+  subscribeRequests(callback) {
+    return watch(PARTNER_COLLECTION, (snapshot) => {
+      const items = [];
+      snapshot.forEach((docSnap) => items.push({ id: docSnap.id, ...docSnap.data() }));
+      callback(items);
+    });
+  },
+  async updateRequest(itemId, fields) {
+    const extra = fields.stage ? { stage_dates: { [fields.stage]: Date.now() } } : {};
+    await setDoc(doc(db, PARTNER_COLLECTION, itemId), nullify({ ...fields, ...extra, updated_at: Date.now() }), { merge: true });
+  },
+  async hideRequest(itemId) {
+    await setDoc(doc(db, PARTNER_COLLECTION, itemId), { hidden: true, updated_at: Date.now() }, { merge: true });
   },
 };
 
