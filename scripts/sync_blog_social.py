@@ -579,8 +579,10 @@ def main() -> int:
         item
         for item in items
         if (item["image_url"] or item.get("image_url_story")) and item["date"]
-        # Michelle's sponsor items are hers to post (Lucas, 2026-10-14: Vyne went out and was deleted).
-        and not (item["owner"].strip().lower() == "michelle" and item["type"].strip().lower() == "sponsor")
+        # Michelle's sponsor highlights are hers to post (Lucas, 2026-10-14: Vyne went out and was deleted).
+        # Her sponsor reels (Mon/Wed/Fri in the group) still go to our Instagram and Facebook (2026-10-16).
+        and not (item["owner"].strip().lower() == "michelle" and item["type"].strip().lower() == "sponsor"
+                 and not item.get("video_url"))
         and (item["date"] < today or (item["date"] == today and now_hm >= slots.get(item["id"], (12, 0))))
         and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
                  and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
