@@ -1,0 +1,16 @@
+{
+  "_note": "Made-up sample in the shape of a Brave Web Search API response (web.results[].url), used only by sync_serp_competitors.py --dry-run. Not real ranking data.",
+  "type": "search",
+  "query": {"original": "dental office manager training", "more_results_available": true},
+  "web": {
+    "type": "search",
+    "results": [
+      {"title": "Example result 1", "url": "https://www.example-dental-academy.com/office-manager-course", "description": "sample"},
+      {"title": "Example result 2", "url": "https://www.linkedin.com/pulse/sample", "description": "sample (noise domain, filtered)"},
+      {"title": "Example result 3", "url": "https://dentalofficemanagers.com/sample-post/", "description": "sample (DOMA itself)"},
+      {"title": "Example result 4", "url": "https://sample-practice-coaching.com/blog/manager", "description": "sample"},
+      {"title": "Example result 5", "url": "https://www.example-dental-academy.com/blog", "description": "sample"},
+      {"title": "Example result 6", "url": "https://another-example.org/resources", "description": "sample"}
+    ]
+  }
+}

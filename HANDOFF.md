@@ -132,3 +132,14 @@ Duas abas novas no dashboard, ambas em Firestore ao vivo, como o Useful Links.
 ## GA4: evento de lead (15/10)
 
 Os formulários do GHL ficam em iframe, então o GA4 não via nenhum envio e a tabela "Conversions by page" ficava vazia. Criada pela Admin API (conta de serviço agora é Editor) a regra `generate_lead` = page_view com "thank-you" na URL, marcada como evento-chave. Conta só daqui pra frente.
+
+## Ranking share-of-voice com Brave Search (15/10)
+
+O DuckDuckGo responde 202 a toda busca desde agosto, por isso a tabela "Ranking share-of-voice" (aba Competitors) está vazia. `scripts/sync_serp_competitors.py` agora usa a Brave Search API quando existe `BRAVE_SEARCH_API_KEY` no `.env`, e cai no DuckDuckGo quando não existe. Rodada vazia não apaga mais a tabela, o snapshot anterior fica.
+
+Conta: 50 buscas não-brand do Search Console em rodízio, 15 por dia no sync diário, 1,1 s entre chamadas. Dá 465 chamadas no mês de 31 dias, contra 2.000 do plano grátis, e o script para sozinho em 1.500 no mês (tabela `serp_api_calls`). Teste sem chave: `--dry-run` usa `scripts/fixtures/brave_web_search_sample.json`.
+
+Como ligar:
+1. Criar conta no site da Brave Search API, plano grátis (Lucas faz, eu não crio conta).
+2. Copiar a chave para o `.env` como `BRAVE_SEARCH_API_KEY=...`.
+3. Rodar `.venv\Scripts\python.exe scripts\sync_serp_competitors.py` uma vez. A tabela aparece com as primeiras 15 buscas e fica completa em até 4 dias de sync.
