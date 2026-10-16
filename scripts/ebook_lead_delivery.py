@@ -217,6 +217,12 @@ def main() -> int:
             ebook_nurture.run(apply=True)
         except Exception as error:
             print(f"WARNING: e-book nurture failed: {error}", file=sys.stderr)
+        # Paid GHL orders -> GA4 "purchase" (checkout is a payment link without the GA4 tag).
+        from scripts import ga4_purchase_mp
+        try:
+            ga4_purchase_mp.run()
+        except Exception as error:
+            print(f"WARNING: GA4 purchase events failed: {error}", file=sys.stderr)
         # Plug the Leaks (Archy, Oct 23): reminders for people who clicked the registration link.
         from scripts import plug_the_leaks_reminders
         try:

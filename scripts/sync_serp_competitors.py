@@ -19,7 +19,7 @@ Two providers, picked at run time:
    first), 1.1 s apart. daily_sync.py runs once a day, so that is
    15 x 31 = 465 calls in the longest month, under a quarter of the 2,000
    free calls, and the whole 50-query pool is refreshed every 4 days. On top
-   of that a hard monthly cap (MONTHLY_CALL_CAP = 1,500, counted in the
+   of that a hard monthly cap (MONTHLY_CALL_CAP = 900, counted in the
    serp_api_calls table) stops the script before it can ever reach 2,000,
    even if it is run by hand many times. --limit can raise one run to at
    most 50 queries.
@@ -70,7 +70,7 @@ BRAVE_POOL_SIZE = 50          # top non-brand GSC queries kept in rotation
 BRAVE_QUERIES_PER_RUN = 15    # daily batch, see budget math above
 BRAVE_MAX_PER_RUN = 50        # hard ceiling for --limit
 BRAVE_DELAY_SECONDS = 1.1     # free plan allows 1 query/second
-MONTHLY_CALL_CAP = 1500       # stay well under the 2,000/month free plan
+MONTHLY_CALL_CAP = 900        # Brave Search gives $5 free credit a month = 1,000 calls at $5/1,000; stay under it
 DEFAULT_SAMPLE = ROOT / "scripts" / "fixtures" / "brave_web_search_sample.json"
 
 # Big general platforms show up for almost any B2B query and aren't real

@@ -629,6 +629,34 @@ def init_db() -> None:
         PRIMARY KEY (report_date, page_path)
     );
 
+    -- Sponsor offers pages (/offers/ and /offers/<sponsor>/) and the outbound
+    -- clicks from them (GA4 "click" event by linkDomain), per day.
+    CREATE TABLE IF NOT EXISTS ga4_offers_pages_daily (
+        report_date TEXT NOT NULL,
+        page_path TEXT NOT NULL,
+        page_views INTEGER NOT NULL DEFAULT 0,
+        sessions INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, page_path)
+    );
+
+    CREATE TABLE IF NOT EXISTS ga4_offers_clicks_daily (
+        report_date TEXT NOT NULL,
+        page_path TEXT NOT NULL,
+        link_domain TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, page_path, link_domain)
+    );
+
+    -- Site-wide "cta_click" GA4 event (tracking started 2026-10-15).
+    CREATE TABLE IF NOT EXISTS ga4_cta_clicks_daily (
+        report_date TEXT NOT NULL,
+        page_path TEXT NOT NULL,
+        link_text TEXT NOT NULL,
+        link_url TEXT NOT NULL,
+        clicks INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (report_date, page_path, link_text, link_url)
+    );
+
     CREATE TABLE IF NOT EXISTS competitor_pagespeed (
         competitor_name TEXT NOT NULL,
         url TEXT NOT NULL,
@@ -1619,6 +1647,84 @@ def serp_competitors_summary(con: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+DOMA_DOMAIN = "dentalofficemanagers.com"
+
+
+def _where_doma_action(position: float | None) -> str:
+    if position is None or position > 20:
+        return "Build a dedicated page"
+    if position <= 3:
+        return "Defend: keep the page fresh"
+    if position <= 10:
+        return "Improve title and meta, add FAQ schema"
+    return "Strengthen the page and its internal links"
+
+
+def serp_where_doma_stands(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
+    """One row per search checked on Brave (latest check per query, table
+    serp_query_results written by scripts/sync_serp_competitors.py): DOMA's
+    Google position for the range (impression-weighted Search Console average,
+    falling back to the last 90 days of data when the range has none), DOMA's
+    Brave position, the domains ranking above DOMA on Brave, and what to do."""
+    try:
+        results = con.execute(
+            "SELECT r.query, r.position, r.domain, r.checked_at FROM serp_query_results r "
+            "JOIN (SELECT query, MAX(checked_at) AS last FROM serp_query_results WHERE provider = 'brave' GROUP BY query) m "
+            "ON m.query = r.query AND m.last = r.checked_at WHERE r.provider = 'brave' ORDER BY r.query, r.position"
+        ).fetchall()
+    except sqlite3.OperationalError:  # table not created yet (first SERP sync not run)
+        return {"available": False, "rows": []}
+
+    by_query: dict[str, dict[str, Any]] = {}
+    for query, position, domain, checked_at in results:
+        entry = by_query.setdefault(query, {"results": [], "checked_at": checked_at})
+        entry["results"].append((int(position), (domain or "").lower().removeprefix("www.")))
+
+    last_gsc_day = con.execute("SELECT MAX(report_date) FROM search_console_query_daily").fetchone()[0]
+    fallback_start = (date.fromisoformat(last_gsc_day) - timedelta(days=89)).isoformat() if last_gsc_day else None
+
+    def google(query: str, start: str, end: str) -> tuple[float | None, int, int]:
+        row = con.execute(
+            "SELECT SUM(position * impressions), SUM(impressions), SUM(clicks) FROM search_console_query_daily "
+            "WHERE lower(query) = lower(?) AND report_date BETWEEN ? AND ?",
+            (query, start, end),
+        ).fetchone()
+        impressions = int(row[1] or 0)
+        return (round(row[0] / impressions, 1) if impressions else None), impressions, int(row[2] or 0)
+
+    rows = []
+    for query, entry in by_query.items():
+        position, impressions, clicks = google(query, start_date, end_date)
+        window = "range"
+        if position is None and fallback_start:
+            position, impressions, clicks = google(query, fallback_start, last_gsc_day)
+            window = "last_90_days" if position is not None else "none"
+        brave = next((pos for pos, domain in entry["results"] if domain == DOMA_DOMAIN), None)
+        ahead: list[str] = []
+        for pos, domain in entry["results"]:
+            if brave is not None and pos >= brave:
+                break
+            if domain and domain != DOMA_DOMAIN and domain not in ahead:
+                ahead.append(domain)
+            if len(ahead) == 3:
+                break
+        rows.append(
+            {
+                "query": query,
+                "google_position": position,
+                "google_window": window,
+                "impressions": impressions,
+                "clicks": clicks,
+                "brave_position": brave,
+                "ahead": ahead,
+                "action": _where_doma_action(position),
+                "checked_at": entry["checked_at"],
+            }
+        )
+    rows.sort(key=lambda r: (-r["impressions"], r["query"]))
+    return {"available": bool(rows), "rows": rows, "checked_at": max((r["checked_at"] for r in rows), default=None)}
+
+
 def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
     """Latest blog posts (WordPress REST API) joined with their GA4 + Search
     Console performance - answers "how is the post I published last week
@@ -1761,6 +1867,8 @@ def ga4_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
             (start_date, end_date),
         ).fetchone()[0]),
         "undercount_overlap": start_date <= GA4_UNDERCOUNT_END and end_date >= GA4_UNDERCOUNT_START,
+        "offers": _ga4_offers(con, start_date, end_date),
+        "cta_clicks": _ga4_cta_clicks(con, start_date, end_date),
     }
 
 
@@ -1791,6 +1899,112 @@ def _ga4_conversions_by_page(con: sqlite3.Connection, start_date: str, end_date:
         }
         for path, sessions, key_events in rows
     ]
+
+
+# Outbound link domains on /offers/ pages -> sponsor name. Unknown domains
+# are shown as they come from GA4.
+SPONSOR_DOMAINS = {
+    "dentalmenu.com": "DentalMenu",
+    "pbhs.com": "PBHS",
+    "nadapayments.com": "NADA",
+    "roya.com": "Roya",
+    "velmeni.ai": "Velmeni",
+    "vynedental.com": "Vyne Dental",
+    "adit.com": "Adit",
+    "archy.com": "Archy",
+    "blackdiamondradio.com": "Black Diamond Radio",
+    "get-clipboard.com": "Clipboard",
+    "getweave.com": "Weave",
+    "janie.ai": "Janie AI",
+    "revenuewell.com": "RevenueWell",
+    "techspedient.com": "Techspedient",
+    "withcherry.com": "Cherry",
+    "mangovoice.com": "Mango Voice",
+    "getvwire.com": "VWire",
+    "pearl.com": "Pearl",
+    "hellopearl.com": "Pearl",
+    "traynar.com": "Traynar",
+}
+
+
+def sponsor_for_domain(domain: str) -> str:
+    domain = (domain or "").lower().removeprefix("www.")
+    if domain in SPONSOR_DOMAINS:
+        return SPONSOR_DOMAINS[domain]
+    for known, name in SPONSOR_DOMAINS.items():
+        if domain.endswith("." + known):  # e.g. app.getweave.com
+            return name
+    return domain or "(not set)"
+
+
+def _ga4_offers(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any] | None:
+    """Views/sessions of the /offers/ pages and outbound clicks per sponsor for
+    the range. None until scripts/sync_ga4.py has filled the tables once.
+    Sessions are summed per day, so a visit that crosses midnight counts twice."""
+    synced = con.execute("SELECT 1 FROM sync_log WHERE source = 'ga4_offers_pages' AND status = 'ok' LIMIT 1").fetchone()
+    if not synced:
+        return None
+    titles = _page_titles(con)
+    pages = [
+        {
+            "page_path": path,
+            "page_title": titles.get(path) or title_from_path(path),
+            "page_views": int(views or 0),
+            "sessions": int(sessions or 0),
+        }
+        for path, views, sessions in con.execute(
+            "SELECT page_path, SUM(page_views), SUM(sessions) FROM ga4_offers_pages_daily "
+            "WHERE report_date BETWEEN ? AND ? GROUP BY page_path ORDER BY SUM(page_views) DESC",
+            (start_date, end_date),
+        )
+    ]
+    by_sponsor: dict[str, dict[str, Any]] = {}
+    for domain, page_path, clicks in con.execute(
+        "SELECT link_domain, page_path, SUM(clicks) FROM ga4_offers_clicks_daily "
+        "WHERE report_date BETWEEN ? AND ? GROUP BY link_domain, page_path",
+        (start_date, end_date),
+    ):
+        name = sponsor_for_domain(domain)
+        entry = by_sponsor.setdefault(name, {"sponsor": name, "domains": set(), "clicks": 0, "from_hub": 0, "from_sponsor_page": 0})
+        entry["domains"].add(domain)
+        entry["clicks"] += int(clicks or 0)
+        if page_path == "/offers/":
+            entry["from_hub"] += int(clicks or 0)
+        else:
+            entry["from_sponsor_page"] += int(clicks or 0)
+    sponsor_clicks = sorted(
+        ({**e, "domains": sorted(e["domains"]), "known": e["sponsor"] in SPONSOR_DOMAINS.values()} for e in by_sponsor.values()),
+        key=lambda e: (-e["clicks"], e["sponsor"].lower()),
+    )
+    return {
+        "pages": pages,
+        "sponsor_clicks": sponsor_clicks,
+        "total_views": sum(p["page_views"] for p in pages),
+        "total_clicks": sum(e["clicks"] for e in sponsor_clicks),
+    }
+
+
+def _ga4_cta_clicks(con: sqlite3.Connection, start_date: str, end_date: str, limit: int = 50) -> dict[str, Any]:
+    """Most clicked buttons (GA4 cta_click event) for the range. `available`
+    is False until a sync has stored the event at least once."""
+    synced = con.execute("SELECT 1 FROM sync_log WHERE source = 'ga4_cta_clicks' AND status = 'ok' LIMIT 1").fetchone()
+    titles = _page_titles(con)
+    rows = [
+        {
+            "page_path": path,
+            "page_title": "Home" if path == "/" else (titles.get(path) or title_from_path(path)),
+            "link_text": text,
+            "link_url": url,
+            "clicks": int(clicks or 0),
+        }
+        for path, text, url, clicks in con.execute(
+            "SELECT page_path, link_text, link_url, SUM(clicks) FROM ga4_cta_clicks_daily "
+            "WHERE report_date BETWEEN ? AND ? GROUP BY page_path, link_text, link_url "
+            "ORDER BY SUM(clicks) DESC LIMIT ?",
+            (start_date, end_date, limit),
+        )
+    ]
+    return {"available": bool(synced), "tracking_start": "2026-10-15", "rows": rows}
 
 
 def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
@@ -2128,6 +2342,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             },
             "competitor_content": competitor_content_summary(con),
             "serp_competitors": serp_competitors_summary(con),
+            "serp_where_doma_stands": serp_where_doma_stands(con, start_date, end_date),
             "ad_spy": ad_spy_summary(con),
             "team_meetings": team_meetings_summary(con),
             "competitor_tech": competitor_tech_summary(con),

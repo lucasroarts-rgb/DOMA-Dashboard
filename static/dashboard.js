@@ -3586,10 +3586,13 @@ function renderAll() {
   safeRender("Overview", renderOverview);
   safeRender("SEO", renderSeo);
   safeRender("Competitors", renderCompetitors);
+  safeRender("Where DOMA stands", renderWhereDomaStands);
   safeRender("Blog", renderBlog);
   safeRender("Content Suggestions", renderContentIdeas);
   safeRender("Content Calendar", renderContentCalendar);
   safeRender("Leads", renderLeads);
+  safeRender("Partners", renderPartners);
+  safeRender("Most clicked buttons", renderCtaClicks);
   safeRender("Social", renderSocial);
   safeRender("Team & Meetings", renderTeam);
   safeRender("Weekly Recap", renderWeeklyRecap);
@@ -3631,6 +3634,7 @@ window.addEventListener("doma-sync-error", (event) => {
   syncErrors.set(event.detail.collection, event.detail.code);
   safeRender("Library", renderLibrary);
   safeRender("SOPs", renderSops);
+  safeRender("Partners", renderPartnerBoard);
 });
 
 function showSyncNotice(elementId, collectionName) {
@@ -4194,9 +4198,454 @@ function renderSops() {
   document.getElementById("sopList").innerHTML = filtered.map(sopRowHtml).join("");
 }
 
+/* ---------- where DOMA stands (Competitors tab) ---------- */
+
+function renderWhereDomaStands() {
+  const data = dashboard.serp_where_doma_stands;
+  const rows = data?.rows || [];
+  const table = document.getElementById("whereDomaTable");
+  if (!table) return;
+  document.getElementById("whereDomaEmpty").style.display = rows.length ? "none" : "block";
+  table.closest(".table-wrap").hidden = !rows.length;
+  const anyFallback = rows.some((r) => r.google_window === "last_90_days");
+  const note = document.getElementById("whereDomaNote");
+  if (note) {
+    note.textContent = `(our main searches: DOMA on Google from Search Console for the selected range${anyFallback ? ", or the last 90 days where marked *" : ""}; who ranks on Brave from the latest daily check${data?.checked_at ? `, ${fullDate(String(data.checked_at).slice(0, 10))}` : ""})`;
+  }
+  renderTable("whereDomaTable", rows, (r) => {
+    const google = r.google_position === null || r.google_position === undefined ? "-" : `${Number(r.google_position).toFixed(1)}${r.google_window === "last_90_days" ? "*" : ""}`;
+    const googleTitle = r.google_window === "last_90_days" ? "No impressions in this range, so this is the last 90 days" : "";
+    return `<tr><td>${escapeHtml(r.query)}</td><td title="${escAttr(googleTitle)}">${google}</td><td>${number(r.impressions)}</td><td>${number(r.clicks)}</td><td>${r.brave_position ?? "-"}</td><td>${r.ahead?.length ? escapeHtml(r.ahead.join(", ")) : "-"}</td><td>${escapeHtml(r.action)}</td></tr>`;
+  });
+}
+
+/* ---------- partners (sponsor and partner request pipeline) ---------- */
+
+// Stages from the 2026-10-12 team meeting. Kyle (2026-10-15): "this should be
+// our SOP for handling sponsor requests going forward". Signed and Declined
+// share the last column.
+const PARTNER_STAGES = [
+  ["new", "New request"],
+  ["vetting", "Juli vetting"],
+  ["packet_sent", "Packet sent"],
+  ["call", "Call with Kyle"],
+  ["signed", "Signed"],
+  ["declined", "Declined"],
+];
+const PARTNER_COLUMNS = [
+  { key: "new", label: "New request", stages: ["new"] },
+  { key: "vetting", label: "Juli vetting", stages: ["vetting"] },
+  { key: "packet_sent", label: "Packet sent", stages: ["packet_sent"] },
+  { key: "call", label: "Call with Kyle", stages: ["call"] },
+  { key: "closed", label: "Signed / Declined", stages: ["signed", "declined"] },
+];
+// Who usually holds a request at each stage, and the usual next step. Applied
+// only when the current owner / next step is still the previous stage's
+// default, so a hand-typed owner or next step is never overwritten.
+const PARTNER_STAGE_DEFAULTS = {
+  new: { owner: "Juli", next_step: "Juli to vet the company" },
+  vetting: { owner: "Juli", next_step: "Juli to vet the company" },
+  packet_sent: { owner: "Michelle", next_step: "Wait for their reply to the packet" },
+  call: { owner: "Kyle", next_step: "Set the call date with Kyle" },
+  signed: { owner: "Michelle", next_step: "Follow the New sponsor onboarding SOP" },
+  declined: { owner: null, next_step: null },
+};
+const PARTNER_CLOSED_DAYS = 30;
+
+let partnerItems = [];
+let partnerFilters = { owner: "all", showOld: false };
+let partnerEditingId = null;
+let partnerListenersAttached = false;
+
+// partner_requests is writable by anyone with the page open, so only http(s)
+// links are ever turned into an href.
+function safeHttpUrl(raw, { allowBare = false } = {}) {
+  let text = String(raw || "").trim();
+  if (!text) return null;
+  if (allowBare && !/^[a-z]+:/i.test(text)) text = `https://${text}`;
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function partnerStageOptionsHtml(selected) {
+  return PARTNER_STAGES.map(([v, l]) => `<option value="${v}"${v === selected ? " selected" : ""}>${l}</option>`).join("");
+}
+
+function partnerStageChangeFields(item, stage) {
+  const fields = { stage };
+  const before = PARTNER_STAGE_DEFAULTS[item.stage || "new"] || {};
+  const after = PARTNER_STAGE_DEFAULTS[stage] || {};
+  if (!item.owner || item.owner === before.owner) fields.owner = after.owner ?? null;
+  if (!item.next_step || item.next_step === before.next_step) fields.next_step = after.next_step ?? null;
+  return fields;
+}
+
+function partnerStageAgeDays(item) {
+  const dates = item.stage_dates || {};
+  const ms = dates[item.stage || "new"] || item.created_at;
+  return ms ? Math.floor((Date.now() - ms) / 86400000) : null;
+}
+
+function resetPartnerForm() {
+  const form = document.getElementById("partnerForm");
+  partnerEditingId = null;
+  form.reset();
+  form.querySelector('[name="stage"]').value = "new";
+  form.querySelector('[name="owner"]').value = "Juli";
+  form.querySelector('[name="next_step"]').value = PARTNER_STAGE_DEFAULTS.new.next_step;
+  form.querySelector('[name="request_date"]').value = new Date().toISOString().slice(0, 10);
+  form.querySelector('button[type="submit"]').textContent = "Add request";
+  form.classList.add("hidden");
+}
+
+function openPartnerEdit(itemId) {
+  const item = partnerItems.find((i) => i.id === itemId);
+  const form = document.getElementById("partnerForm");
+  if (!item || !form) return;
+  partnerEditingId = itemId;
+  ["company", "website", "request_date", "owner", "next_step", "notes"].forEach((name) => {
+    form.querySelector(`[name="${name}"]`).value = item[name] || "";
+  });
+  form.querySelector('[name="stage"]').value = item.stage || "new";
+  form.querySelector('button[type="submit"]').textContent = "Save changes";
+  form.classList.remove("hidden");
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+  form.querySelector('[name="company"]').focus();
+}
+
+function ensurePartnerListeners() {
+  if (partnerListenersAttached) return;
+  partnerListenersAttached = true;
+  const form = document.getElementById("partnerForm");
+  form.querySelector('[name="stage"]').innerHTML = partnerStageOptionsHtml("new");
+  resetPartnerForm();
+
+  document.getElementById("partnerAddToggle").addEventListener("click", () => {
+    const opening = form.classList.contains("hidden") || partnerEditingId;
+    resetPartnerForm();
+    if (opening) {
+      form.classList.remove("hidden");
+      form.querySelector('[name="company"]').focus();
+    }
+  });
+  document.getElementById("partnerFormCancel").addEventListener("click", resetPartnerForm);
+  document.getElementById("partnerShowOld").addEventListener("change", (event) => {
+    partnerFilters.showOld = event.target.checked;
+    renderPartnerBoard();
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const text = (name) => String(fd.get(name) || "").trim() || null;
+    const fields = {
+      company: text("company"),
+      website: text("website"),
+      request_date: text("request_date"),
+      owner: text("owner"),
+      next_step: text("next_step"),
+      notes: text("notes"),
+      stage: String(fd.get("stage") || "new"),
+    };
+    if (!fields.company) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaPartners) throw new Error("Firestore sync not ready yet");
+      if (partnerEditingId) {
+        const existing = partnerItems.find((i) => i.id === partnerEditingId);
+        // Unchanged stage stays out, so editing notes does not restamp the stage date.
+        if (existing && (existing.stage || "new") === fields.stage) delete fields.stage;
+        await window.domaPartners.updateRequest(partnerEditingId, fields);
+      } else {
+        await window.domaPartners.addRequest(fields);
+      }
+      resetPartnerForm();
+    } catch (error) {
+      console.error("Failed to save partner request:", error);
+      alert("Could not save the request. Check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  const board = document.getElementById("partnerBoard");
+  board.addEventListener("click", async (event) => {
+    const card = event.target.closest(".partner-card");
+    if (!card) return;
+    if (event.target.closest(".partner-edit")) return openPartnerEdit(card.dataset.id);
+    if (event.target.closest(".partner-delete")) {
+      const item = partnerItems.find((i) => i.id === card.dataset.id);
+      if (!confirm(`Remove "${item?.company || "this request"}" from the Partners board?`)) return;
+      try {
+        await window.domaPartners.hideRequest(card.dataset.id);
+      } catch (error) {
+        console.error("Failed to remove partner request:", error);
+      }
+    }
+  });
+  board.addEventListener("change", async (event) => {
+    const select = event.target.closest(".partner-stage-select");
+    if (!select) return;
+    const item = partnerItems.find((i) => i.id === select.closest(".partner-card").dataset.id);
+    if (!item) return;
+    select.disabled = true;
+    try {
+      await window.domaPartners.updateRequest(item.id, partnerStageChangeFields(item, select.value));
+    } catch (error) {
+      console.error("Failed to change partner stage:", error);
+      alert("Could not change the stage. Check the browser console for details.");
+      select.value = item.stage || "new";
+      select.disabled = false;
+    }
+  });
+
+  whenFirestoreReady(() => {
+    window.domaPartners.subscribeRequests((items) => {
+      partnerItems = items;
+      renderPartnerBoard();
+    });
+  });
+}
+
+function partnerStageHistoryHtml(item) {
+  const dates = item.stage_dates || {};
+  const steps = PARTNER_STAGES.filter(([v]) => dates[v]).map(([v, l]) => `${l} ${shortDateFromMs(dates[v])}`);
+  return steps.length ? `<div class="partner-history">${escapeHtml(steps.join(" · "))}</div>` : "";
+}
+
+function partnerCardHtml(item, duplicates) {
+  const stage = item.stage || "new";
+  const site = safeHttpUrl(item.website, { allowBare: true });
+  const ghl = safeHttpUrl(item.ghl_url);
+  const age = partnerStageAgeDays(item);
+  const company = item.company || "Company not given";
+  const others = (duplicates.get(String(item.company || "").trim().toLowerCase()) || []).filter((o) => o.id !== item.id);
+  const closedBadge =
+    stage === "signed"
+      ? `<span class="partner-badge partner-badge-signed">&#10003; Signed</span>`
+      : stage === "declined"
+        ? `<span class="partner-badge partner-badge-declined">&#10005; Declined</span>`
+        : "";
+  return `
+    <article class="partner-card stage-${escAttr(stage)}" data-id="${escAttr(item.id)}">
+      <div class="partner-card-head">
+        <h4 class="partner-company">${linkedTitleHtml(company, site)}</h4>
+        ${closedBadge}
+      </div>
+      <div class="lib-meta">
+        ${item.owner ? `<span class="checklist-owner">${escapeHtml(item.owner)}</span>` : ""}
+        ${item.request_date ? `<span class="lib-date">Requested ${escapeHtml(fullDate(item.request_date))}</span>` : ""}
+      </div>
+      ${item.form_source ? `<div class="partner-source">Source: ${escapeHtml(item.form_source)}</div>` : ""}
+      ${others.length ? `<div class="partner-dup">Same company also requested ${escapeHtml(others.map((o) => fullDate(o.request_date || "")).join(", "))}</div>` : ""}
+      ${item.next_step ? `<div class="partner-next"><span>Next:</span> ${linkifyText(item.next_step)}</div>` : ""}
+      ${item.notes ? `<div class="partner-notes">${linkifyText(item.notes)}</div>` : ""}
+      ${partnerStageHistoryHtml(item)}
+      ${age !== null && !["signed", "declined"].includes(stage) && age >= 7 ? `<div class="partner-age">${age} days in this stage</div>` : ""}
+      <div class="partner-actions">
+        <select class="lib-status-select partner-stage-select" aria-label="Stage for ${escAttr(company)}">${partnerStageOptionsHtml(stage)}</select>
+        ${ghl ? `<a class="partner-ghl" href="${escAttr(ghl)}" target="_blank" rel="noopener noreferrer">Open in GHL</a>` : ""}
+        <button type="button" class="checklist-edit partner-edit" aria-label="Edit ${escAttr(company)}" title="Edit">&#9998;</button>
+        <button type="button" class="checklist-delete partner-delete" aria-label="Remove ${escAttr(company)}" title="Remove">&times;</button>
+      </div>
+    </article>`;
+}
+
+function renderPartnerBoard() {
+  const board = document.getElementById("partnerBoard");
+  if (!board) return;
+  showSyncNotice("partnerNotice", "partner_requests");
+  const visible = partnerItems.filter((i) => !i.hidden);
+
+  const count = (stages) => visible.filter((i) => stages.includes(i.stage || "new")).length;
+  const waitingNew = visible.filter((i) => (i.stage || "new") === "new").map(partnerStageAgeDays).filter((d) => d !== null);
+  renderCards("partnerCards", [
+    { label: "New requests", value: number(count(["new"])), hint: waitingNew.length ? (Math.max(...waitingNew) ? `Oldest waiting ${Math.max(...waitingNew)} days` : "All arrived today") : "Nothing waiting" },
+    { label: "Juli vetting", value: number(count(["vetting"])) },
+    { label: "Packet sent", value: number(count(["packet_sent"])) },
+    { label: "Call with Kyle", value: number(count(["call"])) },
+    { label: "Signed", value: number(count(["signed"])), hint: `${number(count(["declined"]))} declined` },
+  ]);
+
+  const owners = uniqueCaseInsensitive([...TEAM_KNOWN_OWNERS, ...visible.map((i) => i.owner)]);
+  document.getElementById("partnerOwnerOptions").innerHTML = owners.map((o) => `<option value="${escAttr(o)}">`).join("");
+  buildFilterPills("partnerOwnerFilter", owners.map(escAttr), null, (value) => {
+    partnerFilters.owner = value;
+    renderPartnerBoard();
+  });
+  markActivePills("partnerOwnerFilter", partnerFilters.owner);
+
+  const duplicates = new Map();
+  visible.forEach((i) => {
+    const key = String(i.company || "").trim().toLowerCase();
+    if (key) duplicates.set(key, [...(duplicates.get(key) || []), i]);
+  });
+
+  const cutoff = Date.now() - PARTNER_CLOSED_DAYS * 86400000;
+  const shown = visible.filter((i) => {
+    if (partnerFilters.owner !== "all" && String(i.owner || "").toLowerCase() !== partnerFilters.owner.toLowerCase()) return false;
+    const stage = i.stage || "new";
+    if (!partnerFilters.showOld && (stage === "signed" || stage === "declined")) {
+      const closedAt = (i.stage_dates || {})[stage] || i.updated_at || 0;
+      if (closedAt < cutoff) return false;
+    }
+    return true;
+  });
+
+  const emptyEl = document.getElementById("partnerEmpty");
+  emptyEl.textContent = visible.length
+    ? "No requests match this filter."
+    : "No requests yet. They arrive from GoHighLevel after the morning sync, or add one above.";
+  emptyEl.style.display = shown.length ? "none" : "block";
+
+  board.innerHTML = PARTNER_COLUMNS.map((col) => {
+    const cards = shown
+      .filter((i) => col.stages.includes(i.stage || "new"))
+      .sort((a, b) => String(b.request_date || "").localeCompare(String(a.request_date || "")));
+    return `
+      <section class="partner-column" data-column="${col.key}" aria-label="${escAttr(col.label)}">
+        <h3>${escapeHtml(col.label)} <span class="status-count">${cards.length}</span></h3>
+        <div class="partner-column-list">${cards.map((c) => partnerCardHtml(c, duplicates)).join("") || `<div class="partner-column-empty">None</div>`}</div>
+      </section>`;
+  }).join("");
+}
+
+/* ---------- sponsors panel (GA4 /offers/ pages and outbound clicks) ---------- */
+
+// One series, so one hue (series-a) and no legend: the heading names it.
+// Values sit in ink beside each bar; hover shows the domains behind the name,
+// and the table under the chart carries the same numbers.
+function singleBarList(containerId, items, { labelKey, valueKey, unit, detail, maxBars = 10 }) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const all = (items || []).filter((i) => i[valueKey] > 0);
+  const rows = all.slice(0, maxBars);
+  if (!rows.length) {
+    el.innerHTML = `<div class="chart-empty">No clicks in this range.</div>`;
+    return;
+  }
+  const max = Math.max(...rows.map((i) => i[valueKey]));
+  // Plain rows: the visible "name, track, value" text already reads in order
+  // for screen readers, and the table below has the same numbers.
+  el.innerHTML = rows
+    .map((item, idx) => {
+      const pct = Math.max(2, (item[valueKey] / max) * 100);
+      return `<div class="hbar-row" data-idx="${idx}"><span class="hbar-name" title="${escAttr(item[labelKey])}">${escapeHtml(item[labelKey])}</span><span class="hbar-track" aria-hidden="true"><span class="hbar-fill" style="width:${pct}%;background:var(--series-a)"></span></span><span class="hbar-value">${number(item[valueKey])} <span class="sr-only">${unit}</span></span></div>`;
+    })
+    .join("") + (all.length > rows.length ? `<div class="hbar-more">Top ${rows.length} of ${all.length}. All of them are in the table below.</div>` : "");
+  const tooltip = document.getElementById("chartTooltip");
+  if (!tooltip) return;
+  el.querySelectorAll(".hbar-row").forEach((row) => {
+    const item = rows[Number(row.dataset.idx)];
+    row.addEventListener("mousemove", (e) => {
+      tooltip.innerHTML = `<div class="chart-tooltip-date">${escapeHtml(item[labelKey])}</div><div class="chart-tooltip-row"><i class="a"></i>${number(item[valueKey])} ${unit}</div>${detail ? `<div class="chart-tooltip-row">${escapeHtml(detail(item))}</div>` : ""}`;
+      tooltip.style.display = "block";
+      tooltip.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 250)}px`;
+      tooltip.style.top = `${Math.min(e.clientY + 14, window.innerHeight - 80)}px`;
+    });
+    row.addEventListener("mouseleave", () => (tooltip.style.display = "none"));
+  });
+}
+
+function offersPageLabel(page) {
+  // Paths read better than titles guessed from slugs ("Roya com").
+  return page.page_path === "/offers/" ? "Offers hub (/offers/)" : page.page_path;
+}
+
+function renderSponsors() {
+  const offers = dashboard.ga4?.offers;
+  const prevOffers = dashboard.previous?.ga4?.offers;
+  const empty = document.getElementById("sponsorsEmpty");
+  const body = document.getElementById("sponsorsBody");
+  if (!empty || !body) return;
+  if (!offers) {
+    empty.style.display = "block";
+    body.hidden = true;
+    renderCards("sponsorCards", []);
+    return;
+  }
+  empty.style.display = "none";
+  body.hidden = false;
+
+  const hub = (o) => (o?.pages || []).find((p) => p.page_path === "/offers/") || { page_views: 0, sessions: 0 };
+  const sponsorPageViews = (o) => (o?.pages || []).filter((p) => p.page_path !== "/offers/").reduce((sum, p) => sum + p.page_views, 0);
+  // Same GA4 consent undercount as the Blog tab (2026-09-11 to 2026-10-04).
+  const undercount = dashboard.ga4.undercount_overlap ?? ga4SpansConsentChange();
+  const unfair = ga4ComparisonUnreliable();
+  const delta = (curr, before) => (prevOffers && !unfair ? deltaBadge(curr, before) : "");
+  const hint = undercount ? warnNote(`GA4 undercounted ${dateRange(GA4_UNDERCOUNT_START, GA4_UNDERCOUNT_END)}, so this is low and the % change is hidden`) : "";
+  renderCards("sponsorCards", [
+    { label: "/offers/ views", value: number(hub(offers).page_views), delta: delta(hub(offers).page_views, hub(prevOffers).page_views), hint },
+    { label: "/offers/ sessions", value: number(hub(offers).sessions), delta: delta(hub(offers).sessions, hub(prevOffers).sessions) },
+    { label: "Sponsor page views", value: number(sponsorPageViews(offers)), delta: delta(sponsorPageViews(offers), sponsorPageViews(prevOffers)) },
+    { label: "Clicks to sponsors", value: number(offers.total_clicks), delta: delta(offers.total_clicks, prevOffers?.total_clicks), hint },
+  ]);
+
+  singleBarList("sponsorClicksChart", offers.sponsor_clicks, {
+    labelKey: "sponsor",
+    valueKey: "clicks",
+    unit: "clicks",
+    detail: (s) => `${s.domains.join(", ")}: ${number(s.from_hub)} from /offers/, ${number(s.from_sponsor_page)} from the sponsor page`,
+  });
+  renderTable(
+    "sponsorClicksTable",
+    offers.sponsor_clicks,
+    (s) => `<tr><td title="${escAttr(s.domains.join(", "))}">${escapeHtml(s.sponsor)}</td><td>${number(s.clicks)}</td><td>${number(s.from_hub)}</td><td>${number(s.from_sponsor_page)}</td></tr>`,
+    "No clicks to sponsors in this range."
+  );
+  renderTable(
+    "offersPagesTable",
+    offers.pages,
+    (p) => `<tr><td><a href="https://dentalofficemanagers.com${escAttr(p.page_path)}" target="_blank" rel="noopener">${escapeHtml(offersPageLabel(p))}</a></td><td>${number(p.page_views)}</td><td>${number(p.sessions)}</td></tr>`,
+    "No visits to the offers pages in this range."
+  );
+}
+
+function renderPartners() {
+  ensurePartnerListeners();
+  renderPartnerBoard();
+  safeRender("Sponsors", renderSponsors);
+}
+
+/* ---------- most clicked buttons (GA4 cta_click, Blog tab) ---------- */
+
+function renderCtaClicks() {
+  const rows = dashboard.ga4?.cta_clicks?.rows || [];
+  const table = document.getElementById("blogCtaTable");
+  if (!table) return;
+  document.getElementById("blogCtaEmpty").style.display = rows.length ? "none" : "block";
+  table.closest(".table-wrap").hidden = !rows.length;
+  renderTable("blogCtaTable", rows, (r) => {
+    const dest = safeHttpUrl(r.link_url) || (String(r.link_url || "").startsWith("/") ? r.link_url : null);
+    const destLabel = r.link_url && r.link_url.length > 60 ? `${r.link_url.slice(0, 60)}…` : r.link_url || "";
+    const destHtml = dest
+      ? `<a href="${escAttr(dest)}" target="_blank" rel="noopener" title="${escAttr(r.link_url)}">${escapeHtml(destLabel)}</a>`
+      : escapeHtml(destLabel);
+    return `<tr><td title="${escAttr(r.page_path)}">${escapeHtml(r.page_title || r.page_path)}</td><td>${escapeHtml(r.link_text)}</td><td>${destHtml}</td><td>${number(r.clicks)}</td></tr>`;
+  });
+}
+
 /* ---------- tabs + range ---------- */
 
+// Work finished early is shown on the day it's reported to Kyle (week plan in
+// C:\DOMA-blog-migration\seo_audit\plano_semana_*.md). Elements with
+// data-release="YYYY-MM-DD" stay hidden before that date (New York time).
+function applyReleaseDates() {
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  document.querySelectorAll("[data-release]").forEach((el) => {
+    if (el.dataset.release > today) el.hidden = true;
+  });
+}
+
+applyReleaseDates(); // also before the password gate: the markup is already in the page
+
 function initTabs() {
+  applyReleaseDates();
   const tabs = document.querySelectorAll(".tab");
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {

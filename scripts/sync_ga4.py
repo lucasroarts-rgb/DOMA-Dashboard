@@ -263,6 +263,152 @@ def fetch_page_conversions(client, property_id: str) -> list[tuple[str, str, int
     return [(d, page, agg[0], agg[1]) for (d, page), agg in merged.items()]
 
 
+# ---------- sponsor offers (/offers/) and site-wide button clicks ----------
+# Daily rows so the Partners tab's Sponsors panel follows the range picker.
+
+def _run_paged(client, request) -> list:
+    rows = []
+    offset = 0
+    while True:
+        request.offset = offset
+        response = client.run_report(request)
+        rows.extend(response.rows)
+        offset += len(response.rows)
+        if not response.rows or offset >= response.row_count:
+            return rows
+
+
+def _iso(raw_date: str) -> str:
+    return f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+
+
+def _offers_path_filter():
+    from google.analytics.data_v1beta.types import Filter, FilterExpression
+
+    return FilterExpression(
+        filter=Filter(
+            field_name="pagePath",
+            string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.BEGINS_WITH, value="/offers"),
+        )
+    )
+
+
+def _event_filter(event_name: str):
+    from google.analytics.data_v1beta.types import Filter, FilterExpression
+
+    return FilterExpression(
+        filter=Filter(
+            field_name="eventName",
+            string_filter=Filter.StringFilter(match_type=Filter.StringFilter.MatchType.EXACT, value=event_name),
+        )
+    )
+
+
+def fetch_offers_pages(client, property_id: str) -> list[tuple[str, str, int, int]]:
+    """Views and sessions of /offers/ and every /offers/<sponsor>/ page, per day."""
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[Dimension(name="date"), Dimension(name="pagePath")],
+        metrics=[Metric(name="screenPageViews"), Metric(name="sessions")],
+        date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+        dimension_filter=_offers_path_filter(),
+        limit=100000,
+    )
+    merged: dict[tuple[str, str], list[int]] = {}
+    for row in _run_paged(client, request):
+        path = row.dimension_values[1].value.split("?", 1)[0]
+        if not path.endswith("/"):
+            path += "/"
+        agg = merged.setdefault((_iso(row.dimension_values[0].value), path), [0, 0])
+        agg[0] += int(row.metric_values[0].value or 0)
+        agg[1] += int(row.metric_values[1].value or 0)
+    return [(d, path, v[0], v[1]) for (d, path), v in merged.items()]
+
+
+def fetch_offers_clicks(client, property_id: str) -> list[tuple[str, str, str, int]]:
+    """Outbound clicks (GA4 enhanced-measurement "click" event) from /offers
+    pages, per day, page and link domain."""
+    from google.analytics.data_v1beta.types import DateRange, Dimension, FilterExpression, FilterExpressionList, Metric, RunReportRequest
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[Dimension(name="date"), Dimension(name="pagePath"), Dimension(name="linkDomain")],
+        metrics=[Metric(name="eventCount")],
+        date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+        dimension_filter=FilterExpression(and_group=FilterExpressionList(expressions=[_event_filter("click"), _offers_path_filter()])),
+        limit=100000,
+    )
+    merged: dict[tuple[str, str, str], int] = {}
+    for row in _run_paged(client, request):
+        path = row.dimension_values[1].value.split("?", 1)[0]
+        if not path.endswith("/"):
+            path += "/"
+        domain = (row.dimension_values[2].value or "(not set)").lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        key = (_iso(row.dimension_values[0].value), path, domain)
+        merged[key] = merged.get(key, 0) + int(row.metric_values[0].value or 0)
+    return [(d, path, domain, clicks) for (d, path, domain), clicks in merged.items()]
+
+
+def fetch_cta_clicks(client, property_id: str) -> list[tuple[str, str, str, str, int]]:
+    """Site-wide "cta_click" event (added 2026-10-15) by page, button text and
+    destination. Needs the event-scoped custom dimensions customEvent:link_text
+    and customEvent:link_url registered in GA4; until then GA4 rejects the
+    request and the caller skips this step."""
+    from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
+
+    request = RunReportRequest(
+        property=f"properties/{property_id}",
+        dimensions=[
+            Dimension(name="date"),
+            Dimension(name="pagePath"),
+            Dimension(name="customEvent:link_text"),
+            Dimension(name="customEvent:link_url"),
+        ],
+        metrics=[Metric(name="eventCount")],
+        date_ranges=[DateRange(start_date=f"{LOOKBACK_DAYS}daysAgo", end_date="today")],
+        dimension_filter=_event_filter("cta_click"),
+        limit=100000,
+    )
+    merged: dict[tuple[str, str, str, str], int] = {}
+    for row in _run_paged(client, request):
+        path = row.dimension_values[1].value.split("?", 1)[0] or "/"
+        text = " ".join((row.dimension_values[2].value or "(not set)").split())[:120]
+        url = (row.dimension_values[3].value or "(not set)")[:300]
+        key = (_iso(row.dimension_values[0].value), path, text, url)
+        merged[key] = merged.get(key, 0) + int(row.metric_values[0].value or 0)
+    return [(*key, clicks) for key, clicks in merged.items()]
+
+
+def _replace_daily(table: str, columns: str, rows: list[tuple]) -> None:
+    placeholders = ", ".join("?" for _ in columns.split(","))
+    with dashboard_app.db() as con:
+        con.execute(f"DELETE FROM {table} WHERE report_date >= date('now', ?)", (f"-{LOOKBACK_DAYS + 1} days",))
+        con.executemany(f"INSERT OR REPLACE INTO {table} ({columns}) VALUES ({placeholders})", rows)
+
+
+def sync_offers_and_ctas(client, property_id: str) -> None:
+    """Best-effort steps: each one logs its own sync_log row and never breaks
+    the core GA4 sync."""
+    steps = [
+        ("ga4_offers_pages", fetch_offers_pages, "ga4_offers_pages_daily", "report_date, page_path, page_views, sessions"),
+        ("ga4_offers_clicks", fetch_offers_clicks, "ga4_offers_clicks_daily", "report_date, page_path, link_domain, clicks"),
+        ("ga4_cta_clicks", fetch_cta_clicks, "ga4_cta_clicks_daily", "report_date, page_path, link_text, link_url, clicks"),
+    ]
+    for source, fetch, table, columns in steps:
+        try:
+            rows = fetch(client, property_id)
+            _replace_daily(table, columns, rows)
+            log_sync(dashboard_app, source, "ok", f"{len(rows)} day rows")
+            print(f"GA4 {source} complete: {len(rows)} day rows.")
+        except Exception as error:  # noqa: BLE001 - e.g. custom dimensions not registered yet
+            log_sync(dashboard_app, source, "skipped", f"{type(error).__name__}: {str(error)[:300]}")
+            print(f"WARNING: GA4 {source} skipped ({str(error)[:200]})", file=sys.stderr)
+
+
 def store_page_conversions(rows: list[tuple[str, str, int, float]]) -> None:
     with dashboard_app.db() as con:
         if rows:
@@ -477,6 +623,8 @@ def main() -> int:
     except Exception as error:  # noqa: BLE001 - best-effort, must not break the core GA4 sync
         log_sync(dashboard_app, "ga4_conversions", "skipped", str(error))
         print(f"WARNING: GA4 key events by page skipped ({error})", file=sys.stderr)
+
+    sync_offers_and_ctas(client, property_id)
 
     if site_url:
         try:

@@ -40,6 +40,7 @@ from scripts.sync_ebook_links import main as sync_ebook_links  # noqa: E402
 from scripts.seed_library_and_sops import sync_library  # noqa: E402
 from scripts.ghl_engagement import build as sync_ghl_engagement  # noqa: E402
 from scripts.sync_community_count import main as sync_community_count  # noqa: E402
+from scripts.sync_partner_requests import sync as sync_partner_requests  # noqa: E402
 
 LOGS_DIR = ROOT / "logs"
 
@@ -123,6 +124,7 @@ def main() -> int:
         "ga4": run_source("Google Analytics (GA4)", sync_ga4),
         "ghl": run_source("GoHighLevel", sync_ghl),
         "community_count": run_source("Free community member count (GHL tag)", sync_community_count),
+        "partner_requests": run_source("Partner requests (GHL tag partner-request)", sync_partner_requests),
         "meta_organic": run_source("Facebook/Instagram (organic)", sync_meta_organic),
         "seo_audit": run_source("On-page SEO audit", sync_seo_audit),
         "pagespeed": run_source("PageSpeed Insights", sync_pagespeed),

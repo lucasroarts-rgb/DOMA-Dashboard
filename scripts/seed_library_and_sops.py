@@ -79,6 +79,28 @@ SEED_EXTRA_SOPS = [
         "needs": "Juli to send the list of SOPs in ClickUp (names and links) so they can be pasted in with Paste a list.",
         "notes": "From Juli's Oct 5 message: start by bringing in the SOPs from ClickUp, which need updating.",
     },
+    {
+        # Kyle, 2026-10-15: "this should be our SOP for handling sponsor
+        # requests going forward". Stages from the 2026-10-12 team meeting.
+        "title": "Handling sponsor and partner requests",
+        "area": "Sponsors",
+        "owner": "Juli",
+        "status": "review",
+        "needs": None,
+        "notes": (
+            "1. New request. A company fills the Partner With Us form, GHL tags the contact partner-request, "
+            "and it shows up in the Partners tab after the next morning sync. Anyone can also add a request by hand.\n"
+            "2. Juli vetting. Juli looks at the company and writes what she found in the notes. "
+            "If it's a no, she moves it to Declined and writes why.\n"
+            "3. Packet sent. Once Juli approves, Michelle sends the sponsor packet (the PDF, nothing to sign) "
+            "and moves the request to Packet sent.\n"
+            "4. Call with Kyle. When the company replies and wants to talk, move it to Call with Kyle "
+            "and put the call date in the next step.\n"
+            "5. Signed or Declined. After the call Kyle moves it to Signed (then follow New sponsor onboarding) or Declined.\n"
+            "Kyle only takes a call after Juli has vetted the company and Michelle has sent the packet. "
+            "Every request stays in the Partners tab with an owner, notes and a next step, so anyone can see where it stands."
+        ),
+    },
 ]
 
 

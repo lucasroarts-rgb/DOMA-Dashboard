@@ -64,6 +64,7 @@
     <button class="tab" data-view="content-ideas">Content Suggestions</button>
     <button class="tab" data-view="content-calendar">Content Calendar</button>
     <button class="tab" data-view="leads">Leads &middot; GoHighLevel</button>
+    <button class="tab" data-view="partners" data-release="2026-10-21">Partners</button>
     <button class="tab" data-view="social">Social &middot; Facebook &amp; Instagram</button>
     <button class="tab" data-view="team">Team &middot; Meetings</button>
     <button class="tab" data-view="weekly-recap">Weekly Recap</button>
@@ -229,6 +230,17 @@
         </div>
       </div>
 
+      <div class="panel" id="whereDomaPanel" data-release="2026-10-21">
+        <h2>Where DOMA stands <span class="h2-note" id="whereDomaNote">(our main searches: DOMA on Google from Search Console for the selected range, who ranks on Brave from the latest daily check)</span></h2>
+        <div id="whereDomaEmpty" class="empty" style="display:none">Ranking checks run daily (15 searches a day); all main searches are covered within 3 days.</div>
+        <div class="table-wrap">
+          <table id="whereDomaTable">
+            <thead><tr><th>Query</th><th>DOMA on Google</th><th>Impressions</th><th>Clicks</th><th>DOMA on Brave</th><th>Top 3 ahead of DOMA</th><th>What to do</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="panel">
         <h2>Ranking share-of-voice <span class="h2-note">(real businesses that out-rank DOMA on our own target searches - live snapshot, not a purchased authority score)</span></h2>
         <div id="serpCompetitorsEmpty" class="empty" style="display:none">Not connected. Comparing rankings needs a search results API (Brave Search or SerpApi have free tiers), and none is set up yet.</div>
@@ -345,6 +357,17 @@
         <div class="table-wrap">
           <table id="blogConversionsTable">
             <thead><tr><th>Page</th><th>Sessions</th><th>Key events</th><th>Rate</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="blogCtaPanel" data-release="2026-10-20">
+        <h2>Most clicked buttons <span class="h2-note">(GA4 cta_click event, selected range)</span></h2>
+        <div id="blogCtaEmpty" class="empty" style="display:none">Button tracking started Oct 15, 2026; data appears after the next sync.</div>
+        <div class="table-wrap">
+          <table id="blogCtaTable">
+            <thead><tr><th>Page</th><th>Button text</th><th>Destination</th><th>Clicks</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -656,6 +679,73 @@
               <thead><tr><th>Time of day (UTC)</th><th>Avg. engagement</th><th>Posts</th></tr></thead>
               <tbody></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-partners" data-release="2026-10-21">
+      <div class="panel">
+        <h2>Partners</h2>
+        <p class="panel-intro">Sponsor and partner requests, from the Partner With Us form to a signed deal. Juli vets each request, Michelle sends the packet, and Kyle only takes the call after both. Requests tagged partner-request in GoHighLevel arrive here after the morning sync. Changes save live for everyone. The steps are in the SOPs tab under "Handling sponsor and partner requests".</p>
+      </div>
+      <div class="cards" id="partnerCards"></div>
+      <div class="sync-notice" id="partnerNotice" hidden></div>
+
+      <div class="team-add" id="partnerAdd">
+        <button type="button" class="btn-add-ticket" id="partnerAddToggle">+ Add request</button>
+        <form class="team-add-form hidden" id="partnerForm">
+          <div class="team-add-row">
+            <label class="team-add-field"><span>Company</span><input type="text" name="company" required /></label>
+            <label class="team-add-field"><span>Website</span><input type="text" name="website" placeholder="example.com" /></label>
+            <label class="team-add-field"><span>Request date</span><input type="date" name="request_date" required /></label>
+          </div>
+          <div class="team-add-row">
+            <label class="team-add-field"><span>Stage</span><select name="stage" id="partnerStageInput"></select></label>
+            <label class="team-add-field"><span>Owner</span><input type="text" name="owner" list="partnerOwnerOptions" /></label>
+            <label class="team-add-field"><span>Next step</span><input type="text" name="next_step" placeholder="e.g. Michelle to send the packet" /></label>
+          </div>
+          <label class="team-add-field"><span>Notes</span><textarea name="notes" placeholder="What Juli found, what they asked for, call outcome"></textarea></label>
+          <div class="team-add-actions">
+            <button type="submit" class="btn-primary">Add request</button>
+            <button type="button" id="partnerFormCancel">Cancel</button>
+          </div>
+        </form>
+        <datalist id="partnerOwnerOptions"></datalist>
+      </div>
+
+      <div class="team-filters">
+        <div class="team-filter-row"><span class="team-filter-label">Owner</span><div class="owner-filter" id="partnerOwnerFilter"></div></div>
+        <label class="partner-show-closed"><input type="checkbox" id="partnerShowOld" /> Show signed and declined older than 30 days</label>
+      </div>
+
+      <div id="partnerEmpty" class="empty" style="display:none">No requests yet.</div>
+      <div class="partner-board" id="partnerBoard"></div>
+
+      <div class="panel" id="sponsorsPanel">
+        <h2>Sponsors <span class="h2-note">(sponsor offers pages and outbound clicks, selected range)</span></h2>
+        <p class="panel-intro">Views of /offers/ and each sponsor page, and clicks out to each sponsor's site from those pages (GA4 click event by link domain).</p>
+        <div class="cards" id="sponsorCards"></div>
+        <div id="sponsorsEmpty" class="empty" style="display:none">No offers data yet. It appears after the next GA4 sync.</div>
+        <div class="grid-2" id="sponsorsBody">
+          <div>
+            <h3 class="panel-sub">Clicks per sponsor</h3>
+            <div id="sponsorClicksChart" class="hbar-list"></div>
+            <div class="table-wrap">
+              <table id="sponsorClicksTable">
+                <thead><tr><th>Sponsor</th><th>Clicks</th><th>From /offers/</th><th>From sponsor page</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3 class="panel-sub">Offers pages</h3>
+            <div class="table-wrap">
+              <table id="offersPagesTable">
+                <thead><tr><th>Page</th><th>Views</th><th>Sessions</th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
