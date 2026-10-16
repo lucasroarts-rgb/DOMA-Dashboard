@@ -4636,6 +4636,17 @@ function renderCtaClicks() {
 // C:\DOMA-blog-migration\seo_audit\plano_semana_*.md). Elements with
 // data-release="YYYY-MM-DD" stay hidden before that date (New York time).
 function applyReleaseDates() {
+  // ?preview=1 shows everything early in this browser (Lucas checks before
+  // Kyle sees it); ?preview=0 turns it off. Not access control: anyone with
+  // the parameter sees the same thing.
+  try {
+    const flag = new URLSearchParams(location.search).get("preview");
+    if (flag === "1") localStorage.setItem("doma_preview", "1");
+    if (flag === "0") localStorage.removeItem("doma_preview");
+    if (localStorage.getItem("doma_preview") === "1") return;
+  } catch (error) {
+    /* storage blocked: fall through to the release dates */
+  }
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   document.querySelectorAll("[data-release]").forEach((el) => {
     if (el.dataset.release > today) el.hidden = true;
