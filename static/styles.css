@@ -659,10 +659,55 @@ table:not(.no-sort) thead th[aria-sort="ascending"]::after{content:" \25B2";font
 .ci-more-body{padding:4px 20px 20px}
 .ci-more-body .panel{box-shadow:none;margin-bottom:12px}
 
-/* Tabs grouped by purpose and a one-line lead per tab (2026-10-17) */
-.tabs{flex-direction:column;gap:2px}
-.tab-group{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;width:100%}
-.tab-group + .tab-group{border-top:1px solid var(--line);padding-top:3px}
-.tab-group-label{flex:0 0 132px;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:0 8px}
+/* Sidebar navigation: icon + text, grouped, collapsible; drawer on phones (2026-10-17) */
 .view-lead{margin:0 0 14px;font-size:14px;color:var(--muted);line-height:1.5}
-@media (max-width:760px){.tabs{position:static}.tab-group-label{flex-basis:100%;padding:4px 6px 0}.tab-group .tab{padding:6px 9px;font-size:12.5px}}
+.shell{--side-w:240px;max-width:none;margin:0;padding:0;display:grid;grid-template-columns:var(--side-w) minmax(0,1fr);min-height:100vh}
+body.nav-collapsed .shell{--side-w:76px}
+.content{min-width:0;width:100%;max-width:1320px;margin:0 auto;padding:24px}
+.sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent;display:flex;flex-direction:column;gap:6px;padding:16px 12px;background:var(--panel-2);border-right:1px solid var(--line);z-index:30}
+.sidebar-head{display:flex;align-items:center;justify-content:flex-start;gap:8px;padding:0 4px 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.sidebar .brand{gap:10px;min-width:0}
+.sidebar .brand-mark{width:38px;height:38px;flex:none}
+.sidebar .brand-title{font-size:15px;white-space:nowrap}
+.sidebar .brand-sub{font-size:12px}
+.menu-btn{display:inline-grid;place-items:center;width:38px;height:38px;flex:none;border-radius:9px;border:1px solid var(--line-strong);background:transparent;color:var(--muted)}
+.collapse-btn{margin-top:auto;display:flex;align-items:center;gap:11px;width:100%;padding:9px 10px;border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;color:var(--muted);font-size:13px;font-weight:700}
+.collapse-btn:hover,.menu-btn:hover{color:var(--ink);background:var(--teal-soft)}
+.collapse-btn svg,.menu-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.menu-btn{display:none}
+.topbar-title{display:none;font-weight:800;font-size:16px;margin-right:auto;align-self:center}
+.tabs{position:static;display:flex;flex-direction:column;gap:14px;margin:0;padding:0;background:none;border:0;border-radius:0;box-shadow:none;backdrop-filter:none}
+.tab-group{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:auto;border:0;padding:0}
+.tab-group + .tab-group{border:0;padding:0}
+.tab-group-label{flex:none;padding:2px 10px 4px;font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tab{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:8px 10px;border-radius:10px;font-size:14px;font-weight:700;white-space:normal;line-height:1.25;color:var(--muted)}
+.tab:hover{background:var(--teal-soft);color:var(--ink)}
+.tab:focus-visible,.collapse-btn:focus-visible,.menu-btn:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.tab-icon{width:19px;height:19px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tab.active{color:#1a1305}
+body.nav-collapsed .sidebar{padding:16px 10px}
+body.nav-collapsed .sidebar-head{justify-content:center}
+body.nav-collapsed .brand-text,body.nav-collapsed .tab-label,body.nav-collapsed .tab-group-label,body.nav-collapsed .collapse-label{display:none}
+body.nav-collapsed .tab{justify-content:center;padding:10px 0}
+body.nav-collapsed .tab-group + .tab-group{border-top:1px solid var(--line);padding-top:10px}
+body.nav-collapsed .collapse-btn{justify-content:center}
+body.nav-collapsed .collapse-btn svg{transform:rotate(180deg)}
+body.nav-collapsed .sidebar .brand{justify-content:center}
+.topbar{justify-content:flex-end}
+.sidebar-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:25}
+@media (max-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .content{padding:14px}
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:270px;transform:translateX(-105%);transition:transform .2s ease;box-shadow:var(--shadow)}
+  body.nav-open .sidebar{transform:none}
+  .collapse-btn{display:none}
+  .menu-btn{display:inline-grid}
+  .topbar-title{display:block}
+  .topbar{align-items:center}
+  .topbar{justify-content:space-between;align-items:flex-start}
+  body.nav-collapsed .brand-text,body.nav-collapsed .tab-label,body.nav-collapsed .tab-group-label{display:revert}
+  body.nav-collapsed .tab{justify-content:flex-start;padding:9px 10px}
+}
+@media (prefers-reduced-motion:reduce){.sidebar{transition:none}}
+.cards{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))} /* 4 cards per row next to the sidebar at 1024px */
+:root[data-theme="light"] .pill.info{color:var(--warn-ink)} /* gold on cream was about 1.8:1 */

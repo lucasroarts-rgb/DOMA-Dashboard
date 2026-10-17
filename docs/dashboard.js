@@ -4864,9 +4864,79 @@ function addViewLeads() {
   });
 }
 
+// Sidebar icons, drawn inline so the published site loads nothing from outside.
+const TAB_ICONS = {
+  overview: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  seo: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  competitors: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/>',
+  blog: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  leads: '<circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 12 0v1M19 8v6M16 11h6"/>',
+  social: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
+  "content-ideas": '<path d="M9 18h6M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/>',
+  "content-calendar": '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  "weekly-recap": '<rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 2h6v4H9zM9 11h6M9 15h6"/>',
+  todo: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m8 12 3 3 5-6"/>',
+  team: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2A5 5 0 0 1 21.5 19"/>',
+  partners: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  library: '<path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h8M8 11h6"/>',
+  sops: '<path d="M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>',
+  links: '<path d="M15 3h6v6M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  changelog: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+};
+
+function decorateTabs() {
+  document.querySelectorAll(".tab").forEach((tab) => {
+    if (tab.querySelector(".tab-label")) return;
+    const label = tab.textContent.trim();
+    const icon = TAB_ICONS[tab.dataset.view] || '<circle cx="12" cy="12" r="3"/>';
+    tab.innerHTML = `<svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">${icon}</svg><span class="tab-label">${escapeHtml(label)}</span>`;
+    tab.title = label; // tooltip when the sidebar is collapsed to icons
+  });
+}
+
+// Desktop: collapse to icons (remembered). Phone: the sidebar opens over the page.
+function initSidebar() {
+  const body = document.body;
+  const collapseBtn = document.getElementById("collapseBtn");
+  const menuBtn = document.getElementById("menuBtn");
+  const backdrop = document.getElementById("sidebarBackdrop");
+  const setCollapsed = (on) => {
+    body.classList.toggle("nav-collapsed", on);
+    collapseBtn?.setAttribute("aria-pressed", on ? "true" : "false");
+    collapseBtn?.setAttribute("aria-label", on ? "Expand the menu" : "Collapse the menu");
+    try { localStorage.setItem("domaNavCollapsed", on ? "1" : "0"); } catch (e) { /* private mode */ }
+  };
+  let saved = "0";
+  try { saved = localStorage.getItem("domaNavCollapsed") || "0"; } catch (e) { /* private mode */ }
+  setCollapsed(saved === "1");
+  collapseBtn?.addEventListener("click", () => setCollapsed(!body.classList.contains("nav-collapsed")));
+
+  const setOpen = (on) => {
+    body.classList.toggle("nav-open", on);
+    menuBtn?.setAttribute("aria-expanded", on ? "true" : "false");
+    if (backdrop) backdrop.hidden = !on;
+    if (on) document.querySelector(".tab.active")?.focus();
+  };
+  menuBtn?.addEventListener("click", () => setOpen(!body.classList.contains("nav-open")));
+  backdrop?.addEventListener("click", () => setOpen(false));
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && body.classList.contains("nav-open")) {
+      setOpen(false);
+      menuBtn?.focus();
+    }
+  });
+  const title = document.getElementById("topbarTitle");
+  document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => {
+    setOpen(false);
+    if (title) title.textContent = tab.title || tab.textContent.trim();
+    window.scrollTo({ top: 0 });
+  }));
+}
+
 function initTabs() {
   applyReleaseDates();
   addViewLeads();
+  decorateTabs();
   const tabs = document.querySelectorAll(".tab");
   tabs.forEach((tab) => {
     tab.setAttribute("role", "tab");
@@ -4897,6 +4967,7 @@ function initRangeSelect() {
   initThemeToggle();
   await initPasswordGate();
   initTabs();
+  initSidebar();
   initRangeSelect();
   initDescLinkCopy();
   const initialDays = IS_STATIC ? String((STATIC_DATA && STATIC_DATA.default_range) || 90) : (document.getElementById("rangeSelect")?.value || 90);
