@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="/static/assets/doma-logo.webp">
-<link rel="stylesheet" href="/static/styles.css?v=31">
+<link rel="stylesheet" href="/static/styles.css?v=34">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -525,12 +525,6 @@
       <div class="cards" id="calendarCards"></div>
       <div id="calendarEmpty" class="empty" style="display:none">No content scheduled yet - add one below, or use a suggestion from the Content Suggestions tab.</div>
 
-      <div class="panel">
-        <h2>Suggested topics <span class="h2-note">(from Content Suggestions - click to prefill the form below)</span></h2>
-        <div id="calendarGapsToggle" class="gap-toggle-wrap"></div>
-        <div id="calendarSuggestions" class="calendar-suggestions"></div>
-      </div>
-
       <div class="team-add" id="calendarAdd">
         <button type="button" class="btn-add-ticket" id="calendarAddToggle">+ Add to calendar</button>
         <form class="team-add-form hidden" id="calendarAddForm">
@@ -584,11 +578,24 @@
           <h2 id="calendarMonthLabel"></h2>
           <button type="button" id="calendarNextMonth" class="calendar-nav-btn">&rsaquo;</button>
           <button type="button" id="calendarTodayBtn" class="calendar-today-btn">Today</button>
+          <div class="calendar-view-toggle" id="calendarViewToggle" role="group" aria-label="Calendar view">
+            <button type="button" data-view="day">Day</button>
+            <button type="button" data-view="week">Week</button>
+            <button type="button" data-view="month">Month</button>
+            <button type="button" data-view="list">Schedule</button>
+          </div>
         </div>
-        <div class="calendar-weekdays">
+        <div class="calendar-legend" id="calendarLegend" aria-label="Post types"></div>
+        <div class="calendar-weekdays" id="calendarWeekdays">
           <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
         </div>
         <div class="calendar-grid" id="calendarGrid"></div>
+      </div>
+
+      <div class="panel">
+        <h2>Suggested topics <span class="h2-note">(from Content Suggestions - click to prefill the form below)</span></h2>
+        <div id="calendarGapsToggle" class="gap-toggle-wrap"></div>
+        <div id="calendarSuggestions" class="calendar-suggestions"></div>
       </div>
 
       <div class="panel" id="calendarUnscheduledPanel" style="display:none">
@@ -747,6 +754,15 @@
         <h2>Partners</h2>
         <p class="panel-intro">Sponsor and partner requests, from the Partner With Us form to a signed deal. Juli vets each request, Michelle sends the packet, and Kyle only takes the call after both. Requests tagged partner-request in GoHighLevel arrive here after the morning sync. Changes save live for everyone. The steps are in the SOPs tab under "Handling sponsor and partner requests".</p>
       </div>
+      <div class="partner-flow" aria-label="How a sponsor request moves">
+        <h3 class="panel-sub">How a sponsor request moves</h3>
+        <ol>
+          <li><span class="flow-status flow-live">&#10003; Live</span><strong>Partner With Us form</strong> tags the contact partner-request in GoHighLevel; it lands in "New request" after the morning sync.</li>
+          <li><span class="flow-status flow-wait">&#9203; Waiting</span><strong>Automatic first reply</strong> to the company, with the email text Juli is sending. Check the "000.1 Offers - Partner With Us" workflow first so nobody gets two replies.</li>
+          <li><span class="flow-status flow-todo">&#9675; To build</span><strong>Email to Juli</strong> the moment a request comes in, so vetting starts the same day.</li>
+          <li><span class="flow-status flow-live">&#10003; Live</span><strong>Juli vets, Michelle sends the packet, Kyle takes the call</strong> on the board below.</li>
+        </ol>
+      </div>
       <div class="cards" id="partnerCards"></div>
       <div class="sync-notice" id="partnerNotice" hidden></div>
 
@@ -779,6 +795,40 @@
 
       <div id="partnerEmpty" class="empty" style="display:none">No requests yet.</div>
       <div class="partner-board" id="partnerBoard"></div>
+
+      <div class="panel" id="alliancePanel">
+        <h2>Influence Alliance content</h2>
+        <p class="panel-intro">Articles, videos and other content from Influence Alliance members. Juli reviews each one first and approves or declines it. Approved content goes to Lucas to edit and file in the content library, where Juli picks it up for the calendar.</p>
+        <div class="partner-flow">
+          <ol>
+            <li><span class="flow-status flow-todo">&#9675; To build</span><strong>Member submission form</strong> (title, type, link or file, short description). Until then, add submissions here by hand.</li>
+            <li><span class="flow-status flow-todo">&#9675; To build</span><strong>Email to Juli</strong> for each new submission.</li>
+          </ol>
+        </div>
+        <div class="cards" id="allianceCards"></div>
+        <div class="team-add" id="allianceAdd">
+          <button type="button" class="btn-add-ticket" id="allianceAddToggle">+ Add submission</button>
+          <form class="team-add-form hidden" id="allianceForm">
+            <div class="team-add-row">
+              <label class="team-add-field"><span>Title</span><input type="text" name="company" required /></label>
+              <label class="team-add-field"><span>Member</span><input type="text" name="member" placeholder="Who sent it" /></label>
+              <label class="team-add-field"><span>Type</span><select name="content_type"></select></label>
+            </div>
+            <div class="team-add-row">
+              <label class="team-add-field"><span>Link</span><input type="text" name="website" placeholder="Google Doc, video or file link" /></label>
+              <label class="team-add-field"><span>Received</span><input type="date" name="request_date" required /></label>
+              <label class="team-add-field"><span>Stage</span><select name="stage"></select></label>
+            </div>
+            <label class="team-add-field"><span>Notes</span><textarea name="notes" placeholder="What it covers, Juli's comments, edits needed"></textarea></label>
+            <div class="team-add-actions">
+              <button type="submit" class="btn-primary">Add submission</button>
+              <button type="button" id="allianceFormCancel">Cancel</button>
+            </div>
+          </form>
+        </div>
+        <div id="allianceEmpty" class="empty" style="display:none">No submissions yet.</div>
+        <div class="partner-board alliance-board" id="allianceBoard"></div>
+      </div>
 
       <div class="panel" id="sponsorsPanel">
         <h2>Sponsors <span class="h2-note">(sponsor offers pages and outbound clicks, selected range)</span></h2>
@@ -1053,7 +1103,7 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js?v=4"></script>
-<script src="/static/dashboard.js?v=40"></script>
+<script src="/static/dashboard.js?v=42"></script>
 <script src="/static/assets/motion-lite.js" defer data-values=".card-value,.community-stat-value" data-charts="svg.chart-svg,svg.donut-svg" data-hbars=".hbar-fill,.funnel-fill"></script>
 </body>
 </html>

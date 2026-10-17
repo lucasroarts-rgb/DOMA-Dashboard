@@ -2762,7 +2762,7 @@ let calendarLiveStatuses = new Map();
 let calendarFilters = { owner: "all", type: "all", status: "all" };
 let calendarListenersAttached = false;
 let calendarAddFormAttached = false;
-let calendarViewMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM", the month currently shown
+let calendarCursor = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD" inside the day, week or month shown
 
 function buildCalendarFilterPills(containerId, key, values, labelFn) {
   buildFilterPills(containerId, values, labelFn, (value) => {
@@ -2777,6 +2777,9 @@ function applyCalendarFilters() {
     const typeMatch = calendarFilters.type === "all" || item.dataset.type === calendarFilters.type;
     const statusMatch = calendarFilters.status === "all" || item.dataset.status === calendarFilters.status;
     item.classList.toggle("hidden", !(ownerMatch && typeMatch && statusMatch));
+  });
+  document.querySelectorAll("#calendarGrid .calendar-list-day").forEach((day) => {
+    day.hidden = !day.querySelector(".cal-item:not(.hidden)");
   });
   document.querySelectorAll("#calendarOwnerFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.owner));
   document.querySelectorAll("#calendarTypeFilter button").forEach((b) => b.classList.toggle("active", b.dataset.value === calendarFilters.type));
@@ -2839,15 +2842,34 @@ function ensureCalendarListeners() {
   document.getElementById("calendarUnscheduledList").addEventListener("click", handleGridClick);
 
   document.getElementById("calendarPrevMonth")?.addEventListener("click", () => {
-    calendarViewMonth = shiftMonth(calendarViewMonth, -1);
+    calendarCursor = shiftCalendarCursor(calendarCursor, calendarView, -1);
     renderContentCalendar();
   });
   document.getElementById("calendarNextMonth")?.addEventListener("click", () => {
-    calendarViewMonth = shiftMonth(calendarViewMonth, 1);
+    calendarCursor = shiftCalendarCursor(calendarCursor, calendarView, 1);
+    renderContentCalendar();
+  });
+  // Day numbers, week headers and "+N more" open that day (Google Calendar style).
+  document.getElementById("calendarGrid").addEventListener("click", (event) => {
+    const go = event.target.closest("[data-goto]");
+    if (!go) return;
+    calendarCursor = go.dataset.goto;
+    calendarView = "day";
+    renderContentCalendar();
+  });
+  document.getElementById("calendarViewToggle")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("button[data-view]");
+    if (!btn) return;
+    calendarView = btn.dataset.view;
+    try {
+      localStorage.setItem("domaCalView", calendarView);
+    } catch (error) {
+      /* storage blocked: the choice lasts until reload */
+    }
     renderContentCalendar();
   });
   document.getElementById("calendarTodayBtn")?.addEventListener("click", () => {
-    calendarViewMonth = new Date().toISOString().slice(0, 7);
+    calendarCursor = new Date().toISOString().slice(0, 10);
     renderContentCalendar();
   });
 
@@ -3159,14 +3181,40 @@ function shiftMonth(monthStr, delta) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function calItemHtml(item) {
-  // The compact per-day row can't show every content-planning field inline
-  // (headline, direction, graphic idea, resource, notes) - they go into the
-  // native title tooltip on hover, AND clicking the row (or the pencil)
-  // opens the full edit form with everything expanded and editable, which
-  // is the reliable way to see it all without depending on hover.
+// Type colors for the calendar (2026-10-17: "fica meio dificil de ver"). Color is
+// never alone: the legend names it, and the List view prints the type.
+const CALENDAR_TYPE_COLORS = {
+  "Sponsor": "var(--series-b)",
+  "Blog": "var(--series-a)",
+  "Ebook": "var(--green)",
+  "Engagement Question": "var(--teal)",
+  "Teach It Tuesday": "var(--series-c)",
+  "Community Reshare": "var(--muted-2)",
+  "Blog post": "var(--series-a)",
+  "Blog/Ebook": "var(--green)",
+  "Event": "#9b6bdf",
+};
+let calendarView = (() => {
+  try {
+    const saved = localStorage.getItem("domaCalView");
+    if (["day", "week", "month", "list"].includes(saved)) return saved;
+  } catch (error) {
+    /* storage blocked */
+  }
+  return window.innerWidth < 760 ? "list" : "month";
+})();
+
+function calTypeColor(type) {
+  return CALENDAR_TYPE_COLORS[type] || "var(--line-strong)";
+}
+
+function calItemHtml(item, slots) {
+  // Month view shows status, time and title; links, notes and the edit/remove
+  // buttons sit in the tools group (on hover with a mouse, always on touch).
+  // Every planning field is in the tooltip and in the edit form (click the title).
   const links = calendarItemLinks(item);
   const tooltipLines = [item.title];
+  if (item.type) tooltipLines.push(`Type: ${item.type}`);
   if (item.owner) tooltipLines.push(`Owner: ${item.owner}`);
   if (item.headline) tooltipLines.push(`Headline/Hook: ${item.headline}`);
   if (item.direction) tooltipLines.push(`Direction: ${item.direction}`);
@@ -3179,18 +3227,187 @@ function calItemHtml(item) {
   const linkIcons = links
     .map((l) => `<a href="${safeUrl(l.url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="${escAttr(l.label || "Open link")}">&#128279;</a>`)
     .join("");
+  const posted = [item.facebook_posted ? "FB" : "", item.instagram_posted ? "IG" : ""].filter(Boolean).join(" ");
+  const statusLabel = CALENDAR_STATUS_LABELS[item.status] || item.status;
+  const slot = slots ? slots.get(String(item.id)) : item.post_time_et ? { time: item.post_time_et, auto: false } : null;
+  const tags = [
+    slot ? `<span class="cal-tag cal-tag-time${slot.auto ? " is-auto" : ""}" title="${slot.auto ? "Time the scheduler gives it (no time set on the item)" : "Time set on the item"}">${escapeHtml(calTimeLabel(slot.time))}</span>` : "",
+    item.video_url ? `<span class="cal-tag">Reel</span>` : "",
+  ].join("");
 
   return `
-    <div class="cal-item status-${escAttr(item.status)}" data-id="${escAttr(item.id)}" data-owner="${escAttr(item.owner || "")}" data-type="${escAttr(item.type)}" data-status="${escAttr(item.status)}" title="${escAttr(tooltip)}">
-      <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
-      <span class="cal-item-title">${escapeHtml(item.title || "")}</span>
-      ${item.notes ? `<span class="cal-item-link" title="Has notes - click the title to read them">&#128221;</span>` : ""}
-      ${linkIcons}
-      ${item.pdf_url ? `<a href="${safeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Ebook PDF">&#128196;</a>` : ""}
-      ${item.image_url ? `<a href="${safeUrl(item.image_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Cover image">&#128247;</a>` : ""}
-      <button type="button" class="cal-item-edit" title="Edit">&#9998;</button>
-      <button type="button" class="cal-item-delete" title="Remove">&times;</button>
+    <div class="cal-item status-${escAttr(item.status)}" style="--cal-type:${calTypeColor(item.type)}" data-id="${escAttr(item.id)}" data-owner="${escAttr(item.owner || "")}" data-type="${escAttr(item.type)}" data-status="${escAttr(item.status)}" title="${escAttr(tooltip)}">
+      <button type="button" class="cal-item-mark" title="Click to change status" aria-label="Status: ${escAttr(statusLabel)}">${teamStatusIcon(item.status)}</button>
+      <div class="cal-item-body">
+        <span class="cal-item-title">${tags}${escapeHtml(item.title || "")}</span>
+        <span class="cal-item-meta">${escapeHtml(item.type || "")}${item.owner ? ` · ${escapeHtml(item.owner)}` : ""} · ${escapeHtml(statusLabel)}${posted ? ` · posted ${posted}` : ""}</span>
+      </div>
+      <span class="cal-item-tools">
+        ${item.notes ? `<span class="cal-item-link" title="Has notes - click the title to read them">&#128221;</span>` : ""}
+        ${linkIcons}
+        ${item.pdf_url ? `<a href="${safeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Ebook PDF">&#128196;</a>` : ""}
+        ${item.image_url ? `<a href="${safeUrl(item.image_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Cover image">&#128247;</a>` : ""}
+        <button type="button" class="cal-item-edit" title="Edit" aria-label="Edit">&#9998;</button>
+        <button type="button" class="cal-item-delete" title="Remove" aria-label="Remove">&times;</button>
+      </span>
     </div>`;
+}
+
+function renderCalendarLegend(types) {
+  const el = document.getElementById("calendarLegend");
+  if (!el) return;
+  el.innerHTML = types
+    .map((t) => `<span class="cal-legend-item"><span class="cal-legend-swatch" style="background:${calTypeColor(t)}"></span>${escapeHtml(t)}</span>`)
+    .join("");
+}
+
+// ---------- calendar views: Day, Week, Month, Schedule (Google Calendar style, 2026-10-17) ----------
+
+function isoAddDays(iso, n) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function shiftCalendarCursor(iso, view, dir) {
+  if (view === "day") return isoAddDays(iso, dir);
+  if (view === "week") return isoAddDays(iso, 7 * dir);
+  return `${shiftMonth(iso.slice(0, 7), dir)}-01`;
+}
+
+function calendarWeekDates(iso) {
+  const start = isoAddDays(iso, -new Date(`${iso}T12:00:00Z`).getUTCDay()); // Sunday
+  return Array.from({ length: 7 }, (_, i) => isoAddDays(start, i));
+}
+
+function calendarRangeLabel(iso, view) {
+  const fmt = (d, opts) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { ...opts, timeZone: "UTC" });
+  if (view === "day") return fmt(iso, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  if (view === "week") {
+    const days = calendarWeekDates(iso);
+    const [a, b] = [days[0], days[6]];
+    const sameMonth = a.slice(0, 7) === b.slice(0, 7);
+    return `${fmt(a, { month: "short", day: "numeric" })} - ${sameMonth ? fmt(b, { day: "numeric" }) : fmt(b, { month: "short", day: "numeric" })}, ${b.slice(0, 4)}`;
+  }
+  return fmt(`${iso.slice(0, 7)}-01`, { month: "long", year: "numeric" });
+}
+
+// Post time (New York) per item, the same rule the scheduler uses
+// (scripts/sync_blog_social.py post_slots): post_time_et wins; other feed items of a
+// day take 12:00, then 16:00, 10:00, 18:00, 14:00, 09:00, then 20:00, by creation
+// order; story-only items go at 12:00. Items with no image are not posted and
+// have no time. Keep both in step if the scheduler changes.
+const CALENDAR_DEFAULT_TIME = "12:00";
+const CALENDAR_EXTRA_SLOTS = ["16:00", "10:00", "18:00", "14:00", "09:00"];
+function calendarPostSlots(items) {
+  const out = new Map();
+  const byDate = new Map();
+  items.forEach((it) => {
+    if (it.post_time_et) out.set(String(it.id), { time: it.post_time_et, auto: false });
+    else if (it.image_url && it.date) byDate.set(it.date, [...(byDate.get(it.date) || []), it]);
+    else if (it.image_url_story) out.set(String(it.id), { time: CALENDAR_DEFAULT_TIME, auto: true });
+  });
+  byDate.forEach((group, date) => {
+    const taken = new Set(items.filter((i) => i.date === date && i.post_time_et).map((i) => i.post_time_et));
+    const free = [CALENDAR_DEFAULT_TIME, ...CALENDAR_EXTRA_SLOTS].filter((t) => !taken.has(t));
+    group
+      .slice()
+      .sort((x, y) => (x.created_at || 0) - (y.created_at || 0))
+      .forEach((it, idx) => out.set(String(it.id), { time: free[idx] || "20:00", auto: true }));
+  });
+  return out;
+}
+
+function calTimeLabel(hhmm) {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${((h + 11) % 12) + 1}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
+}
+
+function sortByCalendarTime(list, slots) {
+  return list.slice().sort((x, y) => String((slots.get(String(x.id)) || {}).time || "99").localeCompare(String((slots.get(String(y.id)) || {}).time || "99")));
+}
+
+function calendarDayHead(iso, todayIso, { long = false } = {}) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  const wd = d.toLocaleDateString("en-US", { weekday: long ? "long" : "short", timeZone: "UTC" });
+  return `<button type="button" class="cal-dayhead${iso === todayIso ? " is-today" : ""}" data-goto="${iso}" aria-label="Open ${escAttr(d.toDateString())}"><span class="cal-dayhead-wd">${wd}</span><span class="cal-dayhead-num">${d.getUTCDate()}</span></button>`;
+}
+
+const CALENDAR_MONTH_VISIBLE = 4;
+function renderCalendarMonth(byDate, slots, todayIso) {
+  const [year, month] = calendarCursor.slice(0, 7).split("-").map(Number);
+  const firstIso = `${calendarCursor.slice(0, 7)}-01`;
+  const start = isoAddDays(firstIso, -new Date(`${firstIso}T12:00:00Z`).getUTCDay());
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const weeks = Math.ceil((new Date(`${firstIso}T12:00:00Z`).getUTCDay() + daysInMonth) / 7);
+  const cells = [];
+  for (let i = 0; i < weeks * 7; i++) {
+    const iso = isoAddDays(start, i);
+    const outside = iso.slice(0, 7) !== firstIso.slice(0, 7);
+    const dayItems = sortByCalendarTime(byDate.get(iso) || [], slots);
+    const shown = dayItems.slice(0, CALENDAR_MONTH_VISIBLE);
+    const more = dayItems.length - shown.length;
+    cells.push(`
+      <div class="calendar-day${iso === todayIso ? " calendar-day-today" : ""}${outside ? " calendar-day-other" : ""}" data-date="${iso}">
+        <button type="button" class="calendar-day-num" data-goto="${iso}" aria-label="Open ${escAttr(iso)}"><span>${Number(iso.slice(8))}</span></button>
+        <div class="calendar-day-items">${shown.map((it) => calItemHtml(it, slots)).join("")}</div>
+        ${more > 0 ? `<button type="button" class="cal-more" data-goto="${iso}">+${more} more</button>` : ""}
+      </div>`);
+  }
+  return cells.join("");
+}
+
+function renderCalendarTimeGrid(byDate, slots, todayIso, dates) {
+  const timed = new Map(); // date -> hour -> items
+  const allDay = new Map();
+  let minH = 8;
+  let maxH = 20;
+  dates.forEach((iso) => {
+    (byDate.get(iso) || []).forEach((it) => {
+      const slot = slots.get(String(it.id));
+      if (!slot) {
+        allDay.set(iso, [...(allDay.get(iso) || []), it]);
+        return;
+      }
+      const h = Number(slot.time.split(":")[0]);
+      minH = Math.min(minH, h);
+      maxH = Math.max(maxH, h);
+      const hours = timed.get(iso) || new Map();
+      hours.set(h, [...(hours.get(h) || []), it]);
+      timed.set(iso, hours);
+    });
+  });
+  const cols = dates.length;
+  const head = `<div class="cal-tg-corner"></div>${dates.map((iso) => `<div class="cal-tg-head${iso === todayIso ? " is-today" : ""}">${calendarDayHead(iso, todayIso, { long: cols === 1 })}</div>`).join("")}`;
+  const allDayRow = `<div class="cal-tg-gutter cal-tg-allday-label">No time</div>${dates
+    .map((iso) => `<div class="cal-tg-cell cal-tg-allday${iso === todayIso ? " is-today" : ""}" data-date="${iso}"><div class="calendar-day-items">${(allDay.get(iso) || []).map((it) => calItemHtml(it, slots)).join("")}</div></div>`)
+    .join("")}`;
+  const rows = [];
+  for (let h = minH; h <= maxH; h++) {
+    rows.push(`<div class="cal-tg-gutter">${calTimeLabel(`${h}:00`)}</div>${dates
+      .map((iso) => {
+        const list = sortByCalendarTime(((timed.get(iso) || new Map()).get(h)) || [], slots);
+        return `<div class="cal-tg-cell${iso === todayIso ? " is-today" : ""}" data-date="${iso}"><div class="calendar-day-items">${list.map((it) => calItemHtml(it, slots)).join("")}</div></div>`;
+      })
+      .join("")}`);
+  }
+  return `<div class="cal-timegrid" style="--cal-cols:${cols}">${head}${allDayRow}${rows.join("")}</div>
+    <p class="cal-tg-note">Times are New York. Items without a set time show the slot the scheduler gives them (dotted time). "No time" items have no image, so the scheduler does not post them.</p>`;
+}
+
+function renderCalendarSchedule(byDate, slots, todayIso) {
+  const prefix = calendarCursor.slice(0, 7);
+  const dates = [...byDate.keys()].filter((d) => d.startsWith(prefix)).sort();
+  const days = dates.map((iso) => {
+    const dayItems = sortByCalendarTime(byDate.get(iso), slots);
+    const label = new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
+    return `
+      <section class="calendar-list-day${iso === todayIso ? " calendar-day-today" : ""}" data-date="${iso}">
+        <h3 class="calendar-list-date"><button type="button" class="cal-list-goto" data-goto="${iso}">${escapeHtml(label)}</button>${iso === todayIso ? ` <span class="cal-tag">Today</span>` : ""} <span class="status-count">${dayItems.length}</span></h3>
+        <div class="calendar-day-items">${dayItems.map((it) => calItemHtml(it, slots)).join("")}</div>
+      </section>`;
+  });
+  return days.join("") || `<div class="empty">Nothing scheduled this month.</div>`;
 }
 
 function renderContentCalendar() {
@@ -3228,7 +3445,7 @@ function renderContentCalendar() {
     ownerFilterEl.innerHTML = "";
     typeFilterEl.innerHTML = "";
     statusFilterEl.innerHTML = "";
-    if (monthLabelEl) monthLabelEl.textContent = new Date(`${calendarViewMonth}-01T00:00:00`).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    if (monthLabelEl) monthLabelEl.textContent = new Date(`${calendarCursor.slice(0, 7)}-01T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
     return;
   }
 
@@ -3251,31 +3468,17 @@ function renderContentCalendar() {
     byDate.get(item.date).push(item);
   });
 
-  const [year, month] = calendarViewMonth.split("-").map(Number);
-  const firstOfMonth = new Date(Date.UTC(year, month - 1, 1));
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const startOffset = firstOfMonth.getUTCDay(); // 0 = Sunday
-  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
   const todayIso = new Date().toISOString().slice(0, 10);
+  const slots = calendarPostSlots(items);
+  renderCalendarLegend(allTypes);
+  document.querySelectorAll("#calendarViewToggle button").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === calendarView));
+  document.getElementById("calendarWeekdays")?.toggleAttribute("hidden", calendarView !== "month");
+  grid.className = `calendar-grid view-${calendarView}${calendarView === "list" ? " is-list" : ""}`;
+  if (monthLabelEl) monthLabelEl.textContent = calendarRangeLabel(calendarCursor, calendarView);
 
-  if (monthLabelEl) monthLabelEl.textContent = firstOfMonth.toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
-
-  const cells = [];
-  for (let i = 0; i < totalCells; i++) {
-    const dayNum = i - startOffset + 1;
-    if (dayNum < 1 || dayNum > daysInMonth) {
-      cells.push(`<div class="calendar-day calendar-day-outside"></div>`);
-      continue;
-    }
-    const dateIso = `${calendarViewMonth}-${String(dayNum).padStart(2, "0")}`;
-    const dayItems = byDate.get(dateIso) || [];
-    cells.push(`
-      <div class="calendar-day${dateIso === todayIso ? " calendar-day-today" : ""}" data-date="${dateIso}">
-        <div class="calendar-day-num">${dayNum}</div>
-        <div class="calendar-day-items">${dayItems.map(calItemHtml).join("")}</div>
-      </div>`);
-  }
-  grid.innerHTML = cells.join("");
+  if (calendarView === "list") grid.innerHTML = renderCalendarSchedule(byDate, slots, todayIso);
+  else if (calendarView === "month") grid.innerHTML = renderCalendarMonth(byDate, slots, todayIso);
+  else grid.innerHTML = renderCalendarTimeGrid(byDate, slots, todayIso, calendarView === "day" ? [calendarCursor] : calendarWeekDates(calendarCursor));
 
   if (unscheduled.length) {
     unscheduledPanel.style.display = "";
@@ -4594,6 +4797,7 @@ function ensurePartnerListeners() {
     window.domaPartners.subscribeRequests((items) => {
       partnerItems = items;
       renderPartnerBoard();
+      renderAllianceBoard();
     });
   });
 }
@@ -4646,7 +4850,7 @@ function renderPartnerBoard() {
   const board = document.getElementById("partnerBoard");
   if (!board) return;
   showSyncNotice("partnerNotice", "partner_requests");
-  const visible = partnerItems.filter((i) => !i.hidden);
+  const visible = partnerItems.filter((i) => !i.hidden && i.kind !== "alliance");
 
   const count = (stages) => visible.filter((i) => stages.includes(i.stage || "new")).length;
   const waitingNew = visible.filter((i) => (i.stage || "new") === "new").map(partnerStageAgeDays).filter((d) => d !== null);
@@ -4700,6 +4904,225 @@ function renderPartnerBoard() {
       </section>`;
   }).join("");
 }
+
+/* ---------- Influence Alliance submissions (Juli, 2026-10-17) ---------- */
+
+// Juli's request: members send articles, videos and other content; Juli reviews and
+// approves first, then Lucas edits and files it in the content library, where Juli
+// pulls from it for the calendar. Stored in partner_requests with kind "alliance"
+// so it uses the rules that collection already has.
+const ALLIANCE_STAGES = [
+  ["submitted", "Submitted"],
+  ["review", "Juli reviewing"],
+  ["editing", "Lucas editing"],
+  ["library", "In content library"],
+  ["declined", "Declined"],
+];
+const ALLIANCE_COLUMNS = [
+  { key: "submitted", label: "Submitted", stages: ["submitted"] },
+  { key: "review", label: "Juli reviewing", stages: ["review"] },
+  { key: "editing", label: "Lucas editing", stages: ["editing"] },
+  { key: "library", label: "In library / Declined", stages: ["library", "declined"] },
+];
+const ALLIANCE_STAGE_DEFAULTS = {
+  submitted: { owner: "Juli", next_step: "Juli to review and approve or decline" },
+  review: { owner: "Juli", next_step: "Juli to review and approve or decline" },
+  editing: { owner: "Lucas", next_step: "Lucas to edit and file it in the content library" },
+  library: { owner: "Juli", next_step: "Ready for the content calendar" },
+  declined: { owner: null, next_step: null },
+};
+const ALLIANCE_TYPES = ["Article", "Video", "Other"];
+
+let allianceEditingId = null;
+let allianceListenersAttached = false;
+
+function allianceItems() {
+  return partnerItems.filter((i) => i.kind === "alliance" && !i.hidden);
+}
+
+function allianceStageOptionsHtml(selected) {
+  return ALLIANCE_STAGES.map(([v, l]) => `<option value="${v}"${v === selected ? " selected" : ""}>${l}</option>`).join("");
+}
+
+function allianceStageChangeFields(item, stage) {
+  const fields = { stage };
+  const before = ALLIANCE_STAGE_DEFAULTS[item.stage || "submitted"] || {};
+  const after = ALLIANCE_STAGE_DEFAULTS[stage] || {};
+  if (!item.owner || item.owner === before.owner) fields.owner = after.owner ?? null;
+  if (!item.next_step || item.next_step === before.next_step) fields.next_step = after.next_step ?? null;
+  return fields;
+}
+
+function allianceCardHtml(item) {
+  const stage = item.stage || "submitted";
+  const link = safeHttpUrl(item.website, { allowBare: true });
+  const title = item.company || "Untitled submission";
+  const dates = item.stage_dates || {};
+  const history = ALLIANCE_STAGES.filter(([v]) => dates[v]).map(([v, l]) => `${l} ${shortDateFromMs(dates[v])}`);
+  const ms = dates[stage] || item.created_at;
+  const age = ms ? Math.floor((Date.now() - ms) / 86400000) : null;
+  const badge = stage === "library"
+    ? `<span class="partner-badge partner-badge-signed">&#10003; In library</span>`
+    : stage === "declined" ? `<span class="partner-badge partner-badge-declined">&#10005; Declined</span>` : "";
+  return `
+    <article class="partner-card stage-${escAttr(stage)}" data-id="${escAttr(item.id)}">
+      <div class="partner-card-head">
+        <h4 class="partner-company">${linkedTitleHtml(title, link)}</h4>
+        ${badge}
+      </div>
+      <div class="lib-meta">
+        ${item.content_type ? `<span class="alliance-type">${escapeHtml(item.content_type)}</span>` : ""}
+        ${item.member ? `<span class="lib-date">From ${escapeHtml(item.member)}</span>` : ""}
+        ${item.request_date ? `<span class="lib-date">${escapeHtml(fullDate(item.request_date))}</span>` : ""}
+      </div>
+      ${item.owner ? `<div class="partner-source">With ${escapeHtml(item.owner)}</div>` : ""}
+      ${item.next_step ? `<div class="partner-next"><span>Next:</span> ${linkifyText(item.next_step)}</div>` : ""}
+      ${item.notes ? `<div class="partner-notes">${linkifyText(item.notes)}</div>` : ""}
+      ${history.length ? `<div class="partner-history">${escapeHtml(history.join(" · "))}</div>` : ""}
+      ${age !== null && !["library", "declined"].includes(stage) && age >= 7 ? `<div class="partner-age">${age} days in this stage</div>` : ""}
+      <div class="partner-actions">
+        <select class="lib-status-select alliance-stage-select" aria-label="Stage for ${escAttr(title)}">${allianceStageOptionsHtml(stage)}</select>
+        <button type="button" class="checklist-edit alliance-edit" aria-label="Edit ${escAttr(title)}" title="Edit">&#9998;</button>
+        <button type="button" class="checklist-delete alliance-delete" aria-label="Remove ${escAttr(title)}" title="Remove">&times;</button>
+      </div>
+    </article>`;
+}
+
+function resetAllianceForm() {
+  const form = document.getElementById("allianceForm");
+  if (!form) return;
+  allianceEditingId = null;
+  form.reset();
+  form.querySelector('[name="stage"]').value = "submitted";
+  form.querySelector('[name="request_date"]').value = new Date().toISOString().slice(0, 10);
+  form.querySelector('button[type="submit"]').textContent = "Add submission";
+  form.classList.add("hidden");
+}
+
+function ensureAllianceListeners() {
+  if (allianceListenersAttached) return;
+  const form = document.getElementById("allianceForm");
+  if (!form) return;
+  allianceListenersAttached = true;
+  form.querySelector('[name="stage"]').innerHTML = allianceStageOptionsHtml("submitted");
+  form.querySelector('[name="content_type"]').innerHTML = ALLIANCE_TYPES.map((t) => `<option>${t}</option>`).join("");
+  resetAllianceForm();
+
+  document.getElementById("allianceAddToggle").addEventListener("click", () => {
+    const opening = form.classList.contains("hidden") || allianceEditingId;
+    resetAllianceForm();
+    if (opening) {
+      form.classList.remove("hidden");
+      form.querySelector('[name="company"]').focus();
+    }
+  });
+  document.getElementById("allianceFormCancel").addEventListener("click", resetAllianceForm);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const fd = new FormData(form);
+    const text = (name) => String(fd.get(name) || "").trim() || null;
+    const stage = String(fd.get("stage") || "submitted");
+    const fields = {
+      kind: "alliance",
+      company: text("company"),
+      member: text("member"),
+      content_type: text("content_type"),
+      website: text("website"),
+      request_date: text("request_date"),
+      notes: text("notes"),
+      stage,
+    };
+    if (!fields.company) return;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    try {
+      if (!window.domaPartners) throw new Error("Firestore sync not ready yet");
+      if (allianceEditingId) {
+        const existing = partnerItems.find((i) => i.id === allianceEditingId);
+        if (existing && (existing.stage || "submitted") === stage) delete fields.stage;
+        else if (existing) Object.assign(fields, allianceStageChangeFields(existing, stage));
+        await window.domaPartners.updateRequest(allianceEditingId, fields);
+      } else {
+        await window.domaPartners.addRequest({ ...fields, ...ALLIANCE_STAGE_DEFAULTS[stage] });
+      }
+      resetAllianceForm();
+    } catch (error) {
+      console.error("Failed to save Influence Alliance submission:", error);
+      alert("Could not save the submission. Check the browser console for details.");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  const board = document.getElementById("allianceBoard");
+  board.addEventListener("click", async (event) => {
+    const card = event.target.closest(".partner-card");
+    if (!card) return;
+    const item = partnerItems.find((i) => i.id === card.dataset.id);
+    if (!item) return;
+    if (event.target.closest(".alliance-edit")) {
+      allianceEditingId = item.id;
+      ["company", "member", "website", "request_date", "notes"].forEach((name) => {
+        form.querySelector(`[name="${name}"]`).value = item[name] || "";
+      });
+      form.querySelector('[name="content_type"]').value = item.content_type || "Article";
+      form.querySelector('[name="stage"]').value = item.stage || "submitted";
+      form.querySelector('button[type="submit"]').textContent = "Save changes";
+      form.classList.remove("hidden");
+      form.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (event.target.closest(".alliance-delete")) {
+      if (!confirm(`Remove "${item.company || "this submission"}" from the board?`)) return;
+      try {
+        await window.domaPartners.hideRequest(item.id);
+      } catch (error) {
+        console.error("Failed to remove submission:", error);
+      }
+    }
+  });
+  board.addEventListener("change", async (event) => {
+    const select = event.target.closest(".alliance-stage-select");
+    if (!select) return;
+    const item = partnerItems.find((i) => i.id === select.closest(".partner-card").dataset.id);
+    if (!item) return;
+    select.disabled = true;
+    try {
+      await window.domaPartners.updateRequest(item.id, allianceStageChangeFields(item, select.value));
+    } catch (error) {
+      console.error("Failed to change submission stage:", error);
+      alert("Could not change the stage. Check the browser console for details.");
+      select.value = item.stage || "submitted";
+      select.disabled = false;
+    }
+  });
+}
+
+function renderAllianceBoard() {
+  const board = document.getElementById("allianceBoard");
+  if (!board) return;
+  ensureAllianceListeners();
+  const items = allianceItems();
+  const count = (stages) => items.filter((i) => stages.includes(i.stage || "submitted")).length;
+  renderCards("allianceCards", [
+    { label: "Waiting for Juli", value: number(count(["submitted", "review"])) },
+    { label: "Lucas editing", value: number(count(["editing"])) },
+    { label: "In content library", value: number(count(["library"])), hint: `${number(count(["declined"]))} declined` },
+  ]);
+  document.getElementById("allianceEmpty").style.display = items.length ? "none" : "block";
+  board.innerHTML = ALLIANCE_COLUMNS.map((col) => {
+    const cards = items
+      .filter((i) => col.stages.includes(i.stage || "submitted"))
+      .sort((a, b) => String(b.request_date || "").localeCompare(String(a.request_date || "")));
+    return `
+      <section class="partner-column" data-column="${col.key}" aria-label="${escAttr(col.label)}">
+        <h3>${escapeHtml(col.label)} <span class="status-count">${cards.length}</span></h3>
+        <div class="partner-column-list">${cards.map(allianceCardHtml).join("") || `<div class="partner-column-empty">None</div>`}</div>
+      </section>`;
+  }).join("");
+}
+
 
 /* ---------- sponsors panel (GA4 /offers/ pages and outbound clicks) ---------- */
 
@@ -4795,6 +5218,7 @@ function renderSponsors() {
 function renderPartners() {
   ensurePartnerListeners();
   renderPartnerBoard();
+  safeRender("Influence Alliance", renderAllianceBoard);
   safeRender("Sponsors", renderSponsors);
 }
 
