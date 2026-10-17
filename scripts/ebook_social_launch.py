@@ -231,10 +231,10 @@ def prepare_story(env: dict, doc: dict, apply: bool) -> None:
     print(f"  story ready: workflow {wid}")
 
 
-def run(apply: bool, only: str | None) -> int:
+def run(apply: bool, only: str | None, days: int = LOOKAHEAD_DAYS) -> int:
     env = load_env_file()
     today = social.now_new_york().date()
-    last = today + timedelta(days=LOOKAHEAD_DAYS)
+    last = today + timedelta(days=days)
     errors = []
     for doc in fetch_items():
         f = doc["fields"]
@@ -303,8 +303,10 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--only")
     ap.add_argument("--check", action="store_true")
+    # Getting a later week ready by hand (2026-10-17): look further than LOOKAHEAD_DAYS.
+    ap.add_argument("--days", type=int, default=LOOKAHEAD_DAYS)
     args = ap.parse_args()
-    return check() if args.check else run(args.apply, args.only)
+    return check() if args.check else run(args.apply, args.only, args.days)
 
 
 if __name__ == "__main__":
