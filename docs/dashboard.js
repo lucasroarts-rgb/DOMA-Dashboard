@@ -3269,6 +3269,7 @@ function calItemHtml(item, slots) {
   if (item.graphic) tooltipLines.push(`Graphic idea: ${item.graphic}`);
   if (item.resource) tooltipLines.push(`Resource: ${item.resource}`);
   if (item.notes) tooltipLines.push(`Notes: ${item.notes}`);
+  if (item.facebook_skipped) tooltipLines.push(`Kept off Facebook: ${item.facebook_skip_reason || "page limit"}`);
   links.forEach((l) => tooltipLines.push(`Link${l.label ? " (" + l.label + ")" : ""}: ${l.url}`));
   const tooltip = tooltipLines.join("\n");
 
@@ -3276,6 +3277,8 @@ function calItemHtml(item, slots) {
     .map((l) => `<a href="${safeUrl(l.url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="${escAttr(l.label || "Open link")}">&#128279;</a>`)
     .join("");
   const posted = [item.facebook_posted ? "FB" : "", item.instagram_posted ? "IG" : ""].filter(Boolean).join(" ");
+  // Facebook page limit in the scheduler (1 feed post + 1 reel a day, 2 sponsor posts a week).
+  const fbHeld = item.facebook_skipped ? ` · <span class="cal-fb-held" title="${escAttr(item.facebook_skip_reason || "Facebook page limit")}">kept off FB</span>` : "";
   const statusLabel = CALENDAR_STATUS_LABELS[item.status] || item.status;
   const slot = slots ? slots.get(String(item.id)) : item.post_time_et ? { time: item.post_time_et, auto: false } : null;
   const tags = [
@@ -3288,7 +3291,7 @@ function calItemHtml(item, slots) {
       <button type="button" class="cal-item-mark" title="Click to change status" aria-label="Status: ${escAttr(statusLabel)}">${teamStatusIcon(item.status)}</button>
       <div class="cal-item-body">
         <span class="cal-item-title">${tags}${escapeHtml(item.title || "")}</span>
-        <span class="cal-item-meta">${escapeHtml(item.type || "")}${item.owner ? ` · ${escapeHtml(item.owner)}` : ""} · ${escapeHtml(statusLabel)}${posted ? ` · posted ${posted}` : ""}</span>
+        <span class="cal-item-meta">${escapeHtml(item.type || "")}${item.owner ? ` · ${escapeHtml(item.owner)}` : ""} · ${escapeHtml(statusLabel)}${posted ? ` · posted ${posted}` : ""}${fbHeld}</span>
       </div>
       <span class="cal-item-tools">
         ${item.notes ? `<span class="cal-item-link" title="Has notes - click the title to read them">&#128221;</span>` : ""}

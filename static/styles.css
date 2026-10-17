@@ -836,3 +836,4 @@ body.nav-collapsed .sidebar .brand{justify-content:center}
 .cal-drawer-backdrop[hidden]{display:none}
 body.cal-drawer-open{overflow:hidden}
 .team-add-form.cal-drawer > *,.team-add-form.cal-drawer .team-add-field{flex:0 0 auto}
+.cal-fb-held{color:var(--warn-ink);font-weight:700}

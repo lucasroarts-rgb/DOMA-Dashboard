@@ -127,6 +127,8 @@ def fetch_calendar_items() -> list[dict]:
                     "fb_story_posted": fields.get("fb_story_posted", {}).get("booleanValue", False),
                     # 35,000+ end card already appended to video_url (own posts only, social_endcard.py).
                     "endcard_applied": fields.get("endcard_applied", {}).get("booleanValue", False),
+                    # Facebook page limit (fb_allowance): this item was kept off the Facebook page.
+                    "facebook_skipped": fields.get("facebook_skipped", {}).get("booleanValue", False),
                 }
             )
         page_token = data.get("nextPageToken")
@@ -444,8 +446,9 @@ def dm_workflow_live(env: dict, workflow_id: str | None) -> bool:
         return False
 
 
-def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
-    """Returns (posted, failures) as short human-readable lines."""
+def process_item(env: dict, item: dict, fb_allowed: bool = True) -> tuple[list[str], list[str]]:
+    """Returns (posted, failures) as short human-readable lines. fb_allowed=False keeps the
+    item off the Facebook page (fb_allowance); Instagram and stories go out as usual."""
     posted: list[str] = []
     failures: list[str] = []
     title = item["title"]
@@ -476,7 +479,7 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
     if fb_video_paused and not item["facebook_posted"]:
         # Facebook kept hiding the DentalMenu reel (2026-10-13); videos wait here until that's understood.
         print(f"Facebook video held for '{title}' (FB_VIDEO_PAUSED in .env).", file=sys.stderr)
-    if not item["facebook_posted"] and not fb_video_paused:
+    if not item["facebook_posted"] and not fb_video_paused and fb_allowed:
         if page_id and page_token:
             try:
                 fb_slides = item.get("carousel_urls_facebook") or item.get("carousel_urls")
@@ -602,6 +605,68 @@ def post_slots(items: list[dict], default_time: str) -> dict[str, tuple[int, int
     return out
 
 
+# Facebook page limits (Lucas, 2026-10-17). From 12/10 the page got about 3 posts a day,
+# half of them sponsor posts; median reach per post fell from 130 to 50 and the page lost
+# followers (seo_audit/facebook_seguidores_20261017.md). Instagram is not limited.
+# Counted by the item's calendar date (sponsor: its Monday-to-Sunday week), with what is
+# already on the page. Free guide, blog, other own posts, sponsor posts, then post time; the others get
+# facebook_skipped and are not offered to Facebook again.
+FB_LIMIT_DEFAULTS = {"FB_MAX_FEED_PER_DAY": 1, "FB_MAX_REELS_PER_DAY": 1, "FB_MAX_SPONSOR_PER_WEEK": 2}
+
+
+def is_sponsor_post(item: dict) -> bool:
+    if (item.get("type") or "").strip().lower() == "sponsor":
+        return True
+    # is_own_post also excludes events and community reshares; only the sponsor checks count here.
+    return not social_endcard.is_own_post({**item, "type": ""}, SPONSOR_WORDS)
+
+
+def fb_allowance(env: dict, items: list[dict], due: list[dict], slots: dict[str, tuple[int, int]]) -> dict[str, str]:
+    """item id -> reason, for due items that stay off the Facebook page."""
+    limit = {k: int((env.get(k) or "").strip() or v) for k, v in FB_LIMIT_DEFAULTS.items()}
+    feed: dict[str, int] = {}
+    reels: dict[str, int] = {}
+    sponsor: dict[str, int] = {}
+
+    def week(d: str) -> str:
+        y, w, _ = date.fromisoformat(d).isocalendar()
+        return f"{y}-W{w:02d}"
+
+    for it in items:
+        if it["facebook_posted"] and it["date"] and it["image_url"]:
+            bucket = reels if it.get("video_url") else feed
+            bucket[it["date"]] = bucket.get(it["date"], 0) + 1
+            if is_sponsor_post(it):
+                sponsor[week(it["date"])] = sponsor.get(week(it["date"]), 0) + 1
+    def rank(i: dict) -> int:
+        # Free guides first (email list goal), then blog posts (site visits), then DOMA's
+        # other posts, then sponsor posts.
+        kind = (i.get("type") or "").strip().lower()
+        if kind == "ebook":
+            return 0
+        if kind.startswith("blog"):
+            return 1
+        return 3 if is_sponsor_post(i) else 2
+
+    held: dict[str, str] = {}
+    for it in sorted(due, key=lambda i: (i["date"], rank(i), slots.get(i["id"], (12, 0)))):
+        if it["facebook_posted"] or not it["image_url"]:
+            continue
+        is_reel = bool(it.get("video_url"))
+        bucket, cap = (reels, limit["FB_MAX_REELS_PER_DAY"]) if is_reel else (feed, limit["FB_MAX_FEED_PER_DAY"])
+        wk = week(it["date"])
+        if bucket.get(it["date"], 0) >= cap:
+            held[it["id"]] = f"Facebook already has {cap} {'reel' if is_reel else 'feed post'}{'s' if cap != 1 else ''} on {it['date']}"
+            continue
+        if is_sponsor_post(it) and sponsor.get(wk, 0) >= limit["FB_MAX_SPONSOR_PER_WEEK"]:
+            held[it["id"]] = f"Facebook already has {limit['FB_MAX_SPONSOR_PER_WEEK']} sponsor posts in the week of {it['date']}"
+            continue
+        bucket[it["date"]] = bucket.get(it["date"], 0) + 1
+        if is_sponsor_post(it):
+            sponsor[wk] = sponsor.get(wk, 0) + 1
+    return held
+
+
 def main() -> int:
     env = load_env_file()
     if (env.get("SOCIAL_POSTING_PAUSED") or "").strip() in ("1", "true", "yes"):
@@ -629,7 +694,7 @@ def main() -> int:
         and not (item["owner"].strip().lower() == "michelle" and item["type"].strip().lower() == "sponsor"
                  and not item.get("video_url"))
         and (item["date"] < today or (item["date"] == today and now_hm >= slots.get(item["id"], (12, 0))))
-        and not ((not item["image_url"] or (item["facebook_posted"] and item["instagram_posted"]))
+        and not ((not item["image_url"] or ((item["facebook_posted"] or item["facebook_skipped"]) and item["instagram_posted"]))
                  and (not item.get("image_url_story") or (item.get("ig_story_posted") and item.get("fb_story_posted"))))
     ]
     # One free guide per day at most (Lucas, 2026-10-14: two went out the same day).
@@ -650,10 +715,18 @@ def main() -> int:
         print("No calendar items due for posting.")
         return 1 if held else 0
 
+    fb_held = fb_allowance(env, items, due, slots)
     posted: list[str] = []
     failures: list[str] = []
     for item in due:
-        ok, failed = process_item(env, item)
+        reason = fb_held.get(item["id"]) if not item["facebook_skipped"] else "kept off Facebook earlier"
+        if reason and not item["facebook_posted"] and not item["facebook_skipped"]:
+            try:
+                set_item_fields(item["id"], {"facebook_skip_reason": reason}, {"facebook_skipped": True})
+                print(f"Facebook: kept '{item['title']}' off the page ({reason}).")
+            except SocialSyncError as error:
+                print(f"WARNING: could not mark '{item['title']}' as kept off Facebook: {error}", file=sys.stderr)
+        ok, failed = process_item(env, item, fb_allowed=not reason)
         posted += ok
         failures += failed
     record_run(posted, failures)
