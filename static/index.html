@@ -558,6 +558,13 @@
         <div class="community-stat-updated" id="communityUpdatedAt"></div>
       </div>
       <div class="panel">
+        <h2>Funnels <span class="h2-note">(each rate is against the stage above it)</span></h2>
+        <div class="grid-2">
+          <div><h3 class="sub-h">Guide pages to guide leads</h3><div id="guideFunnel" class="funnel"></div></div>
+          <div><h3 class="sub-h">Latest email</h3><div id="emailFunnel" class="funnel"></div></div>
+        </div>
+      </div>
+      <div class="panel">
         <h2>New leads per day</h2>
         <div id="leadsChart" class="chart-box"></div>
       </div>
@@ -994,6 +1001,7 @@
 <div id="chartTooltip" class="chart-tooltip"></div>
 <script src="data.js?v=1" onerror="void 0"></script>
 <script type="module" src="/static/firebase-team-sync.js?v=4"></script>
-<script src="/static/dashboard.js?v=38"></script>
+<script src="/static/dashboard.js?v=39"></script>
+<script src="/static/assets/motion-lite.js" defer data-values=".card-value,.community-stat-value" data-charts="svg.chart-svg,svg.donut-svg" data-hbars=".hbar-fill,.funnel-fill"></script>
 </body>
 </html>

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DOMA Dashboard</title>
 <link rel="icon" href="assets/doma-logo.webp">
-<link rel="stylesheet" href="styles.css?v=5a6bec3484">
+<link rel="stylesheet" href="styles.css?v=27544089a8">
 <script>
   (function () {
     var saved = localStorage.getItem("domaTheme");
@@ -558,6 +558,13 @@
         <div class="community-stat-updated" id="communityUpdatedAt"></div>
       </div>
       <div class="panel">
+        <h2>Funnels <span class="h2-note">(each rate is against the stage above it)</span></h2>
+        <div class="grid-2">
+          <div><h3 class="sub-h">Guide pages to guide leads</h3><div id="guideFunnel" class="funnel"></div></div>
+          <div><h3 class="sub-h">Latest email</h3><div id="emailFunnel" class="funnel"></div></div>
+        </div>
+      </div>
+      <div class="panel">
         <h2>New leads per day</h2>
         <div id="leadsChart" class="chart-box"></div>
       </div>
@@ -992,8 +999,9 @@
 
 </div>
 <div id="chartTooltip" class="chart-tooltip"></div>
-<script src="data.js?v=20261017104110" onerror="void 0"></script>
+<script src="data.js?v=20261017154108" onerror="void 0"></script>
 <script type="module" src="firebase-team-sync.js?v=7b684f0632"></script>
-<script src="dashboard.js?v=2d288ffdb6"></script>
+<script src="dashboard.js?v=80e595cb7e"></script>
+<script src="assets/motion-lite.js?v=3e61be6f5f" defer data-values=".card-value,.community-stat-value" data-charts="svg.chart-svg,svg.donut-svg" data-hbars=".hbar-fill,.funnel-fill"></script>
 </body>
 </html>

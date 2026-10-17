@@ -757,8 +757,10 @@ def init_db() -> None:
 
 
 def default_date_range(days: int = DEFAULT_LOOKBACK_DAYS) -> tuple[str, str]:
-    end = date.today()
-    start = end - timedelta(days=days)
+    # Exactly `days` days ending yesterday: GA4, GHL and Meta have no full day for today
+    # yet, so ending today made every current period one data day short (and 31 days long).
+    end = date.today() - timedelta(days=1)
+    start = end - timedelta(days=days - 1)
     return start.isoformat(), end.isoformat()
 
 
@@ -2102,8 +2104,31 @@ def ghl_summary(con: sqlite3.Connection, start_date: str, end_date: str) -> dict
         "orders": ghl_orders_summary(con, start_date, end_date),
         "email_available": len(email_campaigns) > 0,
         "email_campaigns": email_campaigns,
+        "guide_funnel": guide_funnel(con, start_date, end_date, by_source),
         "last_synced_at": last_synced_at,
     }
+
+
+def guide_funnel(con: sqlite3.Connection, start_date: str, end_date: str, by_source: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sessions that landed on a free-guide page (GA4 landingPage, daily) and
+    leads from guide forms (GHL "Ebooks" group) for the same range. Leads can
+    come from a session that started elsewhere, so this is an approximate
+    funnel; it is withheld when leads exceed sessions (not one cohort)."""
+    sessions = con.execute(
+        "SELECT COALESCE(SUM(sessions), 0) FROM ga4_page_conversions_daily "
+        "WHERE report_date BETWEEN ? AND ? AND page_path IN (SELECT page_path FROM free_guide_pages)",
+        (start_date, end_date),
+    ).fetchone()[0]
+    leads = sum(row["lead_count"] for row in by_source if row["group"] == "Ebooks")
+    out: dict[str, Any] = {"available": False, "sessions": int(sessions or 0), "leads": int(leads)}
+    if not sessions:
+        out["reason"] = "No GA4 landing sessions on guide pages in this range."
+    elif leads > sessions:
+        out["reason"] = "Guide leads exceed guide-page sessions in this range, so the two counts are not one cohort."
+    else:
+        out["available"] = True
+        out["rate_percent"] = round(leads / sessions * 100, 2)
+    return out
 
 
 # Lead source labels from GoHighLevel are form/funnel names typed by hand
@@ -2381,6 +2406,28 @@ def _align_search_console_window(current: dict[str, Any], previous: dict[str, An
     current["search_console"]["previous_window_start"], current["search_console"]["previous_window_end"] = prev_start, prev_end
 
 
+def data_start_dates() -> dict[str, str | None]:
+    """First day each source has data. The front end shows a % change only when the
+    previous window starts on or after it: Facebook reach starts 2026-09-16, so 30-day
+    reach was compared with one day (+13,819%)."""
+    queries = {
+        "gsc": "SELECT MIN(report_date) FROM search_console_daily",
+        "ga4": "SELECT MIN(report_date) FROM ga4_traffic_daily",
+        "leads": "SELECT MIN(report_date) FROM ghl_leads_daily",
+        "orders": "SELECT MIN(report_date) FROM ghl_orders_daily",
+        "fb_reach": "SELECT MIN(report_date) FROM social_metrics_daily WHERE platform='facebook' AND metric='page_total_media_view_unique'",
+        "ig_reach": "SELECT MIN(report_date) FROM social_metrics_daily WHERE platform='instagram' AND metric='ig_reach'",
+    }
+    out: dict[str, str | None] = {}
+    with db() as con:
+        for key, sql in queries.items():
+            try:
+                out[key] = con.execute(sql).fetchone()[0]
+            except sqlite3.Error:
+                out[key] = None
+    return out
+
+
 def dashboard_with_comparison(start_date: str, end_date: str) -> dict[str, Any]:
     previous_start, previous_end = previous_period_range(start_date, end_date)
     current = full_dashboard(start_date, end_date)
@@ -2391,6 +2438,7 @@ def dashboard_with_comparison(start_date: str, end_date: str) -> dict[str, Any]:
         "previous_start_date": previous_start,
         "previous_end_date": previous_end,
         "previous": previous,
+        "data_start": data_start_dates(),
     }
 
 

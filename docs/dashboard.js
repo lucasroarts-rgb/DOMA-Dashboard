@@ -32,7 +32,7 @@ let dashboard = null;
    (e.g. in a browser console: crypto.subtle.digest("SHA-256", new
    TextEncoder().encode("newpassword")) then hex-encode the result, or use
    any "sha256 hash" tool). */
-const PASSWORD_HASH = "e384f71129f78362b4fbb4edfc53b56f70223d04a148278ef4d9040002442a48"; // "doma2026"
+const PASSWORD_HASH = "e384f71129f78362b4fbb4edfc53b56f70223d04a148278ef4d9040002442a48"; // the plain password is not kept in the code
 const PASSWORD_SESSION_KEY = "doma_dashboard_unlocked";
 
 async function sha256Hex(text) {
@@ -266,6 +266,15 @@ function computeDeltaPct(curr, prev) {
   if (curr === null || curr === undefined) return null;
   const pct = ((curr - prev) / Math.abs(prev)) * 100;
   return Number.isFinite(pct) ? pct : null;
+}
+
+// True when the source already had data on the first day of the previous window
+// (app.py data_start_dates). Without it a % change compares with a mostly empty window.
+function prevCovered(key) {
+  const first = dashboard?.data_start?.[key];
+  if (!first) return true;
+  const prevStart = key === "gsc" ? dashboard.search_console?.previous_window_start || dashboard.previous_start_date : dashboard.previous_start_date;
+  return !prevStart || first <= prevStart;
 }
 
 function deltaBadge(curr, prev, { lowerIsBetter = false } = {}) {
@@ -582,7 +591,7 @@ function renderCards(containerId, items) {
       (item) => `
       <div class="card">
         <div class="card-label">${item.label}</div>
-        <div class="card-value">${item.value} ${item.delta || ""}</div>
+        <div class="card-value${item.noMotion ? " no-motion" : ""}">${item.value} ${item.delta || ""}</div>
         ${item.hint ? `<div class="card-hint">${item.hint}</div>` : ""}
       </div>`
     )
@@ -707,7 +716,21 @@ function ga4SpansConsentChange() {
 function ga4ComparisonUnreliable() {
   const now = ga4UndercountOverlap(dashboard.start_date, dashboard.end_date);
   const before = ga4UndercountOverlap(dashboard.previous_start_date, dashboard.previous_end_date);
-  return now !== before;
+  // Two "partial" periods can hold very different shares of undercounted days (30 days on
+  // 2026-10-17: 18 vs 6), so only none/none and full/full compare fairly.
+  return !((now === "none" && before === "none") || (now === "full" && before === "full"));
+}
+
+// Search Console lags 2-3 days, so its numbers cover a shifted window (app.py
+// _align_search_console_window). Say which one, or the card disagrees with the range picker.
+function gscWindowNote() {
+  const gsc = dashboard.search_console || {};
+  if (!gsc.window_start || !gsc.window_end || (gsc.window_start === dashboard.start_date && gsc.window_end === dashboard.end_date)) return "";
+  return ` · Search Console ${dateRange(gsc.window_start, gsc.window_end)}`;
+}
+
+function ga4UndercountOverlaps() {
+  return ga4UndercountOverlap(dashboard.start_date, dashboard.end_date) !== "none";
 }
 
 function computeIssues() {
@@ -916,23 +939,23 @@ function renderOverview() {
       value: number(gsc.clicks),
       hint: isGscStale()
         ? `${number(gsc.impressions)} impressions · data stale, last sync ${fullDate(gsc.last_synced_at.slice(0, 10))}`
-        : `${number(gsc.impressions)} impressions`,
-      delta: prev && !isGscStale() ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
+        : `${number(gsc.impressions)} impressions${gscWindowNote()}`,
+      delta: prev && !isGscStale() && prevCovered("gsc") ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "",
     },
-    { label: "Average position", value: gsc.position || "-", hint: "lower is better", delta: prev && !isGscStale() ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
+    { label: "Average position", noMotion: true, value: gsc.position || "-", hint: "lower is better", delta: prev && !isGscStale() && prevCovered("gsc") ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
     {
       label: "Sessions (GA4)",
       value: number(ga4.sessions),
       hint: ga4SpansConsentChange()
         ? `${number(ga4.active_users)} active users · undercounted ${dateRange(GA4_UNDERCOUNT_START, GA4_UNDERCOUNT_END)}`
         : `${number(ga4.active_users)} active users`,
-      delta: prev && !ga4ComparisonUnreliable() ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
+      delta: prev && !ga4ComparisonUnreliable() && prevCovered("ga4") ? deltaBadge(ga4.sessions, prev.ga4.sessions) : "",
     },
     {
       label: "New leads (GoHighLevel)",
       value: number(ghl.total_leads),
       hint: dateRange(dashboard.start_date, dashboard.end_date),
-      delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "",
+      delta: prev && prevCovered("leads") ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "",
     },
   ]);
 
@@ -954,10 +977,10 @@ function renderSeo() {
   const stale = isGscStale();
   const staleHint = stale ? `data stale, last sync ${fullDate(gsc.last_synced_at.slice(0, 10))}` : undefined;
   renderCards("seoCards", [
-    { label: "Clicks", value: number(gsc.clicks), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
-    { label: "Impressions", value: number(gsc.impressions), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
-    { label: "Average CTR", value: percent(gsc.ctr), hint: staleHint, delta: prev && !stale ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
-    { label: "Average position", value: gsc.position || "-", hint: staleHint || "lower is better", delta: prev && !stale ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
+    { label: "Clicks", value: number(gsc.clicks), hint: staleHint || gscWindowNote().replace(/^ · /, ""), delta: prev && !stale && prevCovered("gsc") ? deltaBadge(gsc.clicks, prev.search_console.clicks) : "" },
+    { label: "Impressions", value: number(gsc.impressions), hint: staleHint, delta: prev && !stale && prevCovered("gsc") ? deltaBadge(gsc.impressions, prev.search_console.impressions) : "" },
+    { label: "Average CTR", value: percent(gsc.ctr), hint: staleHint, delta: prev && !stale && prevCovered("gsc") ? deltaBadge(gsc.ctr, prev.search_console.ctr) : "" },
+    { label: "Average position", noMotion: true, value: gsc.position || "-", hint: staleHint || "lower is better", delta: prev && !stale && prevCovered("gsc") ? positionDeltaBadge(gsc.position, prev.search_console.position) : "" },
     ...(gsc.nonbrand
       ? [
           {
@@ -1350,7 +1373,7 @@ function ensureCommunityListeners() {
     const current = document.getElementById("communityMemberCount").textContent;
     const input = prompt("Update DOMA Free Community member count (read from the GHL Communities panel):", current === "-" ? "" : current);
     if (input === null) return;
-    const count = parseInt(input, 10);
+    const count = parseInt(String(input).replace(/[,.\s]/g, ""), 10); // prefill is formatted ("35,000")
     if (Number.isNaN(count) || count < 0) {
       alert("Enter a whole number.");
       return;
@@ -1394,7 +1417,7 @@ function renderLeads() {
   const byGroup = Array.isArray(ghl.by_group) && ghl.by_group.length ? ghl.by_group : null;
   const topRow = byGroup ? byGroup[0] : bySource[0];
   renderCards("leadsCards", [
-    { label: "New leads", value: number(ghl.total_leads), delta: prev ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "", hint: dateRange(dashboard.start_date, dashboard.end_date) },
+    { label: "New leads", value: number(ghl.total_leads), delta: prev && prevCovered("leads") ? deltaBadge(ghl.total_leads, prev.ghl.total_leads) : "", hint: dateRange(dashboard.start_date, dashboard.end_date) },
     { label: byGroup ? "Source groups" : "Active sources", value: number(byGroup ? byGroup.length : bySource.length), hint: byGroup ? `${number(bySource.length)} raw sources` : "" },
     {
       label: "Top source share",
@@ -1422,6 +1445,60 @@ function renderLeads() {
 
   renderEbookRanking(bySource, prev?.ghl?.by_source || []);
   renderOrders(ghl, prev);
+  renderLeadFunnels(ghl);
+}
+
+// Funnel rule from the motion guide: every later stage must be <= the one
+// above it (same cohort), otherwise the funnel is withheld instead of clamped.
+function renderFunnel(containerId, stages, note, emptyMessage) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const ok = stages.length >= 2 && stages.every((s) => Number.isFinite(s.value)) && stages[0].value > 0
+    && stages.every((s, i) => i === 0 || s.value <= stages[i - 1].value);
+  if (!ok) {
+    el.innerHTML = `<div class="empty">${escapeHtml(emptyMessage)}</div>`;
+    return;
+  }
+  const first = stages[0].value;
+  const rows = stages
+    .map((s, i) => {
+      const width = Math.max(2, (s.value / first) * 100);
+      const prevValue = i === 0 ? 0 : stages[i - 1].value;
+      const step = i === 0 ? "" : prevValue > 0 ? `${percent((s.value / prevValue) * 100)} of ${escapeHtml(stages[i - 1].label.toLowerCase())}` : "-";
+      return `<div class="funnel-row"><div class="funnel-head"><span class="funnel-label">${escapeHtml(s.label)}</span><span class="funnel-value">${number(s.value)}</span></div><div class="hbar-track" title="${escAttr(s.label + ": " + number(s.value))}"><span class="funnel-fill" style="width:${width}%"></span></div><div class="funnel-step">${step}</div></div>`;
+    })
+    .join("");
+  el.innerHTML = rows + (note ? `<div class="funnel-note">${note}</div>` : "");
+}
+
+function renderLeadFunnels(ghl) {
+  const gf = ghl.guide_funnel || {};
+  renderFunnel(
+    "guideFunnel",
+    [
+      { label: "Sessions that started on a guide page", value: gf.sessions || 0 },
+      { label: "Guide form leads", value: gf.leads || 0 },
+    ],
+    "GA4 landing sessions on free-guide pages and GHL leads from guide forms in this range. A lead can come from a session that started elsewhere, so read the rate as approximate."
+      + (ga4UndercountOverlaps() ? " GA4 undercounted Sep 11 - Oct 04, 2026, so sessions in this range are low and the rate is too high." : ""),
+    gf.reason || "No guide data in this range."
+  );
+  const latest = (ghl.email_campaigns || []).find((c) => (c.recipients || 0) > 0);
+  if (!latest) {
+    renderFunnel("emailFunnel", [], "", "No email campaign in this range.");
+    return;
+  }
+  renderFunnel(
+    "emailFunnel",
+    [
+      { label: "Recipients", value: latest.recipients ?? NaN },
+      { label: "Delivered", value: latest.delivered ?? NaN },
+      { label: "Opened", value: latest.opens ?? NaN },
+      { label: "Clicked", value: latest.clicks ?? NaN },
+    ],
+    `${escapeHtml(latest.campaign_name || "Campaign")}${latest.sent_at ? ", sent " + escapeHtml(latest.sent_at) : ""}. Opens are what GHL reports (Apple Mail privacy can inflate them).`,
+    "This campaign is missing a count or its counts do not narrow stage by stage, so the funnel is hidden."
+  );
 }
 
 // Free guides ranked by the leads their GHL form brought in. Form names come
@@ -1470,13 +1547,13 @@ function renderOrders(ghl, prev) {
     {
       label: "Orders",
       value: number(orders.total_orders),
-      delta: prevOrders ? deltaBadge(orders.total_orders, prevOrders.total_orders) : "",
+      delta: prevOrders && prevCovered("orders") ? deltaBadge(orders.total_orders, prevOrders.total_orders) : "",
       hint: `${number(orders.completed)} completed${leadToOrder !== null ? ` · ${percent(leadToOrder)} of new leads` : ""}`,
     },
     {
       label: "Revenue",
       value: money(orders.revenue),
-      delta: prevOrders ? deltaBadge(orders.revenue, prevOrders.revenue) : "",
+      delta: prevOrders && prevCovered("orders") ? deltaBadge(orders.revenue, prevOrders.revenue) : "",
       hint: orders.refunded ? `${money(orders.refunded)} refunded` : "",
     },
     { label: "Active subscriptions", value: number(orders.active_subscriptions) },
@@ -1531,13 +1608,13 @@ function renderSocial() {
     {
       label: "Facebook reach",
       value: number(fbReach),
-      delta: prev ? deltaBadge(fbReach, sumMetric(prev.social, "facebook", "page_total_media_view_unique")) : "",
+      delta: prev && prevCovered("fb_reach") ? deltaBadge(fbReach, sumMetric(prev.social, "facebook", "page_total_media_view_unique")) : "",
       hint: "daily reach, summed",
     },
     {
       label: "Instagram reach",
       value: number(igReach),
-      delta: prev ? deltaBadge(igReach, sumMetric(prev.social, "instagram", "ig_reach")) : "",
+      delta: prev && prevCovered("ig_reach") ? deltaBadge(igReach, sumMetric(prev.social, "instagram", "ig_reach")) : "",
       hint: "daily reach, summed",
     },
     {
@@ -1949,7 +2026,7 @@ function commentsHtml(item) {
     comments
       .map(
         (c) =>
-          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+          `<div class="ticket-comment"><span class="ticket-comment-author">${escapeHtml(c.author || "Someone")}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
       )
       .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
   return `
@@ -3002,17 +3079,17 @@ function calItemHtml(item) {
   const tooltip = tooltipLines.join("\n");
 
   const linkIcons = links
-    .map((l) => `<a href="${l.url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="${l.label || "Open link"}">&#128279;</a>`)
+    .map((l) => `<a href="${safeUrl(l.url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="${escAttr(l.label || "Open link")}">&#128279;</a>`)
     .join("");
 
   return `
-    <div class="cal-item status-${item.status}" data-id="${item.id}" data-owner="${item.owner || ""}" data-type="${item.type}" data-status="${item.status}" title="${tooltip}">
+    <div class="cal-item status-${escAttr(item.status)}" data-id="${escAttr(item.id)}" data-owner="${escAttr(item.owner || "")}" data-type="${escAttr(item.type)}" data-status="${escAttr(item.status)}" title="${escAttr(tooltip)}">
       <button type="button" class="cal-item-mark" title="Click to change status">${teamStatusIcon(item.status)}</button>
-      <span class="cal-item-title">${item.title}</span>
+      <span class="cal-item-title">${escapeHtml(item.title || "")}</span>
       ${item.notes ? `<span class="cal-item-link" title="Has notes - click the title to read them">&#128221;</span>` : ""}
       ${linkIcons}
-      ${item.pdf_url ? `<a href="${item.pdf_url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Ebook PDF">&#128196;</a>` : ""}
-      ${item.image_url ? `<a href="${item.image_url}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Cover image">&#128247;</a>` : ""}
+      ${item.pdf_url ? `<a href="${safeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Ebook PDF">&#128196;</a>` : ""}
+      ${item.image_url ? `<a href="${safeUrl(item.image_url)}" target="_blank" rel="noopener noreferrer" class="cal-item-link" title="Cover image">&#128247;</a>` : ""}
       <button type="button" class="cal-item-edit" title="Edit">&#9998;</button>
       <button type="button" class="cal-item-delete" title="Remove">&times;</button>
     </div>`;
@@ -3422,15 +3499,15 @@ function changelogStatusPill(status) {
 
 function changelogRowHtml(item) {
   const linkCell = item.link
-    ? `<a href="${item.link}" target="_blank" rel="noopener noreferrer" class="changelog-link" title="${item.link}">View &#8599;</a>`
+    ? `<a href="${safeUrl(item.link)}" target="_blank" rel="noopener noreferrer" class="changelog-link" title="${escAttr(item.link)}">View &#8599;</a>`
     : `<span class="changelog-link-empty">-</span>`;
   const commentCount = (item.comments || []).length;
   return `
     <tr class="changelog-row" data-id="${item.id}">
       <td class="changelog-date">${fullDate(item.date)}</td>
-      <td><span class="checklist-topic">${item.category || "General"}</span></td>
-      <td class="changelog-title">${item.title}${item.detail ? `<span class="changelog-detail">${item.detail}</span>` : ""}</td>
-      <td class="changelog-impact">${item.impact || "-"}</td>
+      <td><span class="checklist-topic">${escapeHtml(item.category || "General")}</span></td>
+      <td class="changelog-title">${escapeHtml(item.title || "")}${item.detail ? `<span class="changelog-detail">${escapeHtml(item.detail)}</span>` : ""}</td>
+      <td class="changelog-impact">${escapeHtml(item.impact || "-")}</td>
       <td>${changelogStatusPill(item.status)}</td>
       <td>${linkCell}</td>
       <td><button type="button" class="changelog-comment-toggle" title="Comment">&#128172;${commentCount ? ` ${commentCount}` : ""}</button></td>
@@ -3446,7 +3523,7 @@ function changelogCommentsBodyHtml(item) {
     comments
       .map(
         (c) =>
-          `<div class="ticket-comment"><span class="ticket-comment-author">${c.author || "Someone"}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
+          `<div class="ticket-comment"><span class="ticket-comment-author">${escapeHtml(c.author || "Someone")}</span>${linkifyText(c.text)}<span class="ticket-comment-date">${fullDate(new Date(c.created_at).toISOString().slice(0, 10))}</span></div>`
       )
       .join("") || `<div class="ticket-comments-empty">No comments yet.</div>`;
   return `
@@ -3471,8 +3548,12 @@ function renderChangelog() {
     weeks.get(week).push(item);
   });
 
+  // Newest week first, newest item first inside each week.
+  const latest = (items) => items.reduce((m, i) => (String(i.date || "") > m ? String(i.date || "") : m), "");
+  weeks.forEach((items) => items.sort((a, b) => String(b.date || "").localeCompare(String(a.date || ""))));
+  const ordered = [...weeks.entries()].sort((a, b) => latest(b[1]).localeCompare(latest(a[1])));
   const container = document.getElementById("changelogList");
-  container.innerHTML = [...weeks.entries()]
+  container.innerHTML = ordered
     .map(([week, items]) => {
       const collapsed = !!changelogCollapsedWeeks[week];
       return `
@@ -3625,6 +3706,12 @@ function renderAll() {
 
 function escAttr(text) {
   return escapeHtml(String(text ?? "")).replace(/"/g, "&quot;");
+}
+
+// Only http(s) links from Firestore/API data go into href (no javascript: URLs).
+function safeUrl(url) {
+  const u = String(url ?? "").trim();
+  return /^https?:\/\//i.test(u) ? escAttr(u) : "#";
 }
 
 // A brand-new Firestore collection has no rule yet and fails with

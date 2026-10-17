@@ -95,6 +95,10 @@ def main() -> int:
     for asset in ("styles.css", "dashboard.js", "firebase-team-sync.js"):
         digest = hashlib.sha1((STATIC_DIR / asset).read_bytes()).hexdigest()[:10]
         index_html = re.sub(rf'"{re.escape(asset)}(\?v=[^"]*)?"', f'"{asset}?v={digest}"', index_html)
+    motion = STATIC_DIR / "assets" / "motion-lite.js"
+    if motion.exists():
+        digest = hashlib.sha1(motion.read_bytes()).hexdigest()[:10]
+        index_html = re.sub(r'"assets/motion-lite\.js(\?v=[^"]*)?"', f'"assets/motion-lite.js?v={digest}"', index_html)
     index_html = re.sub(r'"data\.js(\?v=[^"]*)?"', f'"data.js?v={build_stamp}"', index_html)
     (DOCS_DIR / "index.html").write_text(index_html, encoding="utf-8")
     (DOCS_DIR / "styles.css").write_text(

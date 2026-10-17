@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT))
 from scripts import instagram_creative  # noqa: E402
 import app as dashboard_app  # noqa: E402
 from scripts.env_utils import load_env_file, log_sync  # noqa: E402
+from scripts import social_endcard  # noqa: E402
 
 META_API_VERSION = "v21.0"
 META_API_BASE = f"https://graph.facebook.com/{META_API_VERSION}"
@@ -52,6 +53,10 @@ CALENDAR_COLLECTION = "content_calendar_items"
 
 class SocialSyncError(RuntimeError):
     pass
+
+
+# Sponsor names from the calendar, filled in main(); own posts get the community CTA and end card.
+SPONSOR_WORDS: list[str] = []
 
 
 def _field(fields: dict, key: str) -> str | None:
@@ -120,6 +125,8 @@ def fetch_calendar_items() -> list[dict]:
                     "story_dm_workflow": _field(fields, "story_dm_workflow"),
                     "ig_story_posted": fields.get("ig_story_posted", {}).get("booleanValue", False),
                     "fb_story_posted": fields.get("fb_story_posted", {}).get("booleanValue", False),
+                    # 35,000+ end card already appended to video_url (own posts only, social_endcard.py).
+                    "endcard_applied": fields.get("endcard_applied", {}).get("booleanValue", False),
                 }
             )
         page_token = data.get("nextPageToken")
@@ -138,6 +145,40 @@ def mark_posted(item_id: str, **flags: bool) -> None:
     )
     if r.status_code != 200:
         raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
+
+
+def set_item_fields(item_id: str, strings: dict[str, str], flags: dict[str, bool]) -> None:
+    fields = {k: {"stringValue": v} for k, v in strings.items()}
+    fields.update({k: {"booleanValue": v} for k, v in flags.items()})
+    update_mask = "&".join(f"updateMask.fieldPaths={name}" for name in fields)
+    r = requests.patch(f"{FIRESTORE_BASE}/{CALENDAR_COLLECTION}/{item_id}?{update_mask}", json={"fields": fields}, timeout=30)
+    if r.status_code != 200:
+        raise SocialSyncError(f"Firestore update failed for {item_id} ({r.status_code}): {r.text[:300]}")
+
+
+def apply_own_post_cta(env: dict, item: dict, fb_caption: str, ig_caption: str, failures: list[str]) -> tuple[str, str]:
+    """Own DOMA posts only (never sponsor or co-branded): group line in both captions and the
+    35,000+ end card on the Reel. A failed end card never blocks the post; it is reported in the
+    run's failures (logs/blog_social.log and sync_log). The end card only goes on a video that
+    hasn't gone out anywhere yet, so Facebook and Instagram get the same file."""
+    if not social_endcard.is_own_post(item, SPONSOR_WORDS):
+        return fb_caption, ig_caption
+    # The 35,000+ community Reel already is the end card.
+    community_reel = "35,000" in f"{item.get('title') or ''} {item.get('caption_instagram') or ''}"
+    untouched = not item.get("facebook_posted") and not item.get("instagram_posted")
+    if item.get("video_url") and not item.get("endcard_applied") and not community_reel and untouched:
+        from scripts.ebook_pipeline.wp_client import WpClient
+
+        try:
+            original = item["video_url"]
+            new_url = social_endcard.video_with_endcard(
+                env, original, lambda data, name: WpClient(env).upload_media_bytes(data, name, "video/mp4")["url"]
+            )
+            set_item_fields(item["id"], {"video_url": new_url, "video_url_original": original}, {"endcard_applied": True})
+            item["video_url"] = new_url
+        except Exception as error:  # noqa: BLE001
+            failures.append(f"'{item['title']}': end card skipped, posted without it ({error})")
+    return social_endcard.add_group_cta(fb_caption), social_endcard.add_group_cta(ig_caption)
 
 
 LINK_COMMENT_TYPES = {"sponsor", "blog/ebook", "blog post", "blog", "ebook", "community reshare", "event"}
@@ -428,6 +469,9 @@ def process_item(env: dict, item: dict) -> tuple[list[str], list[str]]:
         failures.append(f"'{title}': waiting for the ebook page / blog post link in the item")
         return posted, failures
 
+    # After the hold checks: a held item is not rendered or uploaded.
+    fb_caption, ig_caption = apply_own_post_cta(env, item, fb_caption, ig_caption, failures)
+
     fb_video_paused = item.get("video_url") and (env.get("FB_VIDEO_PAUSED") or "").strip() in ("1", "true", "yes")
     if fb_video_paused and not item["facebook_posted"]:
         # Facebook kept hiding the DentalMenu reel (2026-10-13); videos wait here until that's understood.
@@ -573,6 +617,7 @@ def main() -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
+    SPONSOR_WORDS[:] = social_endcard.sponsor_words(items)
     slots = post_slots(items, default_time)
     now_hm = (ny.hour, ny.minute)
     due = [

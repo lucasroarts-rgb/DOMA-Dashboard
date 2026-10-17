@@ -506,7 +506,13 @@ def store_daily_traffic(rows: list[tuple[str, int, int, int, int]]) -> None:
 
 
 def store_daily_channel(rows: list[tuple[str, str, int]]) -> None:
+    # Replace the fetched window: GA4 later moves sessions out of "Unassigned" /
+    # "Cross-network", and an upsert-only write kept the old rows next to the new ones
+    # (channel sums ran 43% above total sessions in Sep-Oct 2026).
+    if not rows:
+        return
     with dashboard_app.db() as con:
+        con.execute("DELETE FROM ga4_channel_daily WHERE report_date >= ?", (min(r[0] for r in rows),))
         con.executemany(
             """
             INSERT INTO ga4_channel_daily (report_date, channel_group, sessions)

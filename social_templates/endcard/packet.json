@@ -1,0 +1,18 @@
+{
+  "module": "08",
+  "brand": "doma",
+  "format": "reel",
+  "audience": "People who just watched a DOMA Reel",
+  "message": "The DOMA community on Facebook has 35,000+ members and is free to join.",
+  "duration_ms": 3000,
+  "final_hold_ms": 1200,
+  "data": {"start": 0, "end": 35000, "suffix": "+", "unit_label": "members", "locale": "en-US"},
+  "copy": {"kicker": "Dental Office Managers", "title": "Join the *free group* on Facebook", "cta": "Search Dental Office Managers on Facebook"},
+  "assets": {"badge": "C:/DOMA-Dashboard/social_templates/assets/doma-badge.png"},
+  "sources": [
+    {"id": "icp-2026-10-11", "what": "35,000+ members, confirmed by Kyle on 2026-10-11", "captured_at": "2026-10-11"},
+    {"id": "membership-page-2026-10-17", "what": "/membership/: Community (Free), 'Community access (35K+ members)'", "captured_at": "2026-10-17"}
+  ],
+  "synthetic": false,
+  "unresolved_items": []
+}
