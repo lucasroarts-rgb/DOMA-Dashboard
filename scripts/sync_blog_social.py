@@ -30,8 +30,10 @@ comment even when the item happens to carry one - Thalles confirmed
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import date, datetime
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from pathlib import Path
 
 import requests
@@ -203,6 +205,26 @@ def first_link(item: dict) -> str | None:
             continue  # the site page, not a Drive draft or the thank-you page
         return url
     return None
+
+
+def with_utm(url: str | None, source: str, item: dict) -> str | None:
+    """Site links in the Facebook / Instagram comments get UTM tags (GA4 review 2026-10-17:
+    visits from these posts arrived as facebook.com / referral or direct, with no post name)."""
+    if not url or not url.startswith(SITE) or "utm_" in url:
+        return url
+    parts = urlsplit(url)
+
+    def slug(text: str | None, size: int) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", (text or "").lower()).strip("_")[:size]
+
+    query = dict(parse_qsl(parts.query))
+    query.update({
+        "utm_source": source,
+        "utm_medium": "social",
+        "utm_campaign": slug(item.get("type"), 30) or "post",
+        "utm_content": f"{item.get('date') or ''}_{slug(item.get('title'), 40)}".strip("_"),
+    })
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
 
 def build_caption(item: dict) -> str:
@@ -457,7 +479,8 @@ def process_item(env: dict, item: dict, fb_allowed: bool = True) -> tuple[list[s
     ig_caption = item.get("caption_instagram") or caption
     link = first_link(item)
     # With a keyword the link goes out by DM, so no link comment on Instagram.
-    ig_link = None if item.get("ig_keyword") else link
+    ig_link = None if item.get("ig_keyword") else with_utm(link, "instagram", item)
+    fb_link = with_utm(link, "facebook", item)
 
     page_id = env.get("META_PAGE_ID")
     page_token = env.get("META_PAGE_ACCESS_TOKEN")
@@ -486,11 +509,11 @@ def process_item(env: dict, item: dict, fb_allowed: bool = True) -> tuple[list[s
                 fb_id = (post_fb_video(page_id, page_token, item["video_url"], fb_caption) if item.get("video_url")
                          else post_fb_carousel(page_id, page_token, fb_slides, fb_caption) if fb_slides
                          else post_to_facebook_photo(page_id, page_token, item.get("image_url_facebook") or item["image_url"], fb_caption))
-                if link:
+                if fb_link:
                     try:
                         # A bare-URL comment from the page gets hidden from viewers as spam
                         # (10 Reports, 2026-10-12); a sentence before the link shows normally.
-                        post_fb_comment(fb_id, page_token, f"Here's the link \U0001F447\n\n{link}")
+                        post_fb_comment(fb_id, page_token, f"Here's the link \U0001F447\n\n{fb_link}")
                     except SocialSyncError as comment_error:
                         print(f"WARNING: Facebook comment (link) failed for '{title}': {comment_error}", file=sys.stderr)
                 mark_posted(item["id"], facebook_posted=True)

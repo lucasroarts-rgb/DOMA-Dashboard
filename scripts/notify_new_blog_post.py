@@ -171,7 +171,7 @@ def _with_email_utm(url: str, slug: str) -> str:
     those visits under Direct/Unassigned and the Email channel showed ~126
     sessions in 90 days despite sends to ~7,000 contacts (2026-10-15)."""
     sep = "&" if "?" in url else "?"
-    return f"{url}{sep}utm_source=ghl&utm_medium=email&utm_campaign=new_post_{slug[:60]}"
+    return f"{url}{sep}utm_source=doma_newsletter&utm_medium=email&utm_campaign=new_post_{slug[:60]}"
 
 
 def push_custom_values(ghl: GhlClient, fields: dict) -> None:
