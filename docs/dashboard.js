@@ -2960,10 +2960,58 @@ function openCalendarEditForm(item) {
   renderCalendarUploadStatus();
   form.querySelector('button[type="submit"]').textContent = "Save changes";
   form.classList.remove("hidden");
-  form.scrollIntoView({ behavior: "smooth", block: "center" });
+  openCalendarDrawer(form, item);
+}
+
+// Editing from the calendar opens the form as a panel on the right (Lucas, 2026-10-17:
+// jumping to the form at the top meant scrolling back down every time). Adding a new
+// item keeps the form in place under "+ Add to calendar".
+function openCalendarDrawer(form, item) {
+  let head = form.querySelector(".cal-drawer-head");
+  if (!head) {
+    head = document.createElement("div");
+    head.className = "cal-drawer-head";
+    head.innerHTML = `<div><div class="cal-drawer-kicker"></div><h3 class="cal-drawer-title">Edit post</h3></div><button type="button" class="cal-drawer-close" aria-label="Close">&times;</button>`;
+    form.prepend(head);
+    head.querySelector(".cal-drawer-close").addEventListener("click", closeCalendarDrawer);
+  }
+  const when = item.date ? new Date(`${item.date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }) : "No date";
+  head.querySelector(".cal-drawer-kicker").textContent = [when, item.type, item.owner].filter(Boolean).join(" · ");
+  let backdrop = document.getElementById("calDrawerBackdrop");
+  if (!backdrop) {
+    backdrop = document.createElement("div");
+    backdrop.id = "calDrawerBackdrop";
+    backdrop.className = "cal-drawer-backdrop";
+    backdrop.addEventListener("click", closeCalendarDrawer);
+    document.body.appendChild(backdrop);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && form.classList.contains("cal-drawer")) closeCalendarDrawer();
+    });
+  }
+  form.classList.add("cal-drawer");
+  form.setAttribute("role", "dialog");
+  form.setAttribute("aria-label", "Edit calendar item");
+  backdrop.hidden = false;
+  document.body.classList.add("cal-drawer-open");
+  form.scrollTop = 0;
+  form.querySelector('[name="title"]').focus({ preventScroll: true });
+}
+
+function closeCalendarDrawer() {
+  document.getElementById("calendarAddCancel")?.click();
+}
+
+function hideCalendarDrawer(form) {
+  form.classList.remove("cal-drawer");
+  form.removeAttribute("role");
+  form.removeAttribute("aria-label");
+  const backdrop = document.getElementById("calDrawerBackdrop");
+  if (backdrop) backdrop.hidden = true;
+  document.body.classList.remove("cal-drawer-open");
 }
 
 function resetCalendarAddForm(form, dateInput) {
+  hideCalendarDrawer(form);
   editingCalendarItemId = null;
   editingCalendarItemFiles = { pdf_url: null, image_url: null };
   form.reset();
