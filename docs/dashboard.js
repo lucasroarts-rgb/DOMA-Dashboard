@@ -1122,7 +1122,105 @@ function renderSeo() {
   );
 }
 
+// Competitors tab, insight-first layout (2026-10-17). Data: app.py competitor_insights.
+// Every status and takeaway kind carries an icon and a word, never color alone.
+const CI_KINDS = {
+  opportunity: { icon: "&#8599;", label: "Opportunity" },
+  strength: { icon: "&#10003;", label: "Strength" },
+  risk: { icon: "!", label: "Watch" },
+  rival: { icon: "&#9873;", label: "Rival" },
+  ctr: { icon: "&#9678;", label: "Clicks" },
+  content: { icon: "&#9654;", label: "Content" },
+};
+const CI_STATUS_ICON = { leading: "&#10003;", page1: "&#9650;", page2: "&#8599;", behind: "&#10005;" };
+
+function ciStatusChip(status, label) {
+  return `<span class="ci-status status-${escAttr(status)}">${CI_STATUS_ICON[status] || ""} ${escapeHtml(label)}</span>`;
+}
+
+function ciPosition(pos) {
+  if (pos === null || pos === undefined) return "-";
+  const page = Math.ceil(pos / 10);
+  return `${pos}<span class="ci-sub">page ${page}</span>`;
+}
+
+function renderCompetitorInsights() {
+  const ci = dashboard.competitor_insights || { available: false };
+  const box = document.getElementById("ciTakeaways");
+  if (!box) return;
+  document.getElementById("ciEmpty").style.display = ci.available ? "none" : "block";
+  if (!ci.available) {
+    box.innerHTML = "";
+    ["ciTopicsTable", "ciScorecardTable", "ciQueriesTable"].forEach((id) => renderTable(id, [], () => "", "No ranking checks yet."));
+    return;
+  }
+
+  const [gStart, gEnd] = ci.gsc_window || [];
+  const checked = ci.checked_at ? fullDate(String(ci.checked_at).slice(0, 10)) : "";
+  document.getElementById("ciTakeawaysNote").textContent =
+    `(${ci.market_searches} market searches · Google ${gStart && gEnd ? dateRange(gStart, gEnd) : ""} · Brave checked ${checked})`;
+
+  // Six cards fill two rows of three; app.py orders them by priority.
+  box.innerHTML = (ci.takeaways || []).slice(0, 6)
+    .map((t) => {
+      const kind = CI_KINDS[t.kind] || { icon: "&#8226;", label: "Note" };
+      return `<article class="ci-card ci-${escAttr(t.kind)}">
+        <div class="ci-kind"><span class="ci-kind-icon" aria-hidden="true">${kind.icon}</span>${kind.label}</div>
+        <h3>${escapeHtml(t.title)}</h3>
+        <p>${escapeHtml(t.detail)}</p>
+        <p class="ci-action"><strong>Next step:</strong> ${escapeHtml(t.action)}</p>
+      </article>`;
+    })
+    .join("");
+
+  document.getElementById("ciTopicsNote").textContent = "(market searches grouped by topic, most searched first)";
+  renderTable("ciTopicsTable", ci.topics || [], (t) => {
+    const source = t.status_source === "brave" ? `<span class="ci-sub">no Google data, Brave #${t.best_brave ?? "-"}</span>` : "";
+    const split = t.brave_disagrees ? `<span class="ci-sub">Brave has DOMA at #${t.best_brave}</span>` : "";
+    const queries = (t.queries || []).slice(0, 4).map(escapeHtml).join(" · ") + ((t.queries || []).length > 4 ? ` · +${t.queries.length - 4} more` : "");
+    return `<tr>
+      <td><strong>${escapeHtml(t.topic)}</strong><span class="ci-sub">${queries}</span></td>
+      <td>${ciStatusChip(t.status, t.status_label)}${source}</td>
+      <td>${ciPosition(t.google_position)}${split}</td>
+      <td>${number(t.impressions)} seen<span class="ci-sub">${number(t.clicks)} clicks${t.ctr !== null && t.ctr !== undefined ? ` (${t.ctr}%)` : ""}</span></td>
+      <td>${(t.owners || []).map(escapeHtml).join("<br>") || "-"}</td>
+      <td class="ci-next">${escapeHtml(t.action)}</td>
+    </tr>`;
+  });
+
+  renderTable("ciScorecardTable", ci.scorecard || [], (c) => {
+    const speed = c.pagespeed === null || c.pagespeed === undefined ? "-"
+      : `${c.pagespeed}${ci.doma_pagespeed ? `<span class="ci-sub">DOMA ${ci.doma_pagespeed}</span>` : ""}`;
+    const pod = c.podcast_last_30d ? `${c.podcast_last_30d} episode${c.podcast_last_30d === 1 ? "" : "s"}`
+      : c.podcast_last ? `none<span class="ci-sub">last ${fullDate(c.podcast_last)}</span>` : "no podcast";
+    return `<tr>
+      <td><strong>${escapeHtml(c.name)}</strong><span class="ci-sub">${escapeHtml(c.domain)}</span></td>
+      <td>${c.ahead_of_doma ? `${c.ahead_of_doma} of ${ci.market_searches} searches` : "none"}<span class="ci-sub">in top 10 on ${c.on_our_searches}</span></td>
+      <td>${number(c.pages)}</td>
+      <td>${(c.sections || []).map((x) => escapeHtml(x.replace(/-/g, " "))).join(", ") || "-"}</td>
+      <td>${pod}</td>
+      <td>${speed}</td>
+      <td>${(c.tools || []).map(escapeHtml).join(", ") || "-"}</td>
+    </tr>`;
+  });
+
+  renderTable("ciQueriesTable", ci.queries || [], (q) => `<tr>
+      <td>${escapeHtml(q.query)}</td>
+      <td>${escapeHtml(q.topic)}</td>
+      <td>${ciPosition(q.google_position)}</td>
+      <td>${number(q.impressions)}</td>
+      <td>${number(q.clicks)}</td>
+      <td>${q.brave_position ?? "not in top 10"}</td>
+      <td>${(q.ahead || []).slice(0, 3).map(escapeHtml).join(", ") || "-"}</td>
+    </tr>`);
+  const other = ci.other_searches || [];
+  document.getElementById("ciOtherSearches").textContent = other.length
+    ? `${other.length} of ${ci.tracked_searches} tracked searches are brand or sponsor checks, not market searches, and are left out above: ${other.map((q) => q.replace(/\s+-site:\S+/g, "")).join("; ")}.`
+    : "";
+}
+
 function renderCompetitors() {
+  renderCompetitorInsights();
   const ahrefs = dashboard.ahrefs || { competitors: { available: false, domains: [] }, issues: { available: false, issues: [] } };
   const competitors = ahrefs.competitors || { available: false, domains: [] };
   const issues = ahrefs.issues || { available: false, issues: [] };
@@ -3696,9 +3794,10 @@ function renderAll() {
 
   const comparisonEl = document.getElementById("comparisonNote");
   if (comparisonEl) {
+    // Say which days the numbers cover, then what they are compared with.
     comparisonEl.textContent = dashboard.previous_start_date
-      ? `vs ${dateRange(dashboard.previous_start_date, dashboard.previous_end_date)}`
-      : "";
+      ? `${dateRange(dashboard.start_date, dashboard.end_date)} · compared with ${dateRange(dashboard.previous_start_date, dashboard.previous_end_date)}`
+      : dateRange(dashboard.start_date, dashboard.end_date);
   }
 }
 
@@ -4742,13 +4841,43 @@ function applyReleaseDates() {
 
 applyReleaseDates(); // also before the password gate: the markup is already in the page
 
+// One line at the top of each tab that opens with numbers: the question the tab answers.
+const VIEW_LEADS = {
+  overview: "How the site is doing: search clicks, visits and new leads for the range above, plus what needs attention.",
+  seo: "How DOMA shows up on Google: clicks, positions, the searches and pages that bring people in, and what to fix.",
+  blog: "Who visits the site and what they read: visits, top pages and how recent posts are doing.",
+  "content-calendar": "What goes out on social and when, and where each post stands.",
+  leads: "Where new leads come from, which free guides bring them in, and orders.",
+  social: "Reach, followers and the posts that worked on Facebook and Instagram.",
+  team: "Notes and action items from the team meetings.",
+  todo: "Open tasks by person, and what was finished this month.",
+};
+
+function addViewLeads() {
+  Object.entries(VIEW_LEADS).forEach(([view, text]) => {
+    const section = document.getElementById(`view-${view}`);
+    if (!section || section.querySelector(".view-lead")) return;
+    const lead = document.createElement("p");
+    lead.className = "view-lead";
+    lead.textContent = text;
+    section.prepend(lead);
+  });
+}
+
 function initTabs() {
   applyReleaseDates();
+  addViewLeads();
   const tabs = document.querySelectorAll(".tab");
   tabs.forEach((tab) => {
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", tab.classList.contains("active") ? "true" : "false");
     tab.addEventListener("click", () => {
-      tabs.forEach((t) => t.classList.remove("active"));
+      tabs.forEach((t) => {
+        t.classList.remove("active");
+        t.setAttribute("aria-selected", "false");
+      });
       tab.classList.add("active");
+      tab.setAttribute("aria-selected", "true");
       document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
       document.getElementById(`view-${tab.dataset.view}`).classList.add("active");
     });

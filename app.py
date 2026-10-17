@@ -16,11 +16,13 @@ import base64
 import html
 import hmac
 import io
+import json
 import mimetypes
 import os
 import re
 import sqlite3
 import tempfile
+from collections import Counter
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -1727,6 +1729,235 @@ def serp_where_doma_stands(con: sqlite3.Connection, start_date: str, end_date: s
     return {"available": bool(rows), "rows": rows, "checked_at": max((r["checked_at"] for r in rows), default=None)}
 
 
+# --- Competitor insights (Competitors tab, 2026-10-17) -------------------------------
+# Searches tracked on Brave (serp_query_results) grouped into topics a marketer acts on.
+# DOMA's position comes from Search Console (real Google), who holds the top 3 from Brave.
+COMPETITOR_TOPICS = [
+    ("Core term: dental office manager", re.compile(r"^dental office managers?$", re.I)),
+    ("Courses & training", re.compile(r"course|training|seminar|certif|class", re.I)),
+    ("Conferences & events", re.compile(r"conference|event|summit", re.I)),
+    ("SRP narratives", re.compile(r"\bsrp\b|narrative", re.I)),
+    ("Salary", re.compile(r"salary|wage", re.I)),
+    ("Community & membership", re.compile(r"community|group|association|membership|resources|network", re.I)),
+    ("AI in the practice", re.compile(r"\bai\b|reactivation|chatgpt", re.I)),
+    ("Running the office", re.compile(r"managing|management|operations|manual", re.I)),
+]
+# Brand and sponsor research searches that sit in the tracker but say nothing about the market.
+NOT_MARKET = re.compile(r"janie|pain.?free|kyle|vaysman|affiliate|^in person$|^for hygienist$", re.I)
+TOPIC_STATUS = {
+    "leading": ("Leading", "Defend: refresh the page and keep related posts linking to it"),
+    "page1": ("Page 1, not top 3", "Win the click: sharper title and description, add an FAQ block"),
+    "page2": ("Page 2: close", "Push to page 1: expand the page that ranks and link to it from related posts"),
+    "behind": ("Behind", "Build a dedicated page for this topic"),
+}
+
+
+def _topic_for(query: str) -> str | None:
+    if NOT_MARKET.search(query):
+        return None
+    for name, pattern in COMPETITOR_TOPICS:
+        if pattern.search(query):
+            return name
+    return None
+
+
+def _status_for(position: float | None) -> str:
+    if position is None or position > 20.5:
+        return "behind"
+    if position <= 3.5:
+        return "leading"
+    return "page1" if position <= 10.5 else "page2"
+
+
+def _thousands(n: int) -> str:
+    return f"{n:,}"
+
+
+def competitor_insights(con: sqlite3.Connection, start_date: str, end_date: str) -> dict[str, Any]:
+    """Topics, rivals, a per-competitor scorecard and the takeaways shown first on the
+    Competitors tab. Brave gives who ranks; Search Console gives where DOMA really is."""
+    try:
+        results = con.execute(
+            "SELECT r.query, r.position, r.domain, r.checked_at FROM serp_query_results r "
+            "JOIN (SELECT query, MAX(checked_at) AS last FROM serp_query_results WHERE provider = 'brave' GROUP BY query) m "
+            "ON m.query = r.query AND m.last = r.checked_at WHERE r.provider = 'brave' ORDER BY r.query, r.position"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {"available": False}
+    if not results:
+        return {"available": False}
+
+    serp: dict[str, list[tuple[int, str]]] = {}
+    checked_at = max(r[3] for r in results)
+    for query, position, domain, _ in results:
+        serp.setdefault(query, []).append((int(position), (domain or "").lower().removeprefix("www.")))
+
+    # Search Console lags 2-3 days: same-length window ending on its newest day.
+    last_gsc = con.execute("SELECT MAX(report_date) FROM search_console_query_daily").fetchone()[0]
+    span = (date.fromisoformat(end_date) - date.fromisoformat(start_date)).days + 1
+    gsc_end = min(end_date, last_gsc) if last_gsc else end_date
+    gsc_start = (date.fromisoformat(gsc_end) - timedelta(days=span - 1)).isoformat()
+
+    def google(query: str) -> tuple[float | None, int, int]:
+        row = con.execute(
+            "SELECT SUM(position * impressions), SUM(impressions), SUM(clicks) FROM search_console_query_daily "
+            "WHERE lower(query) = lower(?) AND report_date BETWEEN ? AND ?",
+            (query, gsc_start, gsc_end),
+        ).fetchone()
+        imp = int(row[1] or 0)
+        return (round(row[0] / imp, 1) if imp else None), imp, int(row[2] or 0)
+
+    queries, other = [], []
+    for query, ranked in serp.items():
+        topic = _topic_for(query)
+        if not topic:
+            other.append(query)
+            continue
+        position, impressions, clicks = google(query)
+        brave = next((pos for pos, dom in ranked if dom == DOMA_DOMAIN), None)
+        top3 = [dom for pos, dom in sorted(ranked)[:3]]
+        ahead = [dom for pos, dom in sorted(ranked) if dom != DOMA_DOMAIN and (brave is None or pos < brave)]
+        queries.append({"query": query, "topic": topic, "google_position": position, "impressions": impressions,
+                        "clicks": clicks, "brave_position": brave, "top3": top3, "ahead": list(dict.fromkeys(ahead))})
+
+    topics = []
+    for name, _ in COMPETITOR_TOPICS:
+        rows = [q for q in queries if q["topic"] == name]
+        if not rows:
+            continue
+        imp = sum(r["impressions"] for r in rows)
+        clicks = sum(r["clicks"] for r in rows)
+        weighted = sum((r["google_position"] or 0) * r["impressions"] for r in rows)
+        position = round(weighted / imp, 1) if imp else None
+        owners = Counter(d for r in rows for d in r["top3"] if d != DOMA_DOMAIN)
+        best_brave = min((r["brave_position"] for r in rows if r["brave_position"]), default=None)
+        # Google decides when it has impressions; with none, Brave is the only signal and says so.
+        source = "google" if imp else "brave"
+        status = _status_for(position if imp else best_brave)
+        topics.append({
+            "topic": name, "queries": [r["query"] for r in sorted(rows, key=lambda r: -r["impressions"])],
+            "impressions": imp, "clicks": clicks, "ctr": round(clicks / imp * 100, 1) if imp else None,
+            "google_position": position, "best_brave": best_brave, "status_source": source,
+            "brave_disagrees": bool(imp and best_brave and best_brave <= 3 and position and position > 10.5),
+            "owners": [d for d, _ in owners.most_common(3)], "status": status,
+            "status_label": TOPIC_STATUS[status][0], "action": TOPIC_STATUS[status][1],
+        })
+    topics.sort(key=lambda t: -t["impressions"])
+
+    # Who outranks DOMA most often on market searches (Brave).
+    beats = Counter(d for q in queries for d in q["ahead"])
+    rivals = [{"domain": d, "searches_ahead": n} for d, n in beats.most_common(6)]
+
+    # Competitor scorecard from the other trackers.
+    names = con.execute("SELECT competitor_name, domain, COUNT(*) FROM competitor_pages GROUP BY 1, 2").fetchall()
+    sections: dict[str, Counter] = {}
+    for name, url in con.execute("SELECT competitor_name, url FROM competitor_pages"):
+        seg = re.sub(r"^https?://[^/]+/", "", url or "").split("/")[0] or "home"
+        sections.setdefault(name, Counter())[seg] += 1
+    pods = {r[0]: (r[1], r[2]) for r in con.execute(
+        "SELECT competitor_name, SUM(published_at >= date('now','-30 day')), MAX(published_at) "
+        "FROM competitor_podcast_episodes GROUP BY 1")}
+    speed = {r[0]: r[1] for r in con.execute("SELECT competitor_name, performance_score FROM competitor_pagespeed")}
+    tools: dict[str, list[str]] = {}
+    for name, signals in con.execute("SELECT competitor_name, signals FROM competitor_tech_stack"):
+        try:
+            tools[name] = json.loads(signals or "[]")
+        except ValueError:
+            tools[name] = []
+    scorecard = []
+    for name, domain, pages in names:
+        dom = (domain or "").lower().removeprefix("www.")
+        on_ours = sum(1 for q in queries if dom in {d for _, d in serp[q["query"]]})
+        ahead = sum(1 for q in queries if dom in q["ahead"])
+        pod = pods.get(name, (0, None))
+        scorecard.append({
+            "name": name, "domain": dom, "pages": pages,
+            "sections": [k for k, _ in sections.get(name, Counter()).most_common(2)],
+            "podcast_last_30d": int(pod[0] or 0), "podcast_last": (pod[1] or "")[:10] or None,
+            "pagespeed": speed.get(name), "tools": tools.get(name, []),
+            "on_our_searches": on_ours, "ahead_of_doma": ahead,
+        })
+    scorecard.sort(key=lambda r: (-r["ahead_of_doma"], -r["on_our_searches"], r["name"]))
+    row = con.execute(
+        "SELECT performance_score FROM pagespeed_audit WHERE url = ? AND strategy = 'mobile' ORDER BY rowid DESC LIMIT 1",
+        ("https://dentalofficemanagers.com/",),
+    ).fetchone()
+    doma_speed = row[0] if row else None
+
+    # Takeaways: the few sentences to read first, each with one action.
+    takeaways = []
+    close = [t for t in topics if t["status"] in ("page2", "page1") and t["impressions"]]
+    if close:
+        t = max(close, key=lambda t: t["impressions"])
+        takeaways.append({
+            "kind": "opportunity", "title": f"Biggest opening: {t['topic'].lower()}",
+            "detail": f"DOMA sits at position {t['google_position']} on Google for these searches "
+                      f"({_thousands(t['impressions'])} impressions, {t['clicks']} clicks)."
+                      + (f" The top spots on Brave go to {' and '.join(t['owners'][:2])}." if t["owners"] else ""),
+            "action": t["action"]})
+    wins = sorted((q for q in queries if q["google_position"] and q["google_position"] <= 5.5 and q["impressions"] >= 10),
+                  key=lambda q: -q["impressions"])[:3]
+    if wins:
+        takeaways.append({
+            "kind": "strength", "title": "Where DOMA already wins on Google",
+            "detail": "Top 5 for " + ", ".join(f"\"{q['query']}\" ({q['google_position']})" for q in wins) + ".",
+            "action": TOPIC_STATUS["leading"][1]})
+    split = [t for t in topics if t["brave_disagrees"]]
+    if split:
+        t = max(split, key=lambda t: t["impressions"])
+        takeaways.append({
+            "kind": "risk", "title": f"Strong on Brave, weak on Google: {t['topic'].lower()}",
+            "detail": f"Brave puts DOMA at #{t['best_brave']}, Google at {t['google_position']} ({_thousands(t['impressions'])} impressions).",
+            "action": "Improve the page Google shows for these searches; Google sends most of the traffic."})
+    if rivals:
+        top = rivals[0]["searches_ahead"]
+        tied = [r["domain"] for r in rivals if r["searches_ahead"] == top]
+        takeaways.append({
+            "kind": "rival", "title": "Main rivals in search: " + ", ".join(tied),
+            "detail": f"{'Each ranks' if len(tied) > 1 else 'It ranks'} above DOMA on {top} of {len(queries)} market searches on Brave.",
+            "action": "Compare their top pages with ours on the topics they hold (table below)."})
+    low_ctr = [t for t in topics if t["impressions"] >= 50 and (t["ctr"] or 0) < 2
+               and t["google_position"] and t["google_position"] <= 10.5]
+    if low_ctr:
+        t = max(low_ctr, key=lambda t: t["impressions"])
+        takeaways.append({
+            "kind": "ctr", "title": f"Seen but not clicked: {t['topic'].lower()}",
+            "detail": f"{_thousands(t['impressions'])} impressions and {t['ctr']}% click-through at position {t['google_position']}.",
+            "action": "Rewrite the title and description of the ranking page around the search wording."})
+    active_pods = [c for c in scorecard if c["podcast_last_30d"]]
+    if active_pods:
+        takeaways.append({
+            "kind": "content", "title": "Competitors publishing podcasts",
+            "detail": ", ".join(f"{c['name']} ({c['podcast_last_30d']} episode{'s' if c['podcast_last_30d'] != 1 else ''})" for c in active_pods)
+                      + " in the last 30 days.",
+            "action": "Keep the DOMA podcast on a steady schedule; a stale feed looks inactive next to theirs."})
+    comp_speeds = sorted(v for v in speed.values() if v is not None)
+    if doma_speed is not None and comp_speeds:
+        better = sum(1 for v in comp_speeds if doma_speed > v)
+        takeaways.append({
+            "kind": "strength" if better >= len(comp_speeds) / 2 else "risk", "title": "Home page speed on phones",
+            "detail": f"DOMA scores {doma_speed} on Google PageSpeed (mobile), ahead of {better} of {len(comp_speeds)} "
+                      f"competitors (best competitor: {comp_speeds[-1]}).",
+            "action": "Keep it: every new embed or script on the home page costs speed."})
+
+    order = {"opportunity": 0, "risk": 1, "rival": 2, "ctr": 3, "strength": 4, "content": 5}
+    takeaways.sort(key=lambda t: order.get(t["kind"], 9) + (2 if t["title"].startswith("Home page speed") else 0))
+    return {
+        "available": True,
+        "checked_at": checked_at,
+        "gsc_window": [gsc_start, gsc_end],
+        "takeaways": takeaways,
+        "topics": topics,
+        "queries": sorted(queries, key=lambda q: (q["topic"], -q["impressions"])),
+        "rivals": rivals,
+        "scorecard": scorecard,
+        "doma_pagespeed": doma_speed,
+        "tracked_searches": len(serp),
+        "market_searches": len(queries),
+        "other_searches": sorted(other),
+    }
+
+
 def recent_posts_summary(con: sqlite3.Connection) -> dict[str, Any]:
     """Latest blog posts (WordPress REST API) joined with their GA4 + Search
     Console performance - answers "how is the post I published last week
@@ -2368,6 +2599,7 @@ def full_dashboard(start_date: str, end_date: str) -> dict[str, Any]:
             "competitor_content": competitor_content_summary(con),
             "serp_competitors": serp_competitors_summary(con),
             "serp_where_doma_stands": serp_where_doma_stands(con, start_date, end_date),
+            "competitor_insights": competitor_insights(con, start_date, end_date),
             "ad_spy": ad_spy_summary(con),
             "team_meetings": team_meetings_summary(con),
             "competitor_tech": competitor_tech_summary(con),
